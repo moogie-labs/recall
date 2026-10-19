@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"recall/internal/model"
 )
@@ -110,5 +111,88 @@ func TestKeywordLimitsTiesAndStaleText(t *testing.T) {
 	hits, err := s.Keyword(t.Context(), model.SearchQuery{Text: "limitword"})
 	if err != nil || len(hits) != 0 {
 		t.Fatalf("stale keyword: %+v %v", hits, err)
+	}
+}
+
+func TestKeywordPreviewBoundsLongPassages(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+	}{
+		{"punctuation", "needle" + strings.Repeat("!", 1_000_000) + " tail"},
+		{"whitespace", "needle" + strings.Repeat(" \t\r\n", 25_000) + "tail"},
+		{"unbroken-token", "needle " + strings.Repeat("x", 100_000)},
+		{"metadata-match-unbroken-body", strings.Repeat("x", 100_000)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := openTestStore(t)
+			d := fixture(t, "a", "a.note.md", "Needle", tc.body)
+			apply(t, s, model.Snapshot{Documents: []model.Document{d}})
+			hits, err := s.Keyword(t.Context(), model.SearchQuery{Text: "needle"})
+			if err != nil || len(hits) != 1 {
+				t.Fatalf("keyword result count = %d, err = %v", len(hits), err)
+			}
+			preview := hits[0].Snippet
+			// Literal budget assertions exercise the public query result, not
+			// just a clipping helper or the production constant's value.
+			if len(preview) > 1024 {
+				t.Fatalf("preview has %d bytes, want at most 1024", len(preview))
+			}
+			want := tc.body[:1021] + "…"
+			if !utf8.ValidString(preview) || preview != want {
+				t.Fatal("preview must retain its passage prefix and include an in-budget truncation marker")
+			}
+			var body, raw, revision string
+			if err := s.db.QueryRow("SELECT body, raw, revision FROM documents WHERE id = ?", d.ID).Scan(&body, &raw, &revision); err != nil {
+				t.Fatal(err)
+			}
+			if body != d.Body || raw != d.Raw || revision != d.Revision {
+				t.Fatal("preview generation changed cached source content or revision")
+			}
+		})
+	}
+}
+
+func TestKeywordPreviewUTF8Boundaries(t *testing.T) {
+	// A clipped result reserves three of its 1024 bytes for the ellipsis.
+	// Exercise every interior byte of two-, three-, and four-byte code points,
+	// plus code points ending exactly at each relevant boundary.
+	prefix := func(n int) string { return "needle " + strings.Repeat("!", n-7) }
+	for _, tc := range []struct {
+		name, body, want string
+	}{
+		{"short", "needle é界🙂", "needle é界🙂"},
+		{"invalid-byte-preview-only", "needle \xff text", "needle � text"},
+		{"exact-budget-ascii", prefix(1024), prefix(1024)},
+		{"over-budget-ascii", prefix(1025), prefix(1021) + "…"},
+		{"exact-budget-multibyte", prefix(1020) + "🙂", prefix(1020) + "🙂"},
+		{"two-byte-split", prefix(1020) + "é tail", prefix(1020) + "…"},
+		{"three-byte-split-1", prefix(1020) + "界 tail", prefix(1020) + "…"},
+		{"three-byte-split-2", prefix(1019) + "界 tail", prefix(1019) + "…"},
+		{"four-byte-split-1", prefix(1020) + "🙂 tail", prefix(1020) + "…"},
+		{"four-byte-split-2", prefix(1019) + "🙂 tail", prefix(1019) + "…"},
+		{"four-byte-split-3", prefix(1018) + "🙂 tail", prefix(1018) + "…"},
+		{"complete-rune-retained", prefix(1017) + "🙂 tail", prefix(1017) + "🙂…"},
+		{"invalid-byte-at-boundary", prefix(1019) + "\xff tail", prefix(1019) + "…"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := openTestStore(t)
+			d := fixture(t, "a", "a.note.md", "Needle", tc.body)
+			apply(t, s, model.Snapshot{Documents: []model.Document{d}})
+			hits, err := s.Keyword(t.Context(), model.SearchQuery{Text: "needle"})
+			if err != nil || len(hits) != 1 {
+				t.Fatalf("keyword result count = %d, err = %v", len(hits), err)
+			}
+			got := hits[0].Snippet
+			if len(got) > 1024 || !utf8.ValidString(got) || got != tc.want {
+				t.Fatalf("preview: bytes = %d, valid UTF-8 = %v, matches expected boundary = %v", len(got), utf8.ValidString(got), got == tc.want)
+			}
+			var body, raw, revision string
+			if err := s.db.QueryRow("SELECT body, raw, revision FROM documents WHERE id = ?", d.ID).Scan(&body, &raw, &revision); err != nil {
+				t.Fatal(err)
+			}
+			if body != d.Body || raw != d.Raw || revision != d.Revision {
+				t.Fatal("UTF-8 preview repair or clipping changed cached source content or revision")
+			}
+		})
 	}
 }
