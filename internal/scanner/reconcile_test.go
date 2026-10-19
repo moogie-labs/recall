@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"go.yaml.in/yaml/v3"
+
 	"recall/internal/config"
 	"recall/internal/document"
 	"recall/internal/fsstore"
@@ -337,18 +339,52 @@ func TestReconcileDefaultIDAndCancellation(t *testing.T) {
 	}
 }
 
-func TestUnsafeMetadataIsDiagnosedWithoutRewriting(t *testing.T) {
-	for _, raw := range []string{
-		"---\nid: &identity ''\ncustom: *identity\n---\nbody\n",
-		"---\ncustom: {at: 2026-10-17T10:00:00Z}\n---\nbody\n",
+func TestAdoptionPreservesYAMLReferencesAndTimestampTypes(t *testing.T) {
+	for _, tt := range []struct {
+		name, metadata, tag string
+	}{
+		{"alias", "id: &identity ''\ncustom: *identity\n", ""},
+		{"implicit timestamp", "custom: {at: 2026-10-17T10:00:00Z}\n", "!!timestamp"},
+		{"explicit timestamp", "custom: {at: !!timestamp '2026-10-17T10:00:00Z'}\n", "!!timestamp"},
+		{"quoted string", "custom: {at: '2026-10-17T10:00:00Z'}\n", "!!str"},
 	} {
-		s, cfg := newCollection(t)
-		saveExternal(t, cfg, "old.note.md", raw)
-		scanner := New(s, func() time.Time { return scanTime }, func() string { return "fixed-id" })
-		got := reconcileLocked(t, s, scanner)
-		if len(got.Documents) != 0 || len(got.Diagnostics) != 1 || got.Diagnostics[0].Code != "invalid_document" || readSource(t, cfg, "old.note.md") != raw {
-			t.Fatalf("unsafe normalization not refused: %+v", got)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			s, cfg := newCollection(t)
+			saveExternal(t, cfg, "old.note.md", "---\n"+tt.metadata+"---\ncafé\r\n---\r\n")
+			scanner := New(s, func() time.Time { return scanTime }, func() string { return "fixed-id" })
+			got := reconcileLocked(t, s, scanner)
+			if len(got.Documents) != 1 || len(got.Diagnostics) != 0 || got.Documents[0].ID != "fixed-id" || got.Documents[0].Body != "café\r\n---\r\n" {
+				t.Fatalf("valid YAML blocked adoption: %+v", got)
+			}
+			p, err := document.Parse("old.note.md", []byte(readSource(t, cfg, "old.note.md")))
+			if err != nil {
+				t.Fatal(err)
+			}
+			var id, custom *yaml.Node
+			for i := 0; i < len(p.Metadata.Content); i += 2 {
+				switch p.Metadata.Content[i].Value {
+				case "id":
+					id = p.Metadata.Content[i+1]
+				case "custom":
+					custom = p.Metadata.Content[i+1]
+				}
+			}
+			if custom == nil {
+				t.Fatal("unknown metadata was removed")
+			}
+			if tt.name == "alias" {
+				if custom.Kind != yaml.AliasNode || custom.Value != "identity" || custom.Alias != id || id.Anchor != "identity" {
+					t.Fatalf("alias reference lost: %+v", custom)
+				}
+			} else if custom.Kind != yaml.MappingNode || len(custom.Content) != 2 || custom.Content[1].Tag != tt.tag || custom.Content[1].Value != "2026-10-17T10:00:00Z" {
+				t.Fatalf("unrelated timestamp semantics changed: %+v", custom)
+			}
+			assertProjection(t, cfg, got.Documents[0])
+			again := reconcileLocked(t, s, scanner)
+			if !reflect.DeepEqual(got, again) {
+				t.Fatalf("repeat adoption changed source: %+v", again)
+			}
+		})
 	}
 }
 

@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"go.yaml.in/yaml/v3"
+
 	"recall/internal/model"
 )
 
@@ -395,5 +397,62 @@ func TestEncodePreservesAliasedHistoryExtras(t *testing.T) {
 	first, ok := history[0].(map[string]any)
 	if !ok || first["custom"] != "keep" {
 		t.Fatalf("history extras lost: %#v", history[0])
+	}
+}
+
+func TestEncodePreservesTimestampSemanticTypes(t *testing.T) {
+	for _, tt := range []struct {
+		name, scalar, tag, value string
+	}{
+		{"implicit timestamp", "2026-10-17T10:00:00Z", "!!timestamp", "2026-10-17T10:00:00Z"},
+		{"explicit timestamp", "!!timestamp 2026-10-17T10:00:00Z", "!!timestamp", "2026-10-17T10:00:00Z"},
+		{"explicit quoted timestamp", "!!timestamp '2026-10-17T10:00:00+02:00'", "!!timestamp", "2026-10-17T10:00:00+02:00"},
+		{"implicit date", "2026-10-17", "!!timestamp", "2026-10-17"},
+		{"quoted string", "'2026-10-17T10:00:00Z'", "!!str", "2026-10-17T10:00:00Z"},
+		{"explicit string", "!!str 2026-10-17T10:00:00Z", "!!str", "2026-10-17T10:00:00Z"},
+		{"custom tag", "!user-date 2026-10-17T10:00:00Z", "!user-date", "2026-10-17T10:00:00Z"},
+	} {
+		for _, placement := range []string{"block", "flow mapping", "flow sequence"} {
+			t.Run(tt.name+"/"+placement, func(t *testing.T) {
+				metadata := "custom:\r\n  at: " + tt.scalar + "\r\n"
+				switch placement {
+				case "flow mapping":
+					metadata = "custom: {at: " + tt.scalar + "}\r\n"
+				case "flow sequence":
+					metadata = "custom: [" + tt.scalar + "]\r\n"
+				}
+				raw := "\xef\xbb\xbf---\r\n" + metadata + "---\r\ncafé\r\n---\r\n"
+				p, err := Parse("old.note.md", []byte(raw))
+				if err != nil {
+					t.Fatal(err)
+				}
+				unchanged, err := Encode(p)
+				if err != nil || string(unchanged) != raw {
+					t.Fatalf("untouched source changed: %q %v", unchanged, err)
+				}
+				p.Document.ID = "fixed-id" // Force metadata serialization.
+				out, err := Encode(p)
+				if err != nil {
+					t.Fatal(err)
+				}
+				q, err := Parse("old.note.md", out)
+				if err != nil {
+					t.Fatal(err)
+				}
+				custom := mappingValue(q.Metadata, "custom")
+				var at *yaml.Node
+				if custom.Kind == yaml.SequenceNode {
+					at = custom.Content[0]
+				} else {
+					at = mappingValue(custom, "at")
+				}
+				if at.Tag != tt.tag || at.Value != tt.value {
+					t.Fatalf("unrelated scalar semantics changed: tag=%q value=%q, want %q %q; source=%q", at.Tag, at.Value, tt.tag, tt.value, out)
+				}
+				if !q.BOM || q.Newline != "\r\n" || string(q.Body) != "café\r\n---\r\n" {
+					t.Fatalf("source/body changed: %q", out)
+				}
+			})
+		}
 	}
 }

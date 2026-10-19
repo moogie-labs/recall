@@ -422,6 +422,12 @@ func joinComments(a, b string) string {
 }
 
 func marshalMetadata(node *yaml.Node) ([]byte, error) {
+	// The YAML encoder drops implicit timestamp tags before its emitter quotes
+	// colon-containing scalars in flow collections, turning them into strings.
+	// Make those tags explicit on a private tree so reserialization preserves
+	// scalar types without mutating the exposed metadata or unchanged source.
+	node = cloneNode(node, make(map[*yaml.Node]*yaml.Node))
+	explicitFlowTimestamps(node, false)
 	var out bytes.Buffer
 	encoder := yaml.NewEncoder(&out)
 	encoder.SetIndent(2)
@@ -432,6 +438,16 @@ func marshalMetadata(node *yaml.Node) ([]byte, error) {
 		return nil, err
 	}
 	return out.Bytes(), nil
+}
+
+func explicitFlowTimestamps(node *yaml.Node, flow bool) {
+	flow = flow || node.Style&yaml.FlowStyle != 0
+	if flow && node.Kind == yaml.ScalarNode && node.Tag == "!!timestamp" {
+		node.Style |= yaml.TaggedStyle
+	}
+	for _, child := range node.Content {
+		explicitFlowTimestamps(child, flow)
+	}
 }
 
 func invalid(path, message string) error {

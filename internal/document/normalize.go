@@ -61,10 +61,8 @@ func Normalize(p Parsed, now time.Time, newID func() string) (Parsed, bool, erro
 	if err != nil {
 		return p, false, err
 	}
-	// Encode intentionally retains anchor relationships when managed fields
-	// change. Automatic normalization must not thereby change existing values
-	// that reference those anchors. Refuse the write instead of changing the
-	// codec's explicit-edit contract or silently rewriting user metadata.
+	// Preserve unrelated scalar semantics and alias references, not the old
+	// resolved values of aliases that intentionally follow managed anchors.
 	after, err := mappingFields(q.Metadata)
 	if err != nil {
 		return p, false, invalid(q.Document.Path, "frontmatter has invalid mapping keys or merges")
@@ -75,14 +73,14 @@ func Normalize(p Parsed, now time.Time, newID func() string) (Parsed, bool, erro
 			continue
 		}
 		value, ok := after[name]
-		if !ok || !sameKey(&before, &value, make(map[[2]*yaml.Node]bool)) {
+		if !ok || !samePreservedNode(&before, &value) {
 			return p, false, invalid(q.Document.Path, "normalization would change existing YAML metadata; edit managed metadata explicitly")
 		}
 	}
 	if history := fieldValue(fields, "state_history"); history != nil {
 		latest := fieldValue(after, "state_history")
 		for i, entry := range history.Content {
-			if latest == nil || i >= len(latest.Content) || !sameHistoryEntry(entry, latest.Content[i]) {
+			if latest == nil || i >= len(latest.Content) || !samePreservedNode(entry, latest.Content[i]) {
 				return p, false, invalid(q.Document.Path, "normalization would change existing YAML history; edit managed metadata explicitly")
 			}
 		}
@@ -90,25 +88,15 @@ func Normalize(p Parsed, now time.Time, newID func() string) (Parsed, bool, erro
 	return q, !bytes.Equal(raw, out), nil
 }
 
-func sameHistoryEntry(a, b *yaml.Node) bool {
-	before, err := mappingFields(resolveAlias(a))
-	if err != nil {
+func samePreservedNode(a, b *yaml.Node) bool {
+	if a.Kind != b.Kind || a.Tag != b.Tag || a.Value != b.Value || a.Anchor != b.Anchor || len(a.Content) != len(b.Content) {
 		return false
 	}
-	after, err := mappingFields(resolveAlias(b))
-	if err != nil || len(before) != len(after) {
-		return false
+	if a.Kind == yaml.AliasNode {
+		return a.Alias != nil && b.Alias != nil && a.Alias.Anchor == b.Alias.Anchor
 	}
-	for name := range before {
-		x, y := fieldValue(before, name), fieldValue(after, name)
-		if y == nil {
-			return false
-		}
-		// Both accepted timestamp tags represent the same managed RFC3339 value.
-		if name == "at" && x.Value == y.Value {
-			continue
-		}
-		if !sameKey(x, y, make(map[[2]*yaml.Node]bool)) {
+	for i := range a.Content {
+		if !samePreservedNode(a.Content[i], b.Content[i]) {
 			return false
 		}
 	}

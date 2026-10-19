@@ -132,20 +132,80 @@ func TestNormalizeRejectsEmptyGeneratedID(t *testing.T) {
 	}
 }
 
-func TestNormalizeRefusesChangesToUnknownAliasedMetadata(t *testing.T) {
-	for _, metadata := range []string{
-		"id: &identity ''\ncustom: *identity\n",
-		"id: &identity ''\ntitle: *identity\n",
-		"id: &identity ''\nstate: planned\nstate_history: [{state: planned, at: 2026-10-17T10:00:00Z, custom: *identity}]\n",
-		"id: existing\nstate: completed\nstate_history: &events [{state: planned, at: 2026-10-17T10:00:00Z}]\ncustom: *events\n",
+func TestNormalizePreservesManagedAnchorReferences(t *testing.T) {
+	for _, tt := range []struct {
+		name, metadata, anchorKey, aliasKey, reference string
+		inHistory                                      bool
+	}{
+		{"unknown ID alias", "id: &identity ''\ncustom: *identity\n", "id", "custom", "identity", false},
+		{"title ID alias", "id: &identity ''\ntitle: *identity\n", "id", "title", "identity", false},
+		{"event ID alias", "id: &identity ''\nstate: planned\nstate_history: [{state: planned, at: 2026-10-17T10:00:00Z, custom: *identity}]\n", "id", "custom", "identity", true},
+		{"history alias", "id: existing\nstate: completed\nstate_history: &events [{state: planned, at: 2026-10-17T10:00:00Z}]\ncustom: *events\n", "state_history", "custom", "events", false},
 	} {
-		p, err := Parse("work.task.md", []byte("---\n"+metadata+"---\nbody\n"))
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, changed, err := Normalize(p, observedAt, func() string { return "fixed-id" })
-		if model.ErrorCode(err) != "invalid_document" || changed {
-			t.Fatalf("normalization changed unknown aliased values: changed=%v err=%v", changed, err)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			raw := "---\n" + tt.metadata + "---\ncafé\r\n---\r\n"
+			p, err := Parse("work.task.md", []byte(raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, changed, err := Normalize(p, observedAt, func() string { return "fixed-id" })
+			if err != nil || !changed {
+				t.Fatalf("valid alias blocked adoption: changed=%v err=%v", changed, err)
+			}
+			parent := got.Metadata
+			if tt.inHistory {
+				parent = mappingValue(parent, "state_history").Content[0]
+			}
+			alias, anchor := mappingValue(parent, tt.aliasKey), mappingValue(got.Metadata, tt.anchorKey)
+			if alias == nil || anchor == nil || alias.Kind != yaml.AliasNode || alias.Value != tt.reference || alias.Alias != anchor || anchor.Anchor != tt.reference {
+				t.Fatalf("alias reference detached or retargeted: alias=%+v anchor=%+v", alias, anchor)
+			}
+			if tt.anchorKey == "id" && anchor.Value != "fixed-id" {
+				t.Fatalf("ID anchor was not adopted: %+v", anchor)
+			}
+			if tt.anchorKey == "state_history" && len(anchor.Content) != 2 {
+				t.Fatalf("history alias did not follow appended event: %+v", anchor)
+			}
+			if string(got.Body) != "café\r\n---\r\n" {
+				t.Fatalf("body changed: %q", got.Body)
+			}
+			original, err := Encode(p)
+			if err != nil || string(original) != raw {
+				t.Fatalf("input changed: %q %v", original, err)
+			}
+			again, changed, err := Normalize(got, observedAt.Add(time.Hour), func() string { t.Fatal("ID reassigned"); return "" })
+			if err != nil || changed || again.Document.Raw != got.Document.Raw {
+				t.Fatalf("repeat adoption changed source: changed=%v err=%v", changed, err)
+			}
+		})
+	}
+}
+
+func TestPreservationComparisonChecksReferencesAndScalarSemantics(t *testing.T) {
+	for _, tt := range []struct {
+		name, before, after string
+		want                bool
+	}{
+		{"follows anchor", "id: &id ''\ncustom: *id\n", "id: &id adopted\ncustom: *id\n", true},
+		{"nested reference", "id: &id ''\ncustom: {ref: *id, value: keep}\n", "id: &id adopted\ncustom: {ref: *id, value: keep}\n", true},
+		{"different reference", "a: &a same\nb: &b same\ncustom: *a\n", "a: &a same\nb: &b same\ncustom: *b\n", false},
+		{"expanded reference", "id: &id same\ncustom: *id\n", "id: &id same\ncustom: same\n", false},
+		{"changed scalar tag", "custom: !!timestamp '2026-10-17T10:00:00Z'\n", "custom: !!str '2026-10-17T10:00:00Z'\n", false},
+		{"changed scalar value", "custom: keep\n", "custom: changed\n", false},
+		{"nested scalar tag", "custom: {value: !!int 7}\n", "custom: {value: !!str '7'}\n", false},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			before, err := Parse("old.note.md", []byte("---\n"+tt.before+"---\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			after, err := Parse("old.note.md", []byte("---\n"+tt.after+"---\n"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := samePreservedNode(mappingValue(before.Metadata, "custom"), mappingValue(after.Metadata, "custom")); got != tt.want {
+				t.Fatalf("preservation=%v, want %v", got, tt.want)
+			}
+		})
 	}
 }
