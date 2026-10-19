@@ -248,6 +248,41 @@ func TestEncodePreservesBodyOnlyHeaderFormatting(t *testing.T) {
 	}
 }
 
+func TestEncodeAddsBodyAfterEOFClosingDelimiter(t *testing.T) {
+	for _, tt := range []struct {
+		name, raw, want string
+	}{
+		{"LF", "---\ntype: note\n---", "---\ntype: note\n---\nnew body\n"},
+		{"CRLF", "---\r\ntype: note\r\n---", "---\r\ntype: note\r\n---\r\nnew body\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			p, err := Parse("ideas.note.md", []byte(tt.raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			unchanged, err := Encode(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(unchanged) != tt.raw {
+				t.Fatalf("unchanged source = %q, want %q", unchanged, tt.raw)
+			}
+			p.Body = []byte("new body\n")
+			out, err := Encode(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			q, err := Parse("ideas.note.md", out)
+			if err != nil {
+				t.Fatalf("encoded document cannot be reparsed: %v; source = %q", err, out)
+			}
+			if string(out) != tt.want || !bytes.Equal(q.Body, p.Body) {
+				t.Fatalf("encoded source = %q, want %q; reparsed body = %q", out, tt.want, q.Body)
+			}
+		})
+	}
+}
+
 func TestParseReadsAliasedManagedFields(t *testing.T) {
 	p, err := Parse("work.task.md", []byte("---\nbase: &base {type: task, id: existing-id}\n<<: *base\nstatus: &status planned\nstate: *status\n---\n"))
 	if err != nil {

@@ -140,7 +140,12 @@ func Encode(p Parsed) ([]byte, error) {
 			return bytes.Clone(old.raw), nil
 		}
 		// A body-only edit need not reformat even a byte of the header.
-		return append(bytes.Clone(old.raw[:len(old.raw)-len(old.body)]), p.Body...), nil
+		header := bytes.Clone(old.raw[:len(old.raw)-len(old.body)])
+		if old.frontmatter && len(p.Body) != 0 && !bytes.HasSuffix(header, []byte("\n")) {
+			// A closing delimiter at EOF needs a line ending before a new body.
+			header = append(header, newline...)
+		}
+		return append(header, p.Body...), nil
 	}
 	var out bytes.Buffer
 	if p.BOM {
