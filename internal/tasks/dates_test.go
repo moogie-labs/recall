@@ -33,6 +33,30 @@ func TestFallBackDay(t *testing.T) {
 	assertUTCDate(t, until, "2026-11-02T05:00:00Z")
 }
 
+func TestDateRangeMidnightTransitions(t *testing.T) {
+	for _, tt := range []struct {
+		name, from, through, zone, start, until string
+	}{
+		// Havana skips 00:00-00:59; March 8 starts at 01:00, not March 7 23:00.
+		{"skipped midnight day", "2026-03-08", "2026-03-08", "America/Havana", "2026-03-08T05:00:00Z", "2026-03-09T04:00:00Z"},
+		{"before skipped midnight", "2026-03-07", "2026-03-07", "America/Havana", "2026-03-07T05:00:00Z", "2026-03-08T05:00:00Z"},
+		{"from skipped midnight", "2026-03-08", "", "America/Havana", "2026-03-08T05:00:00Z", ""},
+		{"through before skipped midnight", "", "2026-03-07", "America/Havana", "", "2026-03-08T05:00:00Z"},
+		// Amman repeats 00:00-00:59. Select the first midnight (+03), not +02.
+		{"ambiguous midnight day", "2021-10-29", "2021-10-29", "Asia/Amman", "2021-10-28T21:00:00Z", "2021-10-29T22:00:00Z"},
+		{"before ambiguous midnight", "2021-10-28", "2021-10-28", "Asia/Amman", "2021-10-27T21:00:00Z", "2021-10-28T21:00:00Z"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			start, until, err := DateRange(tt.from, tt.through, loadLocation(t, tt.zone))
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertUTCDate(t, start, tt.start)
+			assertUTCDate(t, until, tt.until)
+		})
+	}
+}
+
 func TestDateRangeCalendarBoundaries(t *testing.T) {
 	for _, tt := range []struct {
 		name, from, through, zone, start, until string
