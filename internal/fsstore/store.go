@@ -7,12 +7,14 @@ package fsstore
 import (
 	"context"
 	"errors"
-	"io"
-	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
+
+	"golang.org/x/sys/unix"
 
 	"recall/internal/config"
+	"recall/internal/model"
 )
 
 type Entry struct {
@@ -22,8 +24,8 @@ type Entry struct {
 }
 
 type Store struct {
-	content *os.Root
-	run     *os.Root
+	content *os.File
+	run     *os.File
 }
 
 // Open requires explicit initialization; it never creates the layout. Directory
@@ -37,26 +39,31 @@ func Open(cfg config.Config) (*Store, error) {
 		return nil, err
 	}
 	defer r.Close()
+	// Start with Go's root-confined anchor, then pin each layout directory
+	// with a descriptor-producing no-follow open, not Root.OpenRoot (which
+	// can follow a relative symlink installed after a layout stat).
+	root, err := r.Open(".")
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
 	for _, name := range []string{"config.json", "content", "run", "models", "runtime"} {
-		info, err := r.Lstat(name)
-		if errors.Is(err, os.ErrNotExist) {
+		stat, err := checkedStatAt(root, name, name)
+		if model.ErrorCode(err) == "not_found" {
 			return nil, appError("not_initialized", name, "collection initialization is incomplete")
 		}
 		if err != nil {
 			return nil, err
 		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			return nil, appError("outside_root", name, "symlinks are not allowed")
-		}
-		if name == "config.json" && !info.Mode().IsRegular() || name != "config.json" && !info.IsDir() {
+		if name == "config.json" && fileType(stat) != unix.S_IFREG || name != "config.json" && fileType(stat) != unix.S_IFDIR {
 			return nil, appError("not_initialized", name, "invalid collection layout")
 		}
 	}
-	content, err := r.OpenRoot("content")
+	content, err := openDirectoryAt(root, "content", "content")
 	if err != nil {
 		return nil, err
 	}
-	run, err := r.OpenRoot("run")
+	run, err := openDirectoryAt(root, "run", "run")
 	if err != nil {
 		content.Close()
 		return nil, err
@@ -70,29 +77,13 @@ func (s *Store) Read(ctx context.Context, path string) ([]byte, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if err := s.checkPath(path); err != nil {
-		return nil, err
-	}
-	f, err := openNoFollow(s.content, path, os.O_RDONLY, 0)
-	if err != nil {
-		return nil, pathError(path, err)
-	}
-	defer f.Close()
-	info, err := f.Stat()
+	parent, name, err := parentAt(s.content, path)
 	if err != nil {
 		return nil, err
 	}
-	if !info.Mode().IsRegular() {
-		return nil, appError("invalid_argument", path, "a regular file is required")
-	}
-	raw, err := io.ReadAll(f)
-	if err != nil {
-		return nil, pathError(path, err)
-	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	return raw, nil
+	defer parent.Close()
+	raw, _, err := readAt(ctx, parent, name, path)
+	return raw, err
 }
 
 // Mkdir creates one directory; its parent must already exist. Caller holds WithLock.
@@ -100,13 +91,21 @@ func (s *Store) Mkdir(ctx context.Context, path string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := s.checkPath(path); err != nil {
+	parent, name, err := parentAt(s.content, path)
+	if err != nil {
 		return err
 	}
-	if err := s.content.Mkdir(path, 0755); err != nil {
+	defer parent.Close()
+	if _, err := checkedStatAt(parent, name, path); err != nil && model.ErrorCode(err) != "not_found" {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := unix.Mkdirat(int(parent.Fd()), name, 0755); err != nil {
 		return pathError(path, err)
 	}
-	return s.syncDir(filepath.Dir(path))
+	return parent.Sync()
 }
 
 // Move rejects existing destinations under the caller-owned WithLock. Like
@@ -115,27 +114,39 @@ func (s *Store) Move(ctx context.Context, from, to string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := s.checkPath(from); err != nil {
+	// Validate both lexical paths before any filesystem lookup, so an invalid
+	// destination is rejected even when its source does not exist.
+	if err := validatePath(from); err != nil {
 		return err
 	}
-	if err := s.checkPath(to); err != nil {
+	if err := validatePath(to); err != nil {
 		return err
 	}
-	if _, err := s.content.Lstat(to); err == nil {
+	source, sourceName, err := parentAt(s.content, from)
+	if err != nil {
+		return err
+	}
+	defer source.Close()
+	target, targetName, err := parentAt(s.content, to)
+	if err != nil {
+		return err
+	}
+	defer target.Close()
+	if _, err := checkedStatAt(source, sourceName, from); err != nil {
+		return err
+	}
+	if _, err := checkedStatAt(target, targetName, to); err == nil {
 		return appError("already_exists", to, "path already exists")
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return pathError(to, err)
+	} else if model.ErrorCode(err) != "not_found" {
+		return err
 	}
-	if err := s.content.Rename(from, to); err != nil {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := unix.Renameat(int(source.Fd()), sourceName, int(target.Fd()), targetName); err != nil {
 		return pathError(from, err)
 	}
-	if err := s.syncDir(filepath.Dir(from)); err != nil {
-		return err
-	}
-	if filepath.Dir(from) != filepath.Dir(to) {
-		return s.syncDir(filepath.Dir(to))
-	}
-	return nil
+	return errors.Join(source.Sync(), target.Sync())
 }
 
 // Remove permanently deletes a source path. A recursive deletion is preflighted
@@ -144,38 +155,49 @@ func (s *Store) Remove(ctx context.Context, path string, recursive bool) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := s.checkPath(path); err != nil {
+	parent, name, err := parentAt(s.content, path)
+	if err != nil {
 		return err
 	}
-	if _, err := s.content.Lstat(path); err != nil {
-		return pathError(path, err)
+	defer parent.Close()
+	stat, err := checkedStatAt(parent, name, path)
+	if err != nil {
+		return err
 	}
-	if recursive {
-		err := fs.WalkDir(s.content.FS(), path, func(name string, entry fs.DirEntry, err error) error {
-			if err != nil {
-				return pathError(name, err)
-			}
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if entry.Type()&os.ModeSymlink != 0 {
-				return appError("outside_root", name, "symlinks are not allowed")
-			}
-			return nil
-		})
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if fileType(stat) == unix.S_IFDIR && recursive {
+		dir, err := openDirectoryAt(parent, name, path)
 		if err != nil {
 			return err
 		}
-		if err := ctx.Err(); err != nil {
+		defer dir.Close()
+		// Preflight the whole tree before any deletion, using no-follow
+		// descriptors for discovery as well as for the deletion pass.
+		if err := walkAt(ctx, dir, path, func(path string, stat unix.Stat_t) error {
+			if fileType(stat) == unix.S_IFLNK {
+				return appError("outside_root", path, "symlinks are not allowed")
+			}
+			return nil
+		}); err != nil {
 			return err
 		}
-		if err := s.content.RemoveAll(path); err != nil {
-			return pathError(path, err)
+		if err := removeChildren(ctx, dir, path); err != nil {
+			return err
 		}
-	} else if err := s.content.Remove(path); err != nil {
+	}
+	flags := 0
+	if fileType(stat) == unix.S_IFDIR {
+		flags = unix.AT_REMOVEDIR
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := unix.Unlinkat(int(parent.Fd()), name, flags); err != nil {
 		return pathError(path, err)
 	}
-	return s.syncDir(filepath.Dir(path))
+	return parent.Sync()
 }
 
 // Walk lists relative paths in lexical order, excluding the content root.
@@ -184,18 +206,100 @@ func (s *Store) Walk(ctx context.Context) ([]Entry, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	root, err := openDirectoryAt(s.content, ".", ".")
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
 	entries := []Entry{}
-	err := fs.WalkDir(s.content.FS(), ".", func(path string, entry fs.DirEntry, err error) error {
+	err = walkAt(ctx, root, "", func(path string, stat unix.Stat_t) error {
+		entries = append(entries, Entry{Path: path, IsDir: fileType(stat) == unix.S_IFDIR, IsSymlink: fileType(stat) == unix.S_IFLNK})
+		return nil
+	})
+	return entries, err
+}
+
+// Read from a fresh descriptor so preflight and deletion do not share a
+// directory stream offset. Readdir on this descriptor cannot follow a link.
+func directoryNames(dir *os.File) ([]string, error) {
+	reader, err := openDirectoryAt(dir, ".", ".")
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	names, err := reader.Readdirnames(-1)
+	slices.Sort(names)
+	return names, err
+}
+
+func walkAt(ctx context.Context, dir *os.File, prefix string, visit func(string, unix.Stat_t) error) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	names, err := directoryNames(dir)
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		path := filepath.Join(prefix, name)
+		stat, err := statAt(dir, name, path)
 		if err != nil {
-			return pathError(path, err)
+			return err
+		}
+		if err := visit(path, stat); err != nil {
+			return err
+		}
+		if fileType(stat) == unix.S_IFDIR {
+			child, err := openDirectoryAt(dir, name, path)
+			if err != nil {
+				return err
+			}
+			err = walkAt(ctx, child, path, visit)
+			child.Close()
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func removeChildren(ctx context.Context, dir *os.File, prefix string) error {
+	names, err := directoryNames(dir)
+	if err != nil {
+		return err
+	}
+	for _, name := range names {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		path := filepath.Join(prefix, name)
+		stat, err := checkedStatAt(dir, name, path)
+		if err != nil {
+			return err
+		}
+		flags := 0
+		if fileType(stat) == unix.S_IFDIR {
+			child, err := openDirectoryAt(dir, name, path)
+			if err != nil {
+				return err
+			}
+			err = removeChildren(ctx, child, path)
+			child.Close()
+			if err != nil {
+				return err
+			}
+			flags = unix.AT_REMOVEDIR
 		}
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if path != "." {
-			entries = append(entries, Entry{Path: path, IsDir: entry.IsDir(), IsSymlink: entry.Type()&os.ModeSymlink != 0})
+		if err := unix.Unlinkat(int(dir.Fd()), name, flags); err != nil {
+			return pathError(path, err)
 		}
-		return nil
-	})
-	return entries, err
+	}
+	return dir.Sync()
 }

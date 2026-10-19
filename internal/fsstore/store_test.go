@@ -14,6 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/sys/unix"
+
 	"recall/internal/config"
 	"recall/internal/model"
 )
@@ -426,5 +428,315 @@ func TestConcurrentSymlinkSwapsCannotEscape(t *testing.T) {
 	entries, err := os.ReadDir(outside)
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("created entries outside content: %+v %v", entries, err)
+	}
+}
+
+// checkpointContext deterministically schedules a filesystem replacement at an
+// existing cancellation checkpoint. All filesystem calls remain real.
+type checkpointContext struct {
+	context.Context
+	checks, at int
+	action     func()
+}
+
+func (c *checkpointContext) Err() error {
+	c.checks++
+	if c.checks == c.at {
+		c.action()
+	}
+	return c.Context.Err()
+}
+
+func seedAncestorSwap(t *testing.T, cfg config.Config) func() {
+	t.Helper()
+	for _, name := range []string{"active", "victim"} {
+		if err := os.Mkdir(filepath.Join(cfg.Content, name), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for name, body := range map[string]string{"active/a.note.md": "original", "victim/a.note.md": "victim"} {
+		if err := os.WriteFile(filepath.Join(cfg.Content, name), []byte(body), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return func() {
+		if err := os.Rename(filepath.Join(cfg.Content, "active"), filepath.Join(cfg.Content, "parked")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("victim", filepath.Join(cfg.Content, "active")); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestOpenNoFollowRejectsAncestorSwapAfterValidation(t *testing.T) {
+	s, cfg := openStore(t)
+	swap := seedAncestorSwap(t, cfg)
+	// Reproduce the exact validation/use gap without timing or a production
+	// hook: first validate real components, then replace the ancestor, then
+	// invoke the opener sharing Read's component resolver.
+	for _, path := range []string{"active", "active/a.note.md"} {
+		info, err := os.Lstat(filepath.Join(cfg.Content, path))
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			t.Fatalf("initial validation: %v", err)
+		}
+	}
+	swap()
+	f, err := openNoFollow(s.content, "active/a.note.md", os.O_RDONLY, 0)
+	if err == nil {
+		defer f.Close()
+		raw, readErr := io.ReadAll(f)
+		t.Fatalf("followed replaced ancestor: raw=%q readErr=%v", raw, readErr)
+	}
+	if model.ErrorCode(err) != "outside_root" {
+		t.Fatalf("ancestor swap: %v", err)
+	}
+}
+
+func TestDirectoryOpenRejectsSymlinkInstalledAfterStat(t *testing.T) {
+	for _, layout := range []bool{false, true} {
+		name := "ancestor"
+		if layout {
+			name = "layout"
+		}
+		t.Run(name, func(t *testing.T) {
+			s, cfg := openStore(t)
+			parent, component := s.content, "active"
+			var swap func()
+			if !layout {
+				swap = seedAncestorSwap(t, cfg)
+			} else {
+				r, err := os.OpenRoot(cfg.Root)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer r.Close()
+				parent, err = r.Open(".")
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer parent.Close()
+				component = "content"
+				swap = func() {
+					if err := os.Rename(cfg.Content, filepath.Join(cfg.Root, "parked")); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Symlink("models", cfg.Content); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			stat, err := checkedStatAt(parent, component, component)
+			if err != nil || fileType(stat) != unix.S_IFDIR {
+				t.Fatalf("directory validation: %v", err)
+			}
+			swap()
+			// This is the actual descriptor-producing operation used after the
+			// stat by both parent resolution and layout pinning. A second stat
+			// cannot make this test pass: the kernel must reject the link.
+			f, err := openAt(parent, component, component, os.O_RDONLY|unix.O_DIRECTORY, 0)
+			if err == nil {
+				f.Close()
+				t.Fatal("directory open followed a post-stat relative symlink")
+			}
+		})
+	}
+}
+
+func TestWalkDoesNotFollowDirectorySwap(t *testing.T) {
+	s, cfg := openStore(t)
+	swap := seedAncestorSwap(t, cfg)
+	if err := os.Remove(filepath.Join(cfg.Content, "active", "a.note.md")); err != nil {
+		t.Fatal(err)
+	}
+	// In the original implementation, the third checkpoint is the callback
+	// for the already classified active directory, before WalkDir opens it.
+	ctx := &checkpointContext{Context: context.Background(), at: 3, action: swap}
+	entries, err := s.Walk(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ctx.checks < ctx.at {
+		t.Fatal("swap checkpoint was not reached")
+	}
+	for _, entry := range entries {
+		if entry.Path == "active/a.note.md" {
+			t.Fatal("walk followed replacement into victim")
+		}
+	}
+}
+
+func TestOpenDoesNotPinRelativeLayoutSymlink(t *testing.T) {
+	_, cfg := openStore(t)
+	if err := os.WriteFile(filepath.Join(cfg.Content, "marker"), []byte("content"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.ModelsDir, "marker"), []byte("models"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	parked := filepath.Join(cfg.Root, "parked-content")
+	stop, done := make(chan struct{}), make(chan error, 1)
+	go func() {
+		for {
+			select {
+			case <-stop:
+				done <- nil
+				return
+			default:
+			}
+			for _, op := range []func() error{
+				func() error { return os.Rename(cfg.Content, parked) },
+				func() error { return os.Symlink("models", cfg.Content) },
+				func() error { return os.Remove(cfg.Content) },
+				func() error { return os.Rename(parked, cfg.Content) },
+			} {
+				if err := op(); err != nil {
+					done <- err
+					return
+				}
+			}
+		}
+	}()
+	defer func() {
+		close(stop)
+		if err := <-done; err != nil {
+			t.Error(err)
+		}
+	}()
+	for range 256 {
+		s, err := Open(cfg)
+		if err != nil {
+			continue
+		}
+		raw, err := s.Read(context.Background(), "marker")
+		closeErr := s.Close()
+		if closeErr != nil {
+			t.Fatal(closeErr)
+		}
+		if err != nil || string(raw) != "content" {
+			t.Fatalf("pinned redirected layout: %q %v", raw, err)
+		}
+	}
+}
+
+func TestRemoveKeepsValidatedParentAcrossAncestorSwap(t *testing.T) {
+	s, cfg := openStore(t)
+	swap := seedAncestorSwap(t, cfg)
+	// The old recursive removal validates this file and then checks context
+	// in its walk callback. Replace the ancestor at that exact boundary.
+	ctx := &checkpointContext{Context: context.Background(), at: 2, action: swap}
+	locked(t, s, func() error { return s.Remove(ctx, "active/a.note.md", true) })
+	if ctx.checks < ctx.at {
+		t.Fatal("swap checkpoint was not reached")
+	}
+	raw, err := os.ReadFile(filepath.Join(cfg.Content, "victim", "a.note.md"))
+	if err != nil || string(raw) != "victim" {
+		t.Fatalf("removed redirected victim: %q %v", raw, err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.Content, "parked", "a.note.md")); !os.IsNotExist(err) {
+		t.Fatalf("original source was not removed: %v", err)
+	}
+}
+
+func TestMutatorsKeepPinnedParentsAcrossAncestorSwap(t *testing.T) {
+	for _, operation := range []string{"mkdir", "move_source", "move_target", "remove_tree"} {
+		t.Run(operation, func(t *testing.T) {
+			s, cfg := openStore(t)
+			swap := seedAncestorSwap(t, cfg)
+			if err := os.WriteFile(filepath.Join(cfg.Content, "move.note.md"), []byte("move"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			for _, dir := range []string{"active/tree", "victim/tree"} {
+				if err := os.Mkdir(filepath.Join(cfg.Content, dir), 0700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filepath.Join(cfg.Content, dir, "child.note.md"), []byte(dir), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ctx := &checkpointContext{Context: context.Background(), at: 2, action: swap}
+			locked(t, s, func() error {
+				switch operation {
+				case "mkdir":
+					return s.Mkdir(ctx, "active/new")
+				case "move_source":
+					return s.Move(ctx, "active/a.note.md", "moved.note.md")
+				case "move_target":
+					return s.Move(ctx, "move.note.md", "active/new.note.md")
+				default:
+					return s.Remove(ctx, "active/tree", true)
+				}
+			})
+			if ctx.checks < ctx.at {
+				t.Fatal("swap checkpoint was not reached")
+			}
+			for path, want := range map[string]string{"victim/a.note.md": "victim", "victim/tree/child.note.md": "victim/tree"} {
+				raw, err := os.ReadFile(filepath.Join(cfg.Content, path))
+				if err != nil || string(raw) != want {
+					t.Fatalf("redirected mutation of %s: %q %v", path, raw, err)
+				}
+			}
+			for _, name := range []string{"new", "new.note.md"} {
+				if _, err := os.Lstat(filepath.Join(cfg.Content, "victim", name)); !os.IsNotExist(err) {
+					t.Fatalf("created a victim entry %s: %v", name, err)
+				}
+			}
+			switch operation {
+			case "mkdir":
+				if info, err := os.Stat(filepath.Join(cfg.Content, "parked", "new")); err != nil || !info.IsDir() {
+					t.Fatalf("original directory creation: %v", err)
+				}
+			case "move_source", "move_target":
+				path, want := "moved.note.md", "original"
+				if operation == "move_target" {
+					path, want = "parked/new.note.md", "move"
+				}
+				raw, err := os.ReadFile(filepath.Join(cfg.Content, path))
+				if err != nil || string(raw) != want {
+					t.Fatalf("original directory move: %q %v", raw, err)
+				}
+			case "remove_tree":
+				if _, err := os.Lstat(filepath.Join(cfg.Content, "parked", "tree")); !os.IsNotExist(err) {
+					t.Fatalf("original tree was not removed: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestRemoveRejectsSymlinkIntroducedAfterPreflight(t *testing.T) {
+	s, cfg := openStore(t)
+	for _, dir := range []string{"tree", "tree/sub", "victim"} {
+		if err := os.Mkdir(filepath.Join(cfg.Content, dir), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, path := range []string{"tree/sub/a.note.md", "victim/a.note.md"} {
+		if err := os.WriteFile(filepath.Join(cfg.Content, path), []byte(path), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Checkpoints 3..6 preflight tree/sub/a.note.md; checkpoint 7 is the
+	// deletion pass's first child, after that clean preflight has finished.
+	ctx := &checkpointContext{Context: context.Background(), at: 7, action: func() {
+		if err := os.Rename(filepath.Join(cfg.Content, "tree", "sub"), filepath.Join(cfg.Content, "parked")); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink("../victim", filepath.Join(cfg.Content, "tree", "sub")); err != nil {
+			t.Fatal(err)
+		}
+	}}
+	locked(t, s, func() error {
+		if err := s.Remove(ctx, "tree", true); model.ErrorCode(err) != "outside_root" {
+			t.Fatalf("post-preflight symlink: %v", err)
+		}
+		return nil
+	})
+	if ctx.checks < ctx.at {
+		t.Fatal("swap checkpoint was not reached")
+	}
+	raw, err := os.ReadFile(filepath.Join(cfg.Content, "victim", "a.note.md"))
+	if err != nil || string(raw) != "victim/a.note.md" {
+		t.Fatalf("victim deletion after preflight: %q %v", raw, err)
 	}
 }

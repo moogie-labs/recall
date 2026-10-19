@@ -122,3 +122,68 @@ func TestCreateOnlyRejectsExistingDirectory(t *testing.T) {
 		return nil
 	})
 }
+
+func TestWriteKeepsValidatedParentAcrossAncestorSwap(t *testing.T) {
+	s, cfg := openStore(t)
+	swap := seedAncestorSwap(t, cfg)
+	// Read's post-read context check occurs after revision validation and
+	// before staging. Replacing the ancestor here must not redirect staging,
+	// the revision reread, publication, cleanup, or directory fsync.
+	ctx := &checkpointContext{Context: context.Background(), at: 3, action: swap}
+	revision := fmt.Sprintf("%x", sha256.Sum256([]byte("original")))
+	locked(t, s, func() error { return s.Write(ctx, "active/a.note.md", revision, []byte("replacement")) })
+	if ctx.checks < ctx.at {
+		t.Fatal("swap checkpoint was not reached")
+	}
+	for path, want := range map[string]string{"parked/a.note.md": "replacement", "victim/a.note.md": "victim"} {
+		raw, err := os.ReadFile(filepath.Join(cfg.Content, path))
+		if err != nil || string(raw) != want {
+			t.Fatalf("%s: %q %v", path, raw, err)
+		}
+	}
+	for _, dir := range []string{"parked", "victim"} {
+		entries, err := os.ReadDir(filepath.Join(cfg.Content, dir))
+		if err != nil || len(entries) != 1 {
+			t.Fatalf("temporary staging leaked into %s: %+v %v", dir, entries, err)
+		}
+	}
+}
+
+func TestWriteDeletedParentIsConflict(t *testing.T) {
+	s, _ := openStore(t)
+	ctx := context.Background()
+	locked(t, s, func() error {
+		if err := s.Mkdir(ctx, "folder"); err != nil {
+			return err
+		}
+		if err := s.Write(ctx, "folder/a.note.md", "", []byte("original")); err != nil {
+			return err
+		}
+		if err := s.Remove(ctx, "folder", true); err != nil {
+			return err
+		}
+		revision := fmt.Sprintf("%x", sha256.Sum256([]byte("original")))
+		if err := s.Write(ctx, "folder/a.note.md", revision, []byte("replacement")); model.ErrorCode(err) != "conflict" {
+			t.Fatalf("deleted parent: %v", err)
+		}
+		return nil
+	})
+}
+
+func TestCreateKeepsPinnedParentAcrossAncestorSwap(t *testing.T) {
+	s, cfg := openStore(t)
+	swap := seedAncestorSwap(t, cfg)
+	ctx := &checkpointContext{Context: context.Background(), at: 2, action: swap}
+	locked(t, s, func() error { return s.Write(ctx, "active/new.note.md", "", []byte("created")) })
+	if ctx.checks < ctx.at {
+		t.Fatal("swap checkpoint was not reached")
+	}
+	raw, err := os.ReadFile(filepath.Join(cfg.Content, "parked", "new.note.md"))
+	if err != nil || string(raw) != "created" {
+		t.Fatalf("original directory create: %q %v", raw, err)
+	}
+	entries, err := os.ReadDir(filepath.Join(cfg.Content, "victim"))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("created or leaked staging in victim: %+v %v", entries, err)
+	}
+}
