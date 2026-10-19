@@ -46,7 +46,9 @@ func localDayStart(day time.Time, location *time.Location) time.Time {
 		start, end := cursor.ZoneBounds()
 		_, offset := cursor.Zone()
 		midnight := day.Add(-time.Duration(offset) * time.Second)
-		if !end.IsZero() && !midnight.Before(end) {
+		// Extrapolated year-end bounds can be at/before cursor even while
+		// its offset remains valid. Traverse only a strictly later boundary.
+		if !end.IsZero() && end.After(cursor) && !midnight.Before(end) {
 			// This zone ends before the requested clock reading. Advance into
 			// the next zone, which may have skipped midnight altogether.
 			cursor = end

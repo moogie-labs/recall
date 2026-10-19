@@ -1,6 +1,9 @@
 package tasks
 
 import (
+	"context"
+	"os"
+	"os/exec"
 	"testing"
 	"time"
 
@@ -45,6 +48,49 @@ func TestDateRangeMidnightTransitions(t *testing.T) {
 		// Amman repeats 00:00-00:59. Select the first midnight (+03), not +02.
 		{"ambiguous midnight day", "2021-10-29", "2021-10-29", "Asia/Amman", "2021-10-28T21:00:00Z", "2021-10-29T22:00:00Z"},
 		{"before ambiguous midnight", "2021-10-28", "2021-10-28", "Asia/Amman", "2021-10-27T21:00:00Z", "2021-10-28T21:00:00Z"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			start, until, err := DateRange(tt.from, tt.through, loadLocation(t, tt.zone))
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertUTCDate(t, start, tt.start)
+			assertUTCDate(t, until, tt.until)
+		})
+	}
+}
+
+func TestDateRangeFutureYearBoundaries(t *testing.T) {
+	const child = "RECALL_TASKS_TEST_FUTURE_DATES"
+	if os.Getenv(child) == "" {
+		// Isolate potentially nonterminating resolution in a killable child so
+		// regressions fail promptly without leaving a spinning goroutine behind.
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		cmd := exec.CommandContext(ctx, os.Args[0], "-test.run=^TestDateRangeFutureYearBoundaries$", "-test.v")
+		cmd.Env = append(os.Environ(), child+"=1")
+		output, err := cmd.CombinedOutput()
+		if ctx.Err() != nil {
+			t.Fatalf("future date resolution did not finish within 2s:\n%s", output)
+		}
+		if err != nil {
+			t.Fatalf("future date checks failed: %v\n%s", err, output)
+		}
+		t.Logf("bounded child output:\n%s", output)
+		return
+	}
+	for _, tt := range []struct {
+		name, from, through, zone, start, until string
+	}{
+		{"new_york_leap_year_end", "2040-12-31", "2040-12-31", "America/New_York", "2040-12-31T05:00:00Z", "2041-01-01T05:00:00Z"},
+		{"new_york_before_leap_year_end", "2040-12-30", "2040-12-30", "America/New_York", "2040-12-30T05:00:00Z", "2040-12-31T05:00:00Z"},
+		{"berlin_leap_year_end", "2040-12-31", "2040-12-31", "Europe/Berlin", "2040-12-30T23:00:00Z", "2040-12-31T23:00:00Z"},
+		{"berlin_new_year", "2041-01-01", "2041-01-01", "Europe/Berlin", "2040-12-31T23:00:00Z", "2041-01-01T23:00:00Z"},
+		{"sydney_leap_year_end", "2040-12-31", "2040-12-31", "Australia/Sydney", "2040-12-30T13:00:00Z", "2040-12-31T13:00:00Z"},
+		{"new_york_future_spring", "2040-03-11", "2040-03-11", "America/New_York", "2040-03-11T05:00:00Z", "2040-03-12T04:00:00Z"},
+		{"new_york_future_fall", "2040-11-04", "2040-11-04", "America/New_York", "2040-11-04T04:00:00Z", "2040-11-05T05:00:00Z"},
+		{"havana_future_skipped_midnight", "2040-03-11", "2040-03-11", "America/Havana", "2040-03-11T05:00:00Z", "2040-03-12T04:00:00Z"},
+		{"havana_future_repeated_midnight", "2040-11-04", "2040-11-04", "America/Havana", "2040-11-04T04:00:00Z", "2040-11-05T05:00:00Z"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			start, until, err := DateRange(tt.from, tt.through, loadLocation(t, tt.zone))
