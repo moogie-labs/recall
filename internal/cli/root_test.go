@@ -48,10 +48,10 @@ func TestHelpAndUnavailableAdaptersDoNotOpenCollection(t *testing.T) {
 		t.Fatal("opened app for help/placeholder")
 		return nil, nil
 	}}
-	for _, args := range [][]string{{"--help"}, {"document", "--help"}, {"--json", "search", "--help"}, {}, {"mcp"}} {
+	for _, args := range [][]string{{"--help"}, {"document", "--help"}, {"--json", "search", "--help"}, {"mcp", "--help"}, {}} {
 		var out, logs bytes.Buffer
 		code := r.Run(t.Context(), args, strings.NewReader(""), &out, &logs)
-		if len(args) == 0 || args[0] == "mcp" {
+		if len(args) == 0 {
 			if code != 1 || !strings.Contains(logs.String(), "unavailable") {
 				t.Fatalf("%v: %d %s", args, code, logs.String())
 			}

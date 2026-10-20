@@ -19,11 +19,12 @@ import (
 	"recall/internal/bootstrap"
 	"recall/internal/config"
 	"recall/internal/embedding"
+	"recall/internal/mcpserver"
 	"recall/internal/model"
 )
 
-// Adapter owns its streaming interface and application lifecycle. The executable
-// can wire TUI/MCP adapters without importing those packages into the CLI.
+// Adapter owns its streaming interface and application lifecycle. Runner allows
+// overriding the default MCP adapter and supplying a TUI independently.
 type Adapter func(context.Context, config.Config, io.Reader, io.Writer, io.Writer) error
 
 type Runner struct {
@@ -36,7 +37,8 @@ type Runner struct {
 	executable func() (string, error)
 }
 
-// Run never exits the process and never owns or closes the supplied streams.
+// Run never exits the process. Streaming adapters may close supplied streams
+// when their protocol terminates; the MCP adapter preserves stream closers.
 func Run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	return (Runner{}).Run(ctx, args, stdin, stdout, stderr)
 }
@@ -49,6 +51,16 @@ func (r Runner) Run(ctx context.Context, args []string, stdin io.Reader, stdout,
 	}
 	if r.open == nil {
 		r.open = app.Open
+	}
+	if r.MCP == nil {
+		r.MCP = func(ctx context.Context, cfg config.Config, input io.Reader, output, _ io.Writer) error {
+			application, err := r.open(ctx, cfg)
+			if err != nil {
+				return err
+			}
+			err = mcpserver.Run(ctx, application, input, output)
+			return errors.Join(err, application.Close())
+		}
 	}
 	if r.initialize == nil {
 		r.initialize = bootstrap.Initialize
@@ -126,7 +138,7 @@ func (i *invocation) rootCommand() *cobra.Command {
 		i.data = help.String()
 	})
 	c.AddCommand(i.initCommand(), i.syncCommand(), i.statusCommand(), i.documentCommand(), i.folderCommand(), i.taskCommand(), i.searchCommand())
-	c.AddCommand(i.command("mcp", "Run the stdio MCP adapter (unavailable in this build)", noArgs, func(*cobra.Command, []string) (any, error) {
+	c.AddCommand(i.command("mcp", "Serve Recall tools over local stdio MCP", noArgs, func(*cobra.Command, []string) (any, error) {
 		return nil, i.adapter("MCP", i.runner.MCP)
 	}))
 	return c
@@ -261,7 +273,7 @@ func (i *invocation) success() error {
 	case model.Document:
 		_, err := io.WriteString(i.stdout, data.Raw)
 		return err
-	case model.Page[model.Document]:
+	case model.Page[model.DocumentSummary]:
 		return writeDocuments(i.stdout, data.Items)
 	case documentList:
 		for _, d := range data.Diagnostics {
@@ -303,7 +315,7 @@ func (i *invocation) success() error {
 	}
 }
 
-func writeDocuments(out io.Writer, documents []model.Document) error {
+func writeDocuments(out io.Writer, documents []model.DocumentSummary) error {
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tPATH\tSTATE\tTITLE")
 	for _, d := range documents {

@@ -28,7 +28,15 @@ func (i *invocation) taskCommand() *cobra.Command {
 			return nil, err
 		}
 		return i.withApp(func(a *app.App) (any, error) {
-			return a.Tasks(i.ctx, model.TaskQuery{Filter: filter, Sort: sort, Desc: desc, Limit: limit, Offset: offset})
+			page, err := a.Tasks(i.ctx, model.TaskQuery{Filter: filter, Sort: sort, Desc: desc, Limit: limit, Offset: offset})
+			if err != nil {
+				return nil, err
+			}
+			summaries := make([]model.DocumentSummary, len(page.Items))
+			for n, d := range page.Items {
+				summaries[n] = model.Summarize(d)
+			}
+			return model.Page[model.DocumentSummary]{Items: summaries, NextOffset: page.NextOffset}, nil
 		})
 	})
 	f.bind(list, false)

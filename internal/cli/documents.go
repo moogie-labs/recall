@@ -16,8 +16,10 @@ import (
 )
 
 type documentList struct {
-	model.Snapshot
-	NextOffset *int `json:"next_offset"`
+	Documents   []model.DocumentSummary `json:"documents"`
+	Diagnostics []model.Diagnostic      `json:"diagnostics"`
+	Folders     []string                `json:"folders"`
+	NextOffset  *int                    `json:"next_offset"`
 }
 
 func (i *invocation) documentCommand() *cobra.Command {
@@ -69,10 +71,11 @@ func (i *invocation) documentListCommand() *cobra.Command {
 				next = &end
 			}
 			snapshot.Documents = snapshot.Documents[start:end]
-			if snapshot.Documents == nil {
-				snapshot.Documents = []model.Document{}
+			summaries := make([]model.DocumentSummary, len(snapshot.Documents))
+			for n, d := range snapshot.Documents {
+				summaries[n] = model.Summarize(d)
 			}
-			return documentList{Snapshot: snapshot, NextOffset: next}, nil
+			return documentList{Documents: summaries, Diagnostics: snapshot.Diagnostics, Folders: snapshot.Folders, NextOffset: next}, nil
 		})
 	})
 	f.bindFolder(c)

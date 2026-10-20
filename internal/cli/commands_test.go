@@ -64,11 +64,11 @@ func TestCRUDHistoryAndKeywordFromUnrelatedCWDWithoutInference(t *testing.T) {
 	if len(history) != 4 || history[1].State != model.Completed || history[3].State != model.Stalled {
 		t.Fatalf("%+v", history)
 	}
-	page := as[model.Page[model.Document]](t, invoke(t, cfg.Root, "", "task", "list", "--folder", "projects", "--state", "stalled", "--date-field", "transition", "--event-state", "completed", "--sort", "state_changed", "--desc"))
+	page := as[model.Page[model.DocumentSummary]](t, invoke(t, cfg.Root, "", "task", "list", "--folder", "projects", "--state", "stalled", "--date-field", "transition", "--event-state", "completed", "--sort", "state_changed", "--desc"))
 	if len(page.Items) != 1 || page.Items[0].ID != task.ID {
 		t.Fatalf("%+v", page)
 	}
-	page = as[model.Page[model.Document]](t, invoke(t, cfg.Root, "", "task", "list", "--folder", "projects", "--recursive=false"))
+	page = as[model.Page[model.DocumentSummary]](t, invoke(t, cfg.Root, "", "task", "list", "--folder", "projects", "--recursive=false"))
 	if len(page.Items) != 0 {
 		t.Fatal(page)
 	}
@@ -189,7 +189,7 @@ func TestDateFiltersUsePersistedTimezoneAndPagination(t *testing.T) {
 		}
 	}
 	args := []string{"--date-field", "created", "--from", "2026-03-08", "--through", "2026-03-08"}
-	page := as[model.Page[model.Document]](t, invoke(t, cfg.Root, "", append([]string{"task", "list"}, args...)...))
+	page := as[model.Page[model.DocumentSummary]](t, invoke(t, cfg.Root, "", append([]string{"task", "list"}, args...)...))
 	if len(page.Items) != 1 || page.Items[0].ID != "inside" {
 		t.Fatal(page)
 	}
@@ -197,7 +197,7 @@ func TestDateFiltersUsePersistedTimezoneAndPagination(t *testing.T) {
 	if len(hits) != 1 || hits[0].ID != "inside" {
 		t.Fatal(hits)
 	}
-	page = as[model.Page[model.Document]](t, invoke(t, cfg.Root, "", "task", "list", "--sort", "title", "--limit", "1", "--offset", "1"))
+	page = as[model.Page[model.DocumentSummary]](t, invoke(t, cfg.Root, "", "task", "list", "--sort", "title", "--limit", "1", "--offset", "1"))
 	if len(page.Items) != 1 || page.Items[0].ID != "inside" || page.NextOffset == nil || *page.NextOffset != 2 {
 		t.Fatal(page)
 	}
@@ -335,5 +335,6 @@ func TestExecutablePinnedNativeWorkflow(t *testing.T) {
 		}
 		t.Logf("real executable %s search: %d hit(s), related first, %s", mode, len(hits), time.Since(started))
 	}
+	queryExecutableMCP(t, bin, cfg.Root, related.ID, []string{"keyword", "semantic", "hybrid"})
 	run("", "init") // Re-verification and inference are retryable.
 }
