@@ -65,11 +65,16 @@ func (s *Store) initialize() error {
 	if err := conn.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return unavailable(ctx, err)
 	}
-	if version != 0 && version != schemaVersion {
+	if version != 0 && version != 1 && version != schemaVersion {
 		return &model.Error{Code: "index_unavailable", Message: "unsupported index schema version; rebuild the derived index"}
 	}
 	if version == 0 {
 		if _, err := conn.ExecContext(ctx, schema); err != nil {
+			return unavailable(ctx, err)
+		}
+	}
+	if version < schemaVersion {
+		if _, err := conn.ExecContext(ctx, vectorSchema); err != nil {
 			return unavailable(ctx, err)
 		}
 	}

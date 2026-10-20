@@ -87,23 +87,22 @@ func TestTaskDeleteIsPermanent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	installProvider(a, &appProvider{})
+	if err := a.IndexPending(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if err := a.Delete(ctx, model.Ref{ID: d.ID}, d.Revision); err != nil {
 		t.Fatal(err)
 	}
-	_, err = a.Read(ctx, model.Ref{ID: d.ID})
-	wantCode(t, err, "not_found")
-	page, err := a.Tasks(ctx, model.TaskQuery{})
-	if err != nil || len(page.Items) != 0 {
-		t.Fatalf("deleted task indexed: %+v %v", page, err)
-	}
+	// Check live cleanup before any auto-refreshing app read can repair it.
 	db, err := sql.Open("sqlite", cfg.Database)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	for _, table := range []string{"documents", "state_events"} {
+	for _, table := range []string{"documents", "state_events", "document_fts", "chunks", "embeddings", "embedding_jobs"} {
 		column := "document_id"
-		if table == "documents" {
+		if table == "documents" || table == "document_fts" {
 			column = "id"
 		}
 		var count int
@@ -114,6 +113,12 @@ func TestTaskDeleteIsPermanent(t *testing.T) {
 	hits, err := a.index.Keyword(ctx, model.SearchQuery{Text: "unique-deletion-term"})
 	if err != nil || len(hits) != 0 {
 		t.Fatalf("deleted FTS: %+v %v", hits, err)
+	}
+	_, err = a.Read(ctx, model.Ref{ID: d.ID})
+	wantCode(t, err, "not_found")
+	page, err := a.Tasks(ctx, model.TaskQuery{})
+	if err != nil || len(page.Items) != 0 {
+		t.Fatalf("deleted task indexed: %+v %v", page, err)
 	}
 	if err := filepath.WalkDir(cfg.Content, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {

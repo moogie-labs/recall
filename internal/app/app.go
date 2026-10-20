@@ -14,16 +14,19 @@ import (
 	"time"
 
 	"recall/internal/config"
+	"recall/internal/embedding"
 	"recall/internal/fsstore"
 	"recall/internal/index"
 	"recall/internal/model"
 	"recall/internal/scanner"
+	"recall/internal/search"
 )
 
 type App struct {
 	store     *fsstore.Store
 	scanner   *scanner.Scanner
 	index     *index.Store
+	search    *search.Engine
 	now       func() time.Time
 	newID     func() string
 	closeOnce sync.Once
@@ -61,6 +64,8 @@ func Open(ctx context.Context, cfg config.Config) (*App, error) {
 		a.Close()
 		return nil, err
 	}
+	// Both constructors are lazy: CRUD/keyword use never loads inference assets.
+	a.search = search.New(search.NewStoreSource(store), a.index, embedding.NewClient(cfg))
 	return a, nil
 }
 

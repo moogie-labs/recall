@@ -21,7 +21,6 @@ import (
 
 	"golang.org/x/sys/unix"
 	"recall/assets"
-	"recall/internal/bootstrap"
 	"recall/internal/config"
 	"recall/internal/model"
 )
@@ -455,7 +454,14 @@ func verifyAssets(ctx context.Context, cfg config.Config) error {
 	if cfg.ModelsDir != saved.ModelsDir || cfg.RuntimeDir != saved.RuntimeDir {
 		return assetInvalid("embedding asset paths must match resolved collection layout")
 	}
-	var m, rt bootstrap.Manifest
+	// Inference consumes embedded identities, not bootstrap operations. Keep
+	// this dependency below app/bootstrap so app can lazily construct a client.
+	var m, rt struct {
+		ID       string `json:"id"`
+		SHA256   string `json:"sha256"`
+		Filename string `json:"filename"`
+		Size     int64  `json:"size"`
+	}
 	if json.Unmarshal([]byte(assets.ModelLock()), &m) != nil || json.Unmarshal([]byte(assets.RuntimeLock()), &rt) != nil {
 		return assetInvalid("invalid embedded asset identities")
 	}

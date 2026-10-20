@@ -3,14 +3,9 @@ package index
 import (
 	"context"
 	"strings"
-	"unicode/utf8"
 
 	"recall/internal/model"
 )
-
-// keywordPreviewMaxBytes caps returned excerpts, including a truncation marker.
-// FTS5's token limit does not bound long separators or individual token sizes.
-const keywordPreviewMaxBytes = 1024
 
 // Keyword performs FTS5 retrieval without exposing MATCH's query language.
 // Whitespace-separated terms are quoted literal phrases and combined with AND;
@@ -53,15 +48,7 @@ func (s *Store) Keyword(ctx context.Context, query model.SearchQuery) ([]model.H
 			return nil, unavailable(ctx, err)
 		}
 		// Repair only the preview, never the byte-preserved cached source.
-		hit.Snippet = strings.ToValidUTF8(hit.Snippet, "�")
-		if len(hit.Snippet) > keywordPreviewMaxBytes {
-			const marker = "…"
-			end := keywordPreviewMaxBytes - len(marker)
-			for end > 0 && !utf8.RuneStart(hit.Snippet[end]) {
-				end--
-			}
-			hit.Snippet = hit.Snippet[:end] + marker
-		}
+		hit.Snippet = preview(hit.Snippet)
 		hit.IndexState = "current"
 		// FTS5 snippets may span disjoint passages and metadata-only matches;
 		// zero line bounds mean no exact source-line location is available.
