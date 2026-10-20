@@ -5,10 +5,8 @@ package syncer
 import (
 	"context"
 	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -22,23 +20,18 @@ type settings struct {
 }
 
 type watchSource struct {
-	*fsnotify.Watcher
-	events <-chan fsnotify.Event
-	errors <-chan error
+	refresh func(context.Context, string) error
+	forget  func(fsnotify.Event) error
+	Close   func() error
+	events  <-chan fsnotify.Event
+	errors  <-chan error
 }
 
-func newWatchSource() (*watchSource, error) {
-	w, err := fsnotify.NewWatcher()
-	if err != nil {
-		return nil, err
-	}
-	return &watchSource{Watcher: w, events: w.Events, errors: w.Errors}, nil
-}
-
-// Run watches directories recursively, including directories created or moved
-// into contentRoot. Directory watches survive editors' temp-file-and-rename
-// saves. It calls reconcile on startup, after 250ms of quiet, every 30 seconds,
-// and after notification errors. Callers wrap App.Sync, which owns locking,
+// Run monitors content recursively, including directories created or moved into
+// contentRoot and editors' temp-file-and-rename saves. On Darwin a confined
+// metadata poll replaces fsnotify's symlink-following kqueue backend, using a
+// 100ms polling interval. It reconciles on startup, after 250ms of quiet, every
+// 30 seconds, and after notification errors. Callers wrap App.Sync, which owns locking,
 // normalization, and complete index application; Run never writes source bytes.
 //
 // Reconciliation and report callbacks are serialized and must honor ctx. Errors
@@ -109,7 +102,7 @@ func run(ctx context.Context, contentRoot string, reconcile func(context.Context
 			}
 		}
 		if watcher != nil {
-			if err := refresh(ctx, watcher.Watcher, contentRoot); err != nil && ctx.Err() == nil {
+			if err := watcher.refresh(ctx, contentRoot); err != nil && ctx.Err() == nil {
 				report(err)
 				if transient(err) {
 					schedule()
@@ -138,17 +131,10 @@ func run(ctx context.Context, contentRoot string, reconcile func(context.Context
 			if !ok {
 				report(errors.New("filesystem watcher closed; rebuilding watches and rescanning"))
 				reset()
-			} else if event.Has(fsnotify.Remove) || event.Has(fsnotify.Rename) {
-				// Forget directory inodes that disappeared, including descendants.
-				// A directory may already have been recreated at the same pathname.
-				for _, path := range watcher.WatchList() {
-					if path == event.Name || strings.HasPrefix(path, event.Name+string(filepath.Separator)) {
-						if err := watcher.Remove(path); err != nil && !errors.Is(err, fsnotify.ErrNonExistentWatch) && !errors.Is(err, os.ErrNotExist) {
-							report(err)
-							reset()
-							break
-						}
-					}
+			} else if watcher.forget != nil {
+				if err := watcher.forget(event); err != nil {
+					report(err)
+					reset()
 				}
 			}
 			schedule()
@@ -176,56 +162,4 @@ func run(ctx context.Context, contentRoot string, reconcile func(context.Context
 
 func transient(err error) bool {
 	return errors.Is(err, os.ErrNotExist) || model.ErrorCode(err) == "not_found" || model.ErrorCode(err) == "conflict"
-}
-
-// refresh watches directories only. WalkDir does not follow symlinked entries;
-// scanner/store confinement remains responsible for source reads and writes.
-// Refresh before reconciliation so files created before a new directory's watch
-// was installed are still found by the full scan.
-func refresh(ctx context.Context, watcher *fsnotify.Watcher, root string) error {
-	current := make(map[string]bool)
-	for _, path := range watcher.WatchList() {
-		current[path] = true
-	}
-	desired := make(map[string]bool)
-	var addErr error
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		if err != nil {
-			return err
-		}
-		if path == root && (!entry.IsDir() || entry.Type()&os.ModeSymlink != 0) {
-			return &model.Error{Code: "outside_root", Message: "content root must be a real directory"}
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			// kqueue's directory Add also installs internal child watches and
-			// can open a symlink's target. Drop these implicit watches too; merely
-			// declining to Add the link ourselves is insufficient on macOS.
-			if err := watcher.Remove(path); !errors.Is(err, fsnotify.ErrNonExistentWatch) && !errors.Is(err, os.ErrNotExist) {
-				addErr = errors.Join(addErr, err)
-			}
-			return nil
-		}
-		if !entry.IsDir() {
-			return nil
-		}
-		desired[path] = true
-		if !current[path] {
-			addErr = errors.Join(addErr, watcher.Add(path))
-		}
-		return nil
-	})
-	if err != nil {
-		return errors.Join(err, addErr)
-	}
-	for path := range current {
-		if !desired[path] {
-			if err := watcher.Remove(path); !errors.Is(err, fsnotify.ErrNonExistentWatch) && !errors.Is(err, os.ErrNotExist) {
-				addErr = errors.Join(addErr, err)
-			}
-		}
-	}
-	return addErr
 }

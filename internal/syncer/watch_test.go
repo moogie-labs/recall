@@ -123,8 +123,8 @@ func start(t *testing.T, root string, reconcile func(context.Context) error, opt
 		for {
 			select {
 			case err := <-reports:
-				// kqueue can report ENOENT when an editor's temporary file
-				// vanishes while fsnotify is enumerating directory children.
+				// A temporary source/directory entry can disappear while a
+				// backend or reconciliation is enumerating children.
 				if !errors.Is(err, os.ErrNotExist) {
 					t.Errorf("unexpected watcher report: %v", err)
 				}
@@ -195,6 +195,30 @@ func TestRunStartupAndAtomicReplacement(t *testing.T) {
 	eventually(t, func() bool { return strings.HasPrefix(c.tasks(t)[0].Body, "another save") })
 }
 
+func TestRunKeepsInPlaceEditsWithRestoredMtime(t *testing.T) {
+	c := newCollection(t)
+	path := filepath.Join(c.cfg.Content, c.doc.Path)
+	opts := fastSettings()
+	scans, _ := start(t, c.cfg.Content, c.sync, &opts)
+	if err := next(t, scans); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Same byte length, no directory entry change, and no mtime difference:
+	// monitoring just directories/size/mtime would miss this saved body.
+	write(t, path, strings.Replace(c.doc.Raw, "old body", "new body", 1))
+	if err := os.Chtimes(path, before.ModTime(), before.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, func() bool { return c.tasks(t)[0].Body == "new body" })
+	if got := c.tasks(t)[0]; len(got.History) != 1 {
+		t.Fatalf("body-only save changed history: %+v", got.History)
+	}
+}
+
 func TestRunTracksNewNestedMovedDeletedAndRecreatedFolders(t *testing.T) {
 	c := newCollection(t)
 	opts := fastSettings()
@@ -261,18 +285,17 @@ func TestRunTracksNewNestedMovedDeletedAndRecreatedFolders(t *testing.T) {
 	})
 }
 
-// Inject only the OS notification failure; keep the real watcher, sources,
-// scanner, locks, and index. Removing watches first makes the save unobservable
+// Inject only the notification failure; keep the production backend, sources,
+// scanner, locks, and index. Suppressing hints first makes the save unobservable
 // without error recovery (the periodic fallback is disabled for this test).
 func TestRunRecoversOverflowErrorsAndClosedWatcher(t *testing.T) {
 	for _, mode := range []string{"overflow", "error", "missing temporary file", "closed"} {
 		t.Run(mode, func(t *testing.T) {
 			c := newCollection(t)
 			opts := fastSettings()
-			created := make(chan *fsnotify.Watcher, 16)
-			// Never send on fsnotify-owned channels: its Close may race a test
-			// sender. Inject only the notification error stream, keeping actual
-			// OS directory watches and the native event stream underneath.
+			created := make(chan *watchSource, 16)
+			// Never send on backend-owned channels: Close may race a test sender.
+			// Inject only the error stream and hide the first backend's hints.
 			injectedErrors := make(chan error, 1)
 			first := true
 			opts.newWatcher = func() (*watchSource, error) {
@@ -280,9 +303,12 @@ func TestRunRecoversOverflowErrorsAndClosedWatcher(t *testing.T) {
 				if err == nil {
 					if first {
 						w.errors = injectedErrors
+						if mode != "closed" {
+							w.events = nil
+						}
 						first = false
 					}
-					created <- w.Watcher
+					created <- w
 				}
 				return w, err
 			}
@@ -291,8 +317,10 @@ func TestRunRecoversOverflowErrorsAndClosedWatcher(t *testing.T) {
 				t.Fatal(err)
 			}
 			w := <-created
-			if err := w.Remove(c.cfg.Content); err != nil {
-				t.Fatal(err)
+			if mode == "closed" {
+				if err := w.Close(); err != nil {
+					t.Fatal(err)
+				}
 			}
 			path := filepath.Join(c.cfg.Content, c.doc.Path)
 			replace(t, path, strings.Replace(c.doc.Raw, "old body", "missed save", 1))
@@ -303,11 +331,7 @@ func TestRunRecoversOverflowErrorsAndClosedWatcher(t *testing.T) {
 			if mode == "missing temporary file" {
 				injected = &os.PathError{Op: "lstat", Path: "editor.tmp", Err: os.ErrNotExist}
 			}
-			if mode == "closed" {
-				if err := w.Close(); err != nil {
-					t.Fatal(err)
-				}
-			} else {
+			if mode != "closed" {
 				injectedErrors <- injected
 			}
 			err := next(t, reports)
@@ -326,20 +350,15 @@ func TestRunPeriodicScanRecoversWithoutNotification(t *testing.T) {
 	c := newCollection(t)
 	opts := fastSettings()
 	opts.rescanInterval = 75 * time.Millisecond
-	created := make(chan *fsnotify.Watcher, 1)
 	opts.newWatcher = func() (*watchSource, error) {
 		w, err := newWatchSource()
 		if err == nil {
-			created <- w.Watcher
+			w.events = nil // Simulate lost hints without changing source behavior.
 		}
 		return w, err
 	}
 	scans, _ := start(t, c.cfg.Content, c.sync, &opts)
 	if err := next(t, scans); err != nil {
-		t.Fatal(err)
-	}
-	w := <-created
-	if err := w.Remove(c.cfg.Content); err != nil {
 		t.Fatal(err)
 	}
 	replace(t, filepath.Join(c.cfg.Content, c.doc.Path), strings.Replace(c.doc.Raw, "old body", "periodic recovery", 1))
@@ -503,11 +522,11 @@ func TestRunRejectsInvalidContentRootsBeforeReconciliation(t *testing.T) {
 func TestRunCancellationStopsReconciliationAndClosesWatcher(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	opts := fastSettings()
-	created := make(chan *fsnotify.Watcher, 1)
+	created := make(chan *watchSource, 1)
 	opts.newWatcher = func() (*watchSource, error) {
 		w, err := newWatchSource()
 		if err == nil {
-			created <- w.Watcher
+			created <- w
 		}
 		return w, err
 	}
@@ -527,7 +546,12 @@ func TestRunCancellationStopsReconciliationAndClosesWatcher(t *testing.T) {
 	if err := next(t, done); !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancellation = %v", err)
 	}
-	if len(w.WatchList()) != 0 {
+	select {
+	case _, ok := <-w.events:
+		if ok {
+			t.Fatal("watcher event stream was not closed")
+		}
+	case <-time.After(time.Second):
 		t.Fatal("watcher was not closed")
 	}
 	if err := Run(ctx, t.TempDir(), func(context.Context) error { t.Error("called after cancellation"); return nil }, nil); !errors.Is(err, context.Canceled) {
