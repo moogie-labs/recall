@@ -255,6 +255,59 @@ func TestNativeRejectsZeroVectorsDuplicateIndicesAndInvalidTokens(t *testing.T) 
 	}
 }
 
+// One nonzero numeric component makes the old null-to-zero conversion pass
+// shape, finite-value and normalization checks. Literal numeric zero must stay
+// valid; null/string/bool/object/array values must never become numeric zero.
+func wireVector(element string) string { return "[1" + strings.Repeat(","+element, 767) + "]" }
+
+func TestNativeRejectsNonNumericVectorElements(t *testing.T) {
+	for _, element := range []string{"null", `"0"`, "false", "{}", "[]", "0"} {
+		t.Run(element, func(t *testing.T) {
+			n := testNative(t, func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/tokenize" {
+					w.Write([]byte(`{"tokens":[0,1]}`))
+					return
+				}
+				w.Write([]byte(`{"data":[{"index":0,"embedding":` + wireVector(element) + `}]}`))
+			})
+			vectors, err := n.Embed(context.Background(), "query", []string{"secret prompt"})
+			if element == "0" {
+				if err != nil || len(vectors) != 1 || vectors[0][0] != 1 {
+					t.Fatal("numeric zero rejected", err)
+				}
+				return
+			}
+			if model.ErrorCode(err) != "runtime_unavailable" {
+				t.Fatalf("non-numeric vector components accepted: %v", err)
+			}
+			if strings.Contains(err.Error(), "secret") {
+				t.Fatal("prompt leaked", err)
+			}
+		})
+	}
+}
+
+func TestNativeRejectsNonNumericTokenElements(t *testing.T) {
+	for _, element := range []string{"null", `"0"`, "false", "{}", "[]", "0"} {
+		t.Run(element, func(t *testing.T) {
+			n := testNative(t, func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(`{"tokens":[` + element + `]}`)) })
+			tokens, err := n.Tokenize(context.Background(), "secret prompt")
+			if element == "0" {
+				if err != nil || len(tokens) != 1 || tokens[0] != 0 {
+					t.Fatal("numeric token zero rejected", err)
+				}
+				return
+			}
+			if model.ErrorCode(err) != "runtime_unavailable" {
+				t.Fatalf("non-numeric token accepted: %v %v", tokens, err)
+			}
+			if strings.Contains(err.Error(), "secret") {
+				t.Fatal("prompt leaked", err)
+			}
+		})
+	}
+}
+
 func TestVerifyAssetsRejectsConflictingOrTamperedWeights(t *testing.T) {
 	cfg := testConfig(t)
 	if err := verifyAssets(context.Background(), cfg); model.ErrorCode(err) != "asset_invalid" {

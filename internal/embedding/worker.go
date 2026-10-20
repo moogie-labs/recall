@@ -53,8 +53,9 @@ func defaultWorkerOptions() workerOptions {
 // RunWorker is the hidden executable entry. The same entry also hosts a small
 // guardian, connected only by inherited anonymous descriptors. On macOS there
 // is no parent-death signal: the guardian observes manager pipe EOF (including
-// SIGKILL), terminates and reaps its native child, then releases the inherited
-// lifetime lock. No pidfile or unrelated process is ever signalled.
+// SIGKILL) and reaps native. The manager also retains cleanup authority over a
+// private process group if the guardian crashes. Native inherits an ownership
+// lease until actual exit. No pidfile or unrelated process is ever signalled.
 func RunWorker(ctx context.Context, cfg config.Config) error {
 	return runWorker(ctx, cfg, defaultWorkerOptions())
 }
@@ -95,16 +96,13 @@ func runWorker(ctx context.Context, cfg config.Config, opts workerOptions) error
 	}
 	guard := opts.command(cfg)
 	guard.Env = append(commandEnv(guard), guardianEnv+"=1")
-	guard.ExtraFiles = []*os.File{read, lifetime}
-	child, err := startOwned(guard)
+	child, err := startGuardian(guard, read, write, lifetime)
 	read.Close()
 	if err != nil {
 		write.Close()
 		return unavailable("cannot start native guardian")
 	}
-	// Outer shutdown deadlines must exceed the guardian's native-child grace
-	// period, otherwise killing the guardian could orphan a stubborn native.
-	defer func() { write.Close(); child.waitOrStop(5 * time.Second) }()
+	defer child.stop()
 	n := newNative(p.native)
 	defer n.http.CloseIdleConnections()
 	startup, stopStartup := context.WithTimeout(ctx, opts.startup)
@@ -222,6 +220,27 @@ type workerResponse struct {
 	Code    string      `json:"code,omitempty"`
 }
 
+func (r *workerResponse) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Tokens  numberArray[int]       `json:"tokens"`
+		Vectors []numberArray[float32] `json:"vectors"`
+		Code    string                 `json:"code"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	r.Tokens = []int(wire.Tokens)
+	r.Code = wire.Code
+	r.Vectors = nil
+	if wire.Vectors != nil {
+		r.Vectors = make([][]float32, len(wire.Vectors))
+		for i, v := range wire.Vectors {
+			r.Vectors[i] = []float32(v)
+		}
+	}
+	return nil
+}
+
 func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(v)
@@ -230,24 +249,41 @@ func writeJSON(w http.ResponseWriter, v any) {
 func runGuardian(ctx context.Context, cfg config.Config, opts workerOptions) error {
 	pipe := os.NewFile(3, "manager-lifetime")
 	lock := os.NewFile(4, "worker-ownership")
-	if pipe == nil || lock == nil {
+	nativeLife := os.NewFile(5, "native-lifetime")
+	guardLife := os.NewFile(6, "guardian-lifetime")
+	if pipe == nil || lock == nil || nativeLife == nil || guardLife == nil {
 		return unavailable("native guardian requires inherited ownership")
 	}
 	defer pipe.Close()
 	defer lock.Close()
+	defer nativeLife.Close()
+	defer guardLife.Close()
 	unix.CloseOnExec(3)
 	unix.CloseOnExec(4)
+	unix.CloseOnExec(5)
+	unix.CloseOnExec(6)
 	if s, err := pipe.Stat(); err != nil || s.Mode()&os.ModeNamedPipe == 0 {
 		return unavailable("invalid native guardian pipe")
 	}
 	if s, err := lock.Stat(); err != nil || !s.Mode().IsRegular() {
 		return unavailable("invalid native guardian lock")
 	}
+	for _, f := range []*os.File{nativeLife, guardLife} {
+		if s, err := f.Stat(); err != nil || s.Mode()&os.ModeNamedPipe == 0 {
+			return unavailable("invalid native lifetime pipe")
+		}
+	}
 	p, err := socketPaths(cfg)
 	if err != nil {
 		return err
 	}
-	child, err := startOwned(opts.nativeCommand(cfg, p.native))
+	cmd := opts.nativeCommand(cfg, p.native)
+	// Native stays in the guardian's private group from fork onward. These
+	// inherited descriptors retain singleton ownership and report actual exit
+	// even if the guardian is killed and cannot run its deferred cleanup.
+	cmd.ExtraFiles = []*os.File{lock, nativeLife}
+	child, err := startOwned(cmd)
+	nativeLife.Close()
 	if err != nil {
 		return unavailable("cannot launch native runtime")
 	}
@@ -262,6 +298,71 @@ func runGuardian(ctx context.Context, cfg config.Config, opts workerOptions) err
 	case <-child.done:
 		return child.failure("native runtime exited")
 	}
+}
+
+// guardProcess deliberately does NOT Wait/reap on its EOF notification. Its
+// still-owned child PID pins the private group identity (alive or zombie), so
+// group cleanup cannot target a reused PID/PGID. Only after native's inherited
+// lifetime pipe reaches EOF do we reap the guardian and release ownership.
+type guardProcess struct {
+	cmd              *exec.Cmd
+	control          *os.File
+	done, nativeDone <-chan struct{}
+	once             sync.Once
+}
+
+func startGuardian(cmd *exec.Cmd, controlRead, controlWrite, lifetime *os.File) (*guardProcess, error) {
+	nativeRead, nativeWrite, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	guardRead, guardWrite, err := os.Pipe()
+	if err != nil {
+		nativeRead.Close()
+		nativeWrite.Close()
+		return nil, err
+	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.ExtraFiles = []*os.File{controlRead, lifetime, nativeWrite, guardWrite}
+	err = cmd.Start()
+	nativeWrite.Close()
+	guardWrite.Close()
+	if err != nil {
+		nativeRead.Close()
+		guardRead.Close()
+		return nil, err
+	}
+	return &guardProcess{cmd: cmd, control: controlWrite, done: pipeEOF(guardRead), nativeDone: pipeEOF(nativeRead)}, nil
+}
+
+func pipeEOF(f *os.File) <-chan struct{} {
+	done := make(chan struct{})
+	go func() { io.Copy(io.Discard, f); f.Close(); close(done) }()
+	return done
+}
+
+func (p *guardProcess) stop() {
+	p.once.Do(func() {
+		p.control.Close()
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+		select {
+		case <-p.done:
+		case <-timer.C:
+		}
+		// The guardian is an unreaped owned child, not a PID recovered from
+		// disk. Its group contains only this guardian and its native child.
+		// SIGKILL also handles a native that ignores graceful termination.
+		unix.Kill(-p.cmd.Process.Pid, unix.SIGKILL)
+		<-p.nativeDone
+		<-p.done
+		p.cmd.Wait()
+	})
+}
+
+func (p *guardProcess) failure(message string) error {
+	p.stop()
+	return unavailable(fmt.Sprintf("%s (%s)", message, p.cmd.ProcessState.String()))
 }
 
 func commandEnv(cmd *exec.Cmd) []string {

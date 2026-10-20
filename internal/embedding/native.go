@@ -79,9 +79,37 @@ func decodeJSON(r io.Reader, out any) error {
 	return nil
 }
 
+// Scalar encoding/json decoding treats null as a no-op on numeric values.
+// Validate each raw element's numeric kind before converting, so a malformed
+// null cannot become a valid-looking zero token or embedding component.
+type numberArray[T int | float32] []T
+
+func (a *numberArray[T]) UnmarshalJSON(data []byte) error {
+	data = bytes.TrimSpace(data)
+	if len(data) == 0 || data[0] != '[' {
+		return unavailable("inference numbers must be an array")
+	}
+	var raw []json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return unavailable("invalid inference number array")
+	}
+	values := make(numberArray[T], len(raw))
+	for i, item := range raw {
+		item = bytes.TrimSpace(item)
+		if len(item) == 0 || (item[0] != '-' && (item[0] < '0' || item[0] > '9')) {
+			return unavailable("inference array element must be numeric")
+		}
+		if err := json.Unmarshal(item, &values[i]); err != nil {
+			return unavailable("invalid inference number")
+		}
+	}
+	*a = values
+	return nil
+}
+
 func (n *native) Tokenize(ctx context.Context, text string) ([]int, error) {
 	var out struct {
-		Tokens []int `json:"tokens"`
+		Tokens numberArray[int] `json:"tokens"`
 	}
 	err := post(ctx, n.http, "/tokenize", struct {
 		Content    string `json:"content"`
@@ -121,8 +149,8 @@ func (n *native) Embed(ctx context.Context, purpose string, texts []string) ([][
 		end := min(start+MaxBatch, len(formatted))
 		var out struct {
 			Data []struct {
-				Index     *int      `json:"index"`
-				Embedding []float32 `json:"embedding"`
+				Index     *int                 `json:"index"`
+				Embedding numberArray[float32] `json:"embedding"`
 			} `json:"data"`
 		}
 		err := post(ctx, n.http, "/v1/embeddings", struct {

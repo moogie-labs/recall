@@ -158,6 +158,136 @@ func TestNativeCrashStopsManagerAndRecovers(t *testing.T) {
 	stopFixtureWorker(t, cfg)
 }
 
+func TestGuardianCrashStopsNativeBeforeReleasingOwnership(t *testing.T) {
+	for _, stage := range []string{"startup", "serving"} {
+		t.Run(stage, func(t *testing.T) {
+			t.Setenv("HOME", shortHome(t))
+			// Bounds cleanup of the pre-fix orphan without signalling a PID from
+			// a file. The fixed manager must stop it well before this self-expiry.
+			t.Setenv("RECALL_TEST_IGNORE_TERM", "1")
+			if stage == "startup" {
+				t.Setenv("RECALL_TEST_SLOW", "1")
+			}
+			cfg := testConfig(t)
+			paths, err := socketPaths(cfg)
+			if err != nil {
+				t.Fatal(err)
+			}
+			opts := defaultWorkerOptions()
+			opts.idle = 10 * time.Second
+			opts.verify = func(context.Context, config.Config) error { return nil }
+			guardCtx, killGuard := context.WithCancel(context.Background())
+			defer killGuard()
+			opts.command = func(cfg config.Config) *exec.Cmd {
+				helper := helperCommand(cfg)
+				cmd := exec.CommandContext(guardCtx, helper.Args[0], helper.Args[1:]...)
+				cmd.Env = helper.Env
+				return cmd
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { done <- runWorker(ctx, cfg, opts) }()
+			waitFor(t, func() bool { _, err := os.Stat(filepath.Join(cfg.RunDir, "native-pid")); return err == nil })
+			nativePID := readPID(t, filepath.Join(cfg.RunDir, "native-pid")) // observation only
+			if stage == "serving" {
+				h := unixHTTP(paths.manager, 100*time.Millisecond)
+				defer h.CloseIdleConnections()
+				waitFor(t, func() bool { return checkHealth(context.Background(), h, cfg) == nil })
+			}
+			// CommandContext's synchronized watcher SIGKILLs this exact owned
+			// guardian. No pidfile, process-name lookup or unrelated process is
+			// signalled, and the test does not race reading Cmd.Process at Start.
+			killGuard()
+			select {
+			case err := <-done:
+				if err == nil {
+					t.Error("guardian crash was not reported")
+				}
+			case <-time.After(6 * time.Second):
+				t.Fatal("manager did not finish guardian-crash cleanup")
+			}
+			if !processGone(nativePID) {
+				lock, err := acquireLock(context.Background(), paths.lifetime, false)
+				if err == nil {
+					lock.Close()
+					t.Error("guardian crash left native alive with lifetime ownership available")
+				} else {
+					t.Error("guardian crash left native alive after manager returned")
+				}
+				waitFor(t, func() bool { return processGone(nativePID) })
+			}
+			// A new owner is admitted only after the old native has actually exited.
+			t.Setenv("RECALL_TEST_SLOW", "")
+			if _, err := testClient(cfg).Tokenize(context.Background(), "replacement"); err != nil {
+				t.Fatal(err)
+			}
+			b, _ := os.ReadFile(filepath.Join(cfg.RunDir, "native-starts"))
+			if len(strings.Fields(string(b))) != 2 {
+				t.Fatalf("unexpected native starts: %q", b)
+			}
+			stopFixtureWorker(t, cfg)
+		})
+	}
+}
+
+func TestGuardianCrashRetainsNativeLeaseUntilGroupCleanup(t *testing.T) {
+	t.Setenv("HOME", shortHome(t))
+	t.Setenv("RECALL_TEST_IGNORE_TERM", "1")
+	cfg := testConfig(t)
+	paths, _ := socketPaths(cfg)
+	if err := privateSocketDir(filepath.Dir(paths.manager)); err != nil {
+		t.Fatal(err)
+	}
+	lifetime, err := acquireLock(context.Background(), paths.lifetime, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lifetime.Close()
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer write.Close()
+	ctx, kill := context.WithCancel(context.Background())
+	defer kill()
+	helper := helperCommand(cfg)
+	cmd := exec.CommandContext(ctx, helper.Args[0], helper.Args[1:]...)
+	cmd.Env = append(helper.Env, guardianEnv+"=1")
+	guard, err := startGuardian(cmd, read, write, lifetime)
+	read.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer guard.stop()
+	waitFor(t, func() bool { _, err := os.Stat(filepath.Join(cfg.RunDir, "native-pid")); return err == nil })
+	nativePID := readPID(t, filepath.Join(cfg.RunDir, "native-pid"))
+	group, err := syscall.Getpgid(nativePID)
+	if err != nil || group != cmd.Process.Pid {
+		t.Fatal("native did not inherit private guardian group", group, err)
+	}
+	// Remove the manager's lock descriptor, then kill only its exact owned
+	// guardian. Native itself must retain the lease during this crash window.
+	lifetime.Close()
+	kill()
+	<-guard.done
+	if processGone(nativePID) {
+		t.Fatal("fixture native exited before cleanup authority was exercised")
+	}
+	probe, err := acquireLock(context.Background(), paths.lifetime, false)
+	if err == nil {
+		probe.Close()
+		t.Error("native lost lifetime ownership when guardian crashed")
+	}
+	guard.stop() // Actual group cleanup, not just retaining a flock.
+	waitFor(t, func() bool { return processGone(nativePID) })
+	probe, err = acquireLock(context.Background(), paths.lifetime, false)
+	if err != nil {
+		t.Fatal("lease not released after native exit", err)
+	}
+	probe.Close()
+}
+
 func TestNativeStartupExitIsExplicitAndDoesNotLeakPrompt(t *testing.T) {
 	t.Setenv("HOME", shortHome(t))
 	t.Setenv("RECALL_TEST_NATIVE_EXIT", "1")

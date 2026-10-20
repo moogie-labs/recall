@@ -263,6 +263,58 @@ func TestClientRejectsInvalidWorkerTokenProtocol(t *testing.T) {
 	}
 }
 
+func TestClientRejectsNonNumericWorkerElements(t *testing.T) {
+	for _, kind := range []string{"vectors", "tokens"} {
+		t.Run(kind, func(t *testing.T) {
+			for _, element := range []string{"null", `"0"`, "false", "{}", "[]", "0"} {
+				t.Run(element, func(t *testing.T) {
+					t.Setenv("HOME", shortHome(t))
+					cfg := testConfig(t)
+					paths, _ := socketPaths(cfg)
+					if err := privateSocketDir(filepath.Dir(paths.manager)); err != nil {
+						t.Fatal(err)
+					}
+					listener, err := net.Listen("unix", paths.manager)
+					if err != nil {
+						t.Fatal(err)
+					}
+					s := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						if r.URL.Path == "/health" {
+							root, _ := filepath.EvalSymlinks(cfg.Root)
+							json.NewEncoder(w).Encode(map[string]any{"version": 1, "root": root, "model_signature": "test-model"})
+							return
+						}
+						if kind == "vectors" {
+							w.Write([]byte(`{"vectors":[` + wireVector(element) + `]}`))
+						} else {
+							w.Write([]byte(`{"tokens":[` + element + `]}`))
+						}
+					})}
+					go s.Serve(listener)
+					defer s.Close()
+					if kind == "vectors" {
+						_, err = testClient(cfg).Embed(context.Background(), "query", []string{"secret prompt"})
+					} else {
+						_, err = testClient(cfg).Tokenize(context.Background(), "secret prompt")
+					}
+					if element == "0" {
+						if err != nil {
+							t.Fatal("numeric zero rejected", err)
+						}
+						return
+					}
+					if model.ErrorCode(err) != "runtime_unavailable" {
+						t.Fatalf("non-numeric worker %s accepted: %v", kind, err)
+					}
+					if strings.Contains(err.Error(), "secret") {
+						t.Fatal("prompt leaked", err)
+					}
+				})
+			}
+		})
+	}
+}
+
 func TestClientBatchesWorkerRequests(t *testing.T) {
 	t.Setenv("HOME", shortHome(t))
 	cfg := testConfig(t)
