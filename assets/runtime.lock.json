@@ -1,0 +1,9 @@
+{
+  "id": "b11669",
+  "version": "v0.7.0",
+  "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11669/llama-b11669-bin-macos-arm64.tar.gz",
+  "sha256": "dbed55493d72bc1ba2babc8770d669c2289b5bc4ee9fb2a4dfc158d45b7d13fd",
+  "filename": "llama-b11669-bin-macos-arm64.tar.gz",
+  "license": "MIT",
+  "size": 12191582
+}
