@@ -12,8 +12,185 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+	"recall/internal/cli"
 	"recall/internal/model"
 )
+
+type documentPage struct {
+	Documents   []model.DocumentSummary `json:"documents"`
+	Diagnostics []model.Diagnostic      `json:"diagnostics"`
+	NextOffset  *int                    `json:"next_offset"`
+}
+
+func TestDocumentsListInvalidOnlyDiagnosticsAreDiscoverableAndPaged(t *testing.T) {
+	for _, version := range []string{"", "2025-06-18"} {
+		t.Run(version, func(t *testing.T) {
+			sources := map[string]string{
+				"a-malformed.note.md": "---\ntitle: [unterminated\n---\nprivate-invalid-body\n",
+				"b-conflict.note.md":  "---\nid: conflict\ntype: task\n---\nprivate-invalid-body\n",
+				"c-duplicate.note.md": "---\nid: shared\ntype: note\n---\nprivate-invalid-body\n",
+				"d-duplicate.task.md": "---\nid: shared\ntype: task\n---\nprivate-invalid-body\n",
+			}
+			a, cfg := newTestAppWithSources(t, sources)
+			s := connect(t, a, version)
+			want := []struct{ path, code string }{{"a-malformed.note.md", "invalid_document"}, {"b-conflict.note.md", "type_mismatch"}, {"c-duplicate.note.md", "duplicate_id"}, {"d-duplicate.task.md", "duplicate_id"}}
+			for offset := 0; offset < 4; offset += 2 {
+				r := call(t, s, "documents_list", map[string]any{"limit": 2, "offset": offset, "kinds": []string{"note"}, "desc": true})
+				page := data[documentPage](t, r)
+				if len(page.Documents) != 0 || len(page.Diagnostics) != 2 {
+					t.Fatalf("offset %d: invalid sources are hidden or unbounded: %+v", offset, page)
+				}
+				for n, diagnostic := range page.Diagnostics {
+					if diagnostic.Path != want[offset+n].path || diagnostic.Code != want[offset+n].code || diagnostic.Message == "" {
+						t.Fatalf("offset %d diagnostic %d: %+v", offset, n, diagnostic)
+					}
+				}
+				if offset == 0 && (page.NextOffset == nil || *page.NextOffset != 2) || offset == 2 && page.NextOffset != nil {
+					t.Fatalf("diagnostic cursor: %+v", page)
+				}
+				b, _ := json.Marshal(r)
+				if bytes.Contains(b, []byte("private-invalid-body")) {
+					t.Fatal("diagnostics leaked raw source")
+				}
+			}
+			page := data[documentPage](t, call(t, s, "documents_list", map[string]any{"limit": 2, "offset": 4}))
+			if page.Documents == nil || page.Diagnostics == nil || len(page.Documents)+len(page.Diagnostics) != 0 || page.NextOffset != nil {
+				t.Fatalf("exhausted diagnostic cursor: %+v", page)
+			}
+			// Preserve the actual App messages, not just codes, and let clients act
+			// on a discovered path even though it is not a valid-document summary.
+			snapshot, err := a.List(t.Context(), "", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			all := data[documentPage](t, call(t, s, "documents_list", map[string]any{}))
+			if !reflect.DeepEqual(all.Diagnostics, snapshot.Diagnostics) {
+				t.Fatalf("diagnostics changed: %+v want %+v", all.Diagnostics, snapshot.Diagnostics)
+			}
+			// CLI keeps its existing diagnostic visibility independently of MCP's
+			// new shared pagination budget, in both JSON and human output.
+			for _, jsonMode := range []bool{false, true} {
+				args := []string{"--root", cfg.Root, "document", "list", "--type", "task", "--limit", "1"}
+				if jsonMode {
+					args = append(args, "--json")
+				}
+				var out, logs bytes.Buffer
+				if code := cli.Run(t.Context(), args, strings.NewReader(""), &out, &logs); code != 0 {
+					t.Fatalf("CLI diagnostics: exit %d: %s %s", code, &out, &logs)
+				}
+				if jsonMode {
+					var envelope struct {
+						Data documentPage `json:"data"`
+					}
+					if err := json.Unmarshal(out.Bytes(), &envelope); err != nil || !reflect.DeepEqual(envelope.Data.Diagnostics, snapshot.Diagnostics) {
+						t.Fatalf("CLI JSON diagnostics: %s %v", &out, err)
+					}
+				} else {
+					for _, diagnostic := range snapshot.Diagnostics {
+						if !strings.Contains(logs.String(), diagnostic.Path+": "+diagnostic.Code+": "+diagnostic.Message) {
+							t.Fatalf("CLI human diagnostic missing: %+v: %s", diagnostic, &logs)
+						}
+					}
+				}
+			}
+			for _, diagnostic := range all.Diagnostics {
+				errorCode(t, call(t, s, "document_get", map[string]any{"path": diagnostic.Path}), diagnostic.Code)
+			}
+			if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), ".cache", "recall")); !os.IsNotExist(err) {
+				t.Fatalf("invalid-source listing started inference: %v", err)
+			}
+		})
+	}
+}
+
+func TestDocumentsListMixedSourcesShareOnePaginationBudget(t *testing.T) {
+	a, _ := newTestAppWithSources(t, map[string]string{
+		"bad.note.md":    "---\ntitle: [unterminated\n---\nprivate-invalid-body\n",
+		"good-a.note.md": "---\nid: b\ntype: note\ntitle: Same\n---\nprivate-valid-body\n",
+		"good-b.note.md": "---\nid: a\ntype: note\ntitle: Same\n---\nprivate-valid-body\n",
+		"good-z.note.md": "---\nid: z\ntype: note\ntitle: Zulu\n---\nprivate-valid-body\n",
+	})
+	s := connect(t, a, "")
+	for _, tc := range []struct {
+		offset      int
+		desc        bool
+		ids         []string
+		diagnostics int
+		next        int
+	}{
+		{0, false, []string{"a"}, 1, 2},
+		{2, false, []string{"b", "z"}, 0, -1},
+		{0, true, []string{"z"}, 1, 2},
+		{1, true, []string{"z", "a"}, 0, 3},
+		{3, true, []string{"b"}, 0, -1},
+		{4, false, []string{}, 0, -1},
+		{100, false, []string{}, 0, -1},
+	} {
+		r := call(t, s, "documents_list", map[string]any{"limit": 2, "offset": tc.offset, "desc": tc.desc})
+		page := data[documentPage](t, r)
+		ids := make([]string, len(page.Documents))
+		for n, d := range page.Documents {
+			ids[n] = d.ID
+		}
+		if !reflect.DeepEqual(ids, tc.ids) || len(page.Diagnostics) != tc.diagnostics || len(page.Documents)+len(page.Diagnostics) > 2 {
+			t.Fatalf("offset %d desc %v: shared page budget/order: %+v", tc.offset, tc.desc, page)
+		}
+		if tc.next < 0 && page.NextOffset != nil || tc.next >= 0 && (page.NextOffset == nil || *page.NextOffset != tc.next) {
+			t.Fatalf("cursor: %+v", page)
+		}
+		b, _ := json.Marshal(r)
+		if bytes.Contains(b, []byte("private-valid-body")) || bytes.Contains(b, []byte("private-invalid-body")) {
+			t.Fatal("mixed listing leaked source")
+		}
+	}
+}
+
+func TestDocumentsListDiagnosticFolderScopeAndKindFilters(t *testing.T) {
+	a, _ := newTestAppWithSources(t, map[string]string{
+		"bad.note.md":            "---\ntitle: [unterminated\n---\n",
+		"work/bad.task.md":       "---\ntype: note\n---\n",
+		"work/sub/bad.note.md":   "---\ntitle: [unterminated\n---\n",
+		"outside/bad.note.md":    "---\ntitle: [unterminated\n---\n",
+		"work/valid.note.md":     "---\nid: note\ntype: note\n---\nnote body\n",
+		"work/sub/valid.task.md": "---\nid: task\ntype: task\n---\ntask body\n",
+	})
+	s := connect(t, a, "")
+	for _, tc := range []struct {
+		folder    string
+		recursive bool
+		kinds     []string
+		paths     []string
+		ids       []string
+	}{
+		{"work", false, []string{"note"}, []string{"work/bad.task.md"}, []string{"note"}},
+		{"work", true, []string{"task"}, []string{"work/bad.task.md", "work/sub/bad.note.md"}, []string{"task"}},
+		{"work", false, []string{"task"}, []string{"work/bad.task.md"}, []string{}},
+		{".", false, []string{"task"}, []string{"bad.note.md"}, []string{}},
+		{"", false, []string{"task"}, []string{"bad.note.md", "outside/bad.note.md", "work/bad.task.md", "work/sub/bad.note.md"}, []string{"task"}},
+	} {
+		page := data[documentPage](t, call(t, s, "documents_list", map[string]any{"folder": tc.folder, "recursive": tc.recursive, "kinds": tc.kinds}))
+		paths := make([]string, len(page.Diagnostics))
+		for n, d := range page.Diagnostics {
+			paths[n] = d.Path
+		}
+		ids := make([]string, len(page.Documents))
+		for n, d := range page.Documents {
+			ids[n] = d.ID
+		}
+		if !reflect.DeepEqual(paths, tc.paths) || !reflect.DeepEqual(ids, tc.ids) || page.NextOffset != nil {
+			t.Fatalf("folder %q recursive %v kinds %v: %+v", tc.folder, tc.recursive, tc.kinds, page)
+		}
+	}
+	// Scope and kind filtering happen before the shared cursor is applied.
+	page := data[documentPage](t, call(t, s, "documents_list", map[string]any{"folder": "work", "recursive": true, "kinds": []string{"task"}, "limit": 2}))
+	if len(page.Diagnostics) != 2 || len(page.Documents) != 0 || page.NextOffset == nil || *page.NextOffset != 2 {
+		t.Fatalf("filtered diagnostic page: %+v", page)
+	}
+	page = data[documentPage](t, call(t, s, "documents_list", map[string]any{"folder": "work", "recursive": true, "kinds": []string{"task"}, "limit": 2, "offset": 2}))
+	if len(page.Diagnostics) != 0 || len(page.Documents) != 1 || page.Documents[0].ID != "task" || page.NextOffset != nil {
+		t.Fatalf("filtered summary page: %+v", page)
+	}
+}
 
 func call(t *testing.T, s *mcp.ClientSession, name string, args any) *mcp.CallToolResult {
 	t.Helper()

@@ -84,10 +84,10 @@ type searchInput struct {
 type listInput struct {
 	Folder    string       `json:"folder,omitempty" jsonschema:"Empty means global; dot selects content root"`
 	Recursive bool         `json:"recursive,omitempty" jsonschema:"Include descendants of a specified folder; defaults false"`
-	Kinds     []model.Kind `json:"kinds,omitempty"`
-	Desc      bool         `json:"desc,omitempty"`
-	Limit     int          `json:"limit,omitempty" jsonschema:"Default 50; maximum 200"`
-	Offset    int          `json:"offset,omitempty"`
+	Kinds     []model.Kind `json:"kinds,omitempty" jsonschema:"Filter valid documents only; scoped diagnostics remain visible because invalid kinds cannot be trusted"`
+	Desc      bool         `json:"desc,omitempty" jsonschema:"Reverse document titles only; diagnostic order and ID tie-breaks remain ascending"`
+	Limit     int          `json:"limit,omitempty" jsonschema:"Shared document-plus-diagnostic page budget; default 50, maximum 200"`
+	Offset    int          `json:"offset,omitempty" jsonschema:"Nonnegative offset into diagnostics followed by documents"`
 }
 
 type pageInput struct {
@@ -108,8 +108,9 @@ type folderDeleteInput struct {
 }
 
 type documentsResult struct {
-	Documents  []model.DocumentSummary `json:"documents"`
-	NextOffset *int                    `json:"next_offset"`
+	Documents   []model.DocumentSummary `json:"documents"`
+	Diagnostics []model.Diagnostic      `json:"diagnostics" jsonschema:"Actionable source errors; these share the page budget and cursor with documents"`
+	NextOffset  *int                    `json:"next_offset"`
 }
 type foldersResult struct {
 	Folders    []string `json:"folders"`
@@ -164,7 +165,7 @@ func registerTools(server *mcp.Server, a *app.App) {
 		}
 		return searchResult{Hits: hits}, err
 	})
-	addTool(server, "documents_list", "List bounded metadata only, ordered by title then stable ID. Use document_get for body/source; empty folder is global.", true, false, false, func(ctx context.Context, in listInput) (documentsResult, error) {
+	addTool(server, "documents_list", "List metadata and source diagnostics with one limit/offset budget. Diagnostics first (path/code/message ascending), then documents (title, ID); desc reverses titles only. Folder/recursive scope both; kinds filters documents only. Use document_get for content.", true, false, false, func(ctx context.Context, in listInput) (documentsResult, error) {
 		return listDocuments(ctx, a, in)
 	})
 	addTool(server, "document_get", "Get full document body, raw Markdown, revision and history by exactly one ID or content-relative path.", true, false, false, func(ctx context.Context, in refInput) (model.Document, error) { return a.Read(ctx, in.ref()) })
@@ -256,12 +257,27 @@ func listDocuments(ctx context.Context, a *app.App, in listInput) (documentsResu
 		}
 		return order
 	})
-	start, end, next := pageRange(len(documents), limit, in.Offset)
-	summaries := make([]model.DocumentSummary, end-start)
-	for n, d := range documents[start:end] {
+	diagnostics := snapshot.Diagnostics
+	slices.SortFunc(diagnostics, func(a, b model.Diagnostic) int {
+		if order := strings.Compare(a.Path, b.Path); order != 0 {
+			return order
+		}
+		if order := strings.Compare(a.Code, b.Code); order != 0 {
+			return order
+		}
+		return strings.Compare(a.Message, b.Message)
+	})
+	// One logical stream: scoped diagnostics, then filtered valid documents.
+	// Neither array gets a separate allowance, including pages across the seam.
+	count := len(diagnostics)
+	start, end, next := pageRange(count+len(documents), limit, in.Offset)
+	diagnosticPage := append([]model.Diagnostic{}, diagnostics[min(start, count):min(end, count)]...)
+	documentPage := documents[max(0, start-count):max(0, end-count)]
+	summaries := make([]model.DocumentSummary, len(documentPage))
+	for n, d := range documentPage {
 		summaries[n] = model.Summarize(d)
 	}
-	return documentsResult{Documents: summaries, NextOffset: next}, nil
+	return documentsResult{Documents: summaries, Diagnostics: diagnosticPage, NextOffset: next}, nil
 }
 
 func pageLimit(limit, offset int) (int, error) {

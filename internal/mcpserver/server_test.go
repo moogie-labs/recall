@@ -30,6 +30,12 @@ func TestMain(m *testing.M) {
 
 func newTestApp(t testing.TB) *app.App {
 	t.Helper()
+	a, _ := newTestAppWithSources(t, nil)
+	return a
+}
+
+func newTestAppWithSources(t testing.TB, sources map[string]string) (*app.App, config.Config) {
+	t.Helper()
 	t.Setenv("HOME", t.TempDir())
 	cfg, err := config.Resolve(t.TempDir())
 	if err != nil {
@@ -37,6 +43,15 @@ func newTestApp(t testing.TB) *app.App {
 	}
 	if err := config.Prepare(cfg); err != nil {
 		t.Fatal(err)
+	}
+	for path, raw := range sources {
+		filename := filepath.Join(cfg.Content, path)
+		if err := os.MkdirAll(filepath.Dir(filename), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filename, []byte(raw), 0600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	a, err := app.Open(t.Context(), cfg)
 	if err != nil {
@@ -47,7 +62,7 @@ func newTestApp(t testing.TB) *app.App {
 			t.Error(err)
 		}
 	})
-	return a
+	return a, cfg
 }
 
 func connect(t *testing.T, a *app.App, version string) *mcp.ClientSession {
@@ -115,6 +130,28 @@ func TestDiscoverySchemasAndProtocolVersionsWithoutInference(t *testing.T) {
 					}
 					if !bytes.Contains(b, []byte(`"revision"`)) || !bytes.Contains(b, []byte(`"created_at"`)) || !bytes.Contains(b, []byte(`"state_changed_at"`)) {
 						t.Fatalf("incomplete metadata schema: %s", b)
+					}
+				}
+				if tool.Name == "documents_list" {
+					type schemaShape struct {
+						Properties map[string]schemaShape `json:"properties"`
+						Items      *schemaShape           `json:"items"`
+						Required   []string               `json:"required"`
+						Type       json.RawMessage        `json:"type"`
+					}
+					var shape schemaShape
+					if err := json.Unmarshal(b, &shape); err != nil {
+						t.Fatal(err)
+					}
+					list := shape.Properties["data"]
+					diagnostics := list.Properties["diagnostics"]
+					if !slices.Contains(list.Required, "diagnostics") || diagnostics.Items == nil || len(diagnostics.Items.Properties) != 3 {
+						t.Fatalf("missing typed diagnostic output schema: %s", b)
+					}
+					for _, field := range []string{"path", "code", "message"} {
+						if !slices.Contains(diagnostics.Items.Required, field) || string(diagnostics.Items.Properties[field].Type) != `"string"` {
+							t.Fatalf("missing diagnostic %s schema: %s", field, b)
+						}
 					}
 				}
 				if tool.Name == "document_delete" || tool.Name == "folder_delete" || tool.Name == "document_update" {
