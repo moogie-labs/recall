@@ -43,7 +43,7 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func TestHelpAndUnavailableAdaptersDoNotOpenCollection(t *testing.T) {
+func TestHelpAndNonterminalRootDoNotOpenCollection(t *testing.T) {
 	r := Runner{open: func(context.Context, config.Config) (*app.App, error) {
 		t.Fatal("opened app for help/placeholder")
 		return nil, nil
@@ -52,7 +52,7 @@ func TestHelpAndUnavailableAdaptersDoNotOpenCollection(t *testing.T) {
 		var out, logs bytes.Buffer
 		code := r.Run(t.Context(), args, strings.NewReader(""), &out, &logs)
 		if len(args) == 0 {
-			if code != 1 || !strings.Contains(logs.String(), "unavailable") {
+			if code != 1 || !strings.Contains(logs.String(), "terminal") {
 				t.Fatalf("%v: %d %s", args, code, logs.String())
 			}
 		} else if code != 0 || !strings.Contains(out.String(), "Usage:") {

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"golang.org/x/sys/unix"
 
@@ -24,8 +25,9 @@ type Entry struct {
 }
 
 type Store struct {
-	content *os.File
-	run     *os.File
+	content     *os.File
+	run         *os.File
+	contentPath string
 }
 
 // Open requires explicit initialization; it never creates the layout. Directory
@@ -68,7 +70,47 @@ func Open(cfg config.Config) (*Store, error) {
 		content.Close()
 		return nil, err
 	}
-	return &Store{content: content, run: run}, nil
+	return &Store{content: content, run: run, contentPath: filepath.Join(cfg.Root, "content")}, nil
+}
+
+// SourcePath resolves an actual regular source for an external editor. Unlike
+// descriptor-based reads, an editor needs a pathname: reject replaced roots and
+// symlinked ancestors as well as symlinked content entries at handoff time.
+// No pathname API can prevent a non-cooperating rename after this check.
+func (s *Store) SourcePath(ctx context.Context, path string) (string, error) {
+	if _, err := s.Read(ctx, path); err != nil {
+		return "", err
+	}
+	if !filepath.IsAbs(s.contentPath) {
+		return "", appError("outside_root", path, "absolute content root required")
+	}
+	// Reuse the descriptor-producing no-follow directory walk for the actual
+	// absolute path too; don't follow a root/ancestor link even to inspect it.
+	dir, err := os.Open(string(filepath.Separator))
+	if err != nil {
+		return "", err
+	}
+	for _, part := range strings.Split(strings.TrimPrefix(s.contentPath, string(filepath.Separator)), string(filepath.Separator)) {
+		next, err := openDirectoryAt(dir, part, path)
+		dir.Close()
+		if err != nil {
+			return "", err
+		}
+		dir = next
+	}
+	defer dir.Close()
+	current, err := dir.Stat()
+	if err != nil {
+		return "", pathError(path, err)
+	}
+	pinned, err := s.content.Stat()
+	if err != nil {
+		return "", err
+	}
+	if !os.SameFile(current, pinned) {
+		return "", appError("outside_root", path, "content root was replaced; reopen the collection")
+	}
+	return filepath.Join(s.contentPath, path), nil
 }
 
 func (s *Store) Close() error { return errors.Join(s.content.Close(), s.run.Close()) }

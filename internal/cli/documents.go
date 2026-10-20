@@ -164,7 +164,7 @@ func (i *invocation) documentMutationCommand(verb string) *cobra.Command {
 }
 
 func (i *invocation) edit(a *app.App, ref model.Ref) (any, error) {
-	d, err := a.Read(i.ctx, ref)
+	path, err := a.EditorPath(i.ctx, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +172,7 @@ func (i *invocation) edit(a *app.App, ref model.Ref) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	command, err := editor.Command(cfg.Editor, filepath.Join(cfg.Content, d.Path))
+	command, err := editor.Command(cfg.Editor, path)
 	if err != nil {
 		return nil, err
 	}
@@ -190,5 +190,9 @@ func (i *invocation) edit(a *app.App, ref model.Ref) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	return a.Read(i.ctx, model.Ref{Path: d.Path})
+	relative, err := filepath.Rel(cfg.Content, path)
+	if err != nil {
+		return nil, err
+	}
+	return a.Read(i.ctx, model.Ref{Path: relative})
 }

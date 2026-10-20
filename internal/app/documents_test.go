@@ -146,8 +146,9 @@ func TestReferencesDiagnosticsAndConfinement(t *testing.T) {
 	if err != nil || len(s.Documents) != 0 || len(s.Diagnostics) != 4 {
 		t.Fatalf("diagnostics: %+v %v", s, err)
 	}
-	if err := a.Delete(ctx, model.Ref{Path: "broken.task.md"}, ""); model.ErrorCode(err) != "invalid_document" {
-		t.Fatalf("mutated diagnostic: %v", err)
+	// Explicit typed-path deletion is an intentional recovery operation (ruling 11).
+	if err := a.Delete(ctx, model.Ref{Path: "broken.task.md"}, ""); err != nil {
+		t.Fatalf("cannot delete invalid typed source: %v", err)
 	}
 }
 

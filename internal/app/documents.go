@@ -128,7 +128,23 @@ func (a *App) Move(ctx context.Context, ref model.Ref, destination, expectedRevi
 }
 
 func (a *App) Delete(ctx context.Context, ref model.Ref, expectedRevision string) error {
-	_, err := a.mutateDocument(ctx, ref, expectedRevision, func(current model.Document) (model.Document, error) {
+	if err := validateRef(ref); err != nil {
+		return err
+	}
+	_, err := a.mutate(ctx, func(snapshot model.Snapshot) (model.Document, error) {
+		var current model.Document
+		var err error
+		if ref.Path != "" {
+			current, err = a.typedSource(ctx, ref.Path)
+		} else {
+			current, err = a.resolve(ctx, snapshot, ref)
+		}
+		if err != nil {
+			return model.Document{}, err
+		}
+		if expectedRevision != "" && expectedRevision != current.Revision {
+			return model.Document{}, appError("conflict", current.Path, "source revision changed")
+		}
 		return model.Document{}, a.store.Remove(ctx, current.Path, false)
 	})
 	return err
