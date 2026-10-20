@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -61,11 +62,17 @@ func (r Runner) Run(ctx context.Context, args []string, stdin io.Reader, stdout,
 	if stdin == nil {
 		stdin = strings.NewReader("")
 	}
-	i := &invocation{ctx: ctx, runner: r, stdin: stdin, stdout: stdout, stderr: stderr, json: wantsJSON(args)}
+	i := &invocation{ctx: ctx, runner: r, stdin: stdin, stdout: stdout, stderr: stderr}
 	root := i.rootCommand()
 	// Cobra interprets nil as "use os.Args"; this API's nil means no args.
 	root.SetArgs(append([]string{}, args...))
-	err := root.ExecuteContext(ctx)
+	command, err := root.ExecuteContextC(ctx)
+	if err != nil && !i.executed {
+		// Do not seed Cobra's mutable flag destination with fallback state:
+		// partial parsing can overwrite it before reaching a later --json.
+		fallbackJSON := wantsJSON(args, command)
+		i.json = fallbackJSON
+	}
 	if err != nil && !i.executed && model.ErrorCode(err) == "internal" {
 		err = invalid("invalid command or arguments; use --help")
 	}
@@ -108,7 +115,7 @@ func (i *invocation) rootCommand() *cobra.Command {
 	c.SetOut(i.stdout)
 	c.SetErr(i.stderr)
 	c.PersistentFlags().StringVar(&i.root, "root", "", "Collection root (default: RECALL_HOME or ~/.local/share/recall)")
-	c.PersistentFlags().BoolVar(&i.json, "json", i.json, "Emit one structured JSON result")
+	c.PersistentFlags().BoolVar(&i.json, "json", false, "Emit one structured JSON result")
 	c.SetFlagErrorFunc(func(*cobra.Command, error) error { return invalid("invalid flags; use --help") })
 	defaultHelp := c.HelpFunc()
 	c.SetHelpFunc(func(cmd *cobra.Command, args []string) {
@@ -305,19 +312,31 @@ func writeDocuments(out io.Writer, documents []model.Document) error {
 	return w.Flush()
 }
 
-// Cobra can stop parsing before a trailing global flag when input is invalid.
-// Preserve JSON error mode even then, but never inspect arguments after --.
-func wantsJSON(args []string) bool {
+// Recover only output-mode intent when Cobra stops before a trailing flag.
+// Use the selected command's flag definitions for arity, not a second parser:
+// a string flag can consume even --json or -- as its literal value. Unknown
+// flags have no known arity; flags belonging only to sibling commands stay unknown.
+func wantsJSON(args []string, command *cobra.Command) bool {
 	want := false
-	for _, arg := range args {
+	for at := 0; at < len(args); at++ {
+		arg := args[at]
 		if arg == "--" {
 			break
 		}
-		switch arg {
-		case "--json", "--json=true":
-			want = true
-		case "--json=false":
-			want = false
+		if !strings.HasPrefix(arg, "--") {
+			continue
+		}
+		name, value, equals := strings.Cut(arg[2:], "=")
+		if name == "json" {
+			if !equals {
+				want = true
+			} else if mode, err := strconv.ParseBool(value); err == nil {
+				want = mode
+			}
+			continue
+		}
+		if flag := command.Flags().Lookup(name); flag != nil && flag.NoOptDefVal == "" && !equals {
+			at++ // Required value, regardless of whether it starts with --.
 		}
 	}
 	return want
