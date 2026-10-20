@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
+	"sync"
 	"testing"
 
 	"recall/internal/model"
@@ -37,6 +39,135 @@ func TestResolveIgnoresWorkingDirectory(t *testing.T) {
 	}
 	if _, err := os.Stat(a.Root); !os.IsNotExist(err) {
 		t.Fatalf("Resolve created root: %v", err)
+	}
+}
+
+func TestPrepareIfAbsentCreatesSelectedIdentities(t *testing.T) {
+	cfg, err := Resolve(filepath.Join(t.TempDir(), "collection"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.ModelID, cfg.ModelSHA256, cfg.ModelSignature, cfg.RuntimeID = "model", "digest", "signature", "runtime"
+	got, err := PrepareIfAbsent(cfg)
+	if err != nil || !reflect.DeepEqual(got, cfg) {
+		t.Fatalf("initial publication: %+v %v; want %+v", got, err, cfg)
+	}
+}
+
+func TestPrepareIfAbsentCompetingNewRoots(t *testing.T) {
+	for range 8 {
+		cfg := Config{Root: filepath.Join(t.TempDir(), "new-collection"), Editor: []string{"nvim"}, Timezone: "Local"}
+		start := make(chan struct{})
+		errs := make(chan error, 16)
+		var wg sync.WaitGroup
+		for range cap(errs) {
+			wg.Go(func() {
+				<-start
+				_, err := PrepareIfAbsent(cfg)
+				errs <- err
+			})
+		}
+		close(start)
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			if err != nil {
+				t.Fatalf("competing initializer could not prepare a newly created root: %v", err)
+			}
+		}
+	}
+}
+
+func TestPrepareIfAbsentRejectsDanglingRootSymlink(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, "root-link")
+	if err := os.Symlink(filepath.Join(dir, "missing-target"), root); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PrepareIfAbsent(Config{Root: root}); err == nil {
+		t.Fatal("dangling root symlink accepted as an uninitialized directory")
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "missing-target")); !os.IsNotExist(err) {
+		t.Fatalf("created collection through a dangling root link: %v", err)
+	}
+}
+
+func TestPrepareIfAbsentReloadsWinnerAndPreservesUnknownBytes(t *testing.T) {
+	stale, err := Resolve(filepath.Join(t.TempDir(), "collection"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	stale.ModelID, stale.RuntimeID = "losing-model", "losing-runtime"
+	if err := Prepare(stale); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(stale.Root, "config.json")
+	winner := []byte("{\n  \"model_id\": \"winning-model\", \"runtime_id\": \"winning-runtime\",\n  \"editor\": [\"user-editor\", \"--keep\"], \"timezone\": \"America/New_York\",\n  \"future_user_settings\": {\"preserve\": true}\n}\n")
+	if err := os.WriteFile(configPath, winner, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{filepath.Join(stale.Content, "user.note.md"), stale.Database} {
+		if err := os.WriteFile(path, []byte("existing user bytes"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Force the publication path after an absent-config snapshot became stale,
+	// independent of scheduling or an early existence check in the public helper.
+	if err := prepare(stale, false); err != nil {
+		t.Fatal(err)
+	}
+	got, err := PrepareIfAbsent(stale)
+	if err != nil || got.ModelID != "winning-model" || got.RuntimeID != "winning-runtime" || got.Timezone != "America/New_York" || !reflect.DeepEqual(got.Editor, []string{"user-editor", "--keep"}) {
+		t.Fatalf("winner not reloaded: %+v %v", got, err)
+	}
+	for path, want := range map[string][]byte{configPath: winner, filepath.Join(stale.Content, "user.note.md"): []byte("existing user bytes"), stale.Database: []byte("existing user bytes")} {
+		raw, err := os.ReadFile(path)
+		if err != nil || string(raw) != string(want) {
+			t.Fatalf("competing publication changed %s: %q %v", path, raw, err)
+		}
+	}
+	entries, err := os.ReadDir(stale.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".config-") {
+			t.Fatalf("configuration stage leaked: %s", entry.Name())
+		}
+	}
+}
+
+func TestPrepareIfAbsentPreservesInvalidWinner(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "config.json")
+	winner := []byte("user's incomplete edit")
+	if err := os.WriteFile(path, winner, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PrepareIfAbsent(Config{Root: root}); model.ErrorCode(err) != "invalid_argument" {
+		t.Fatalf("invalid winner not reported: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil || string(raw) != string(winner) {
+		t.Fatalf("invalid winner overwritten: %q %v", raw, err)
+	}
+}
+
+func TestPrepareStillReplacesSavedPreferences(t *testing.T) {
+	cfg, err := Resolve(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Prepare(cfg); err != nil {
+		t.Fatal(err)
+	}
+	cfg.Editor, cfg.Timezone = []string{"replacement-editor"}, "America/New_York"
+	if err := Prepare(cfg); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Resolve(cfg.Root)
+	if err != nil || !reflect.DeepEqual(got, cfg) {
+		t.Fatalf("intentional Prepare replacement changed: %+v %v", got, err)
 	}
 }
 

@@ -2,9 +2,7 @@ package bootstrap
 
 import (
 	"context"
-	"errors"
 	"net/http"
-	"os"
 	"path/filepath"
 	"runtime"
 
@@ -38,20 +36,12 @@ func initialize(ctx context.Context, cfg config.Config, assetsDir string, progre
 	if !filepath.IsAbs(cfg.Root) {
 		return ready, &model.Error{Code: "invalid_argument", Message: "initialization requires an absolute collection root"}
 	}
-	// Always derive layout from the collection root, never caller-supplied paths.
-	resolved, err := config.Resolve(cfg.Root)
+	// Prepare only if absent, atomically publish without replacement, then reload
+	// the winner. Layout paths are derived from the root, not caller-supplied paths.
+	cfg.ModelID, cfg.ModelSHA256 = m.ID, m.SHA256
+	cfg.ModelSignature, cfg.RuntimeID = "sha256:"+m.SHA256, rt.ID
+	resolved, err := config.PrepareIfAbsent(cfg)
 	if err != nil {
-		return ready, err
-	}
-	configPath := filepath.Join(resolved.Root, "config.json")
-	if _, err := os.Lstat(configPath); errors.Is(err, os.ErrNotExist) {
-		resolved.Editor, resolved.Timezone = cfg.Editor, cfg.Timezone
-		resolved.ModelID, resolved.ModelSHA256 = m.ID, m.SHA256
-		resolved.ModelSignature, resolved.RuntimeID = "sha256:"+m.SHA256, rt.ID
-		if err := config.Prepare(resolved); err != nil {
-			return ready, err
-		}
-	} else if err != nil {
 		return ready, err
 	}
 	// An existing configuration is never rewritten during retries, including

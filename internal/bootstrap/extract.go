@@ -151,7 +151,7 @@ func extractVerifiedRuntime(ctx context.Context, archive io.Reader, r *os.Root, 
 func extractRuntime(ctx context.Context, archive io.Reader, r *os.Root) error {
 	gz, err := gzip.NewReader(archive)
 	if err != nil {
-		return invalidAsset("invalid runtime gzip archive")
+		return runtimeDecodingError(ctx, err, "invalid runtime gzip archive")
 	}
 	defer gz.Close()
 	tr := tar.NewReader(gz)
@@ -167,7 +167,7 @@ func extractRuntime(ctx context.Context, archive io.Reader, r *os.Root) error {
 			break
 		}
 		if err != nil {
-			return invalidAsset("invalid runtime tar archive")
+			return runtimeDecodingError(ctx, err, "invalid runtime tar archive")
 		}
 		name, err := archiveName(h.Name)
 		if err != nil {
@@ -218,7 +218,7 @@ func extractRuntime(ctx context.Context, archive io.Reader, r *os.Root) error {
 	}
 	// Drain to validate the gzip trailer, not just the tar end marker.
 	if _, err := io.Copy(io.Discard, &progressReader{ctx: ctx, r: gz}); err != nil {
-		return invalidAsset("invalid runtime gzip trailer")
+		return runtimeDecodingError(ctx, err, "invalid runtime gzip trailer")
 	}
 	for name, target := range links {
 		if err := r.Symlink(target, name); err != nil {
@@ -249,6 +249,16 @@ func extractRuntime(ctx context.Context, archive io.Reader, r *os.Root) error {
 		}
 	}
 	return ctx.Err()
+}
+
+func runtimeDecodingError(ctx context.Context, err error, message string) error {
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return invalidAsset(message)
 }
 
 func archiveName(name string) (string, error) {

@@ -4,7 +4,10 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -103,6 +106,7 @@ func TestRuntimeRejectsUnsafeArchivesWithoutEscapingStage(t *testing.T) {
 		{name: "llama-b11669/../escaped", body: "attack"},
 		{name: "other-prefix/llama-server", body: "attack"},
 		{name: "llama-b11669/libbad.dylib", kind: tar.TypeSymlink, link: "../../escaped"},
+		{name: "llama-b11669/libbad.dylib", kind: tar.TypeSymlink, link: "../../escaped.dylib"},
 		{name: "llama-b11669/libbad.dylib", kind: tar.TypeSymlink, link: "/absolute-escape"},
 		{name: "llama-b11669/arbitrary-link", kind: tar.TypeSymlink, link: "llama-server"},
 		{name: "llama-b11669/libbad.dylib", kind: tar.TypeSymlink, link: "missing.dylib"},
@@ -112,7 +116,7 @@ func TestRuntimeRejectsUnsafeArchivesWithoutEscapingStage(t *testing.T) {
 	} {
 		t.Run(entry.name+entry.link, func(t *testing.T) {
 			cfg := preparedConfig(t)
-			outside := filepath.Join(t.TempDir(), "untouched")
+			outside := filepath.Join(t.TempDir(), "untouched.dylib")
 			writeFile(t, outside, []byte("user work"))
 			if entry.link == "/absolute-escape" {
 				entry.link = outside
@@ -122,7 +126,6 @@ func TestRuntimeRejectsUnsafeArchivesWithoutEscapingStage(t *testing.T) {
 			}
 			raw, manifest := runtimeArchive(t,
 				tarEntry{name: "llama-b11669/llama-server", body: "staged but never installed"}, entry,
-				tarEntry{name: "llama-b11669/libbad.dylib/escaped", body: "attack through link"},
 			)
 			archive := filepath.Join(t.TempDir(), manifest.Filename)
 			writeFile(t, archive, raw)
@@ -136,6 +139,135 @@ func TestRuntimeRejectsUnsafeArchivesWithoutEscapingStage(t *testing.T) {
 			}
 			if _, err := os.Stat(filepath.Join(cfg.Root, "escaped")); !errors.Is(err, os.ErrNotExist) {
 				t.Fatalf("wrote outside stage: %v", err)
+			}
+		})
+	}
+}
+
+func TestRuntimeRejectsArchiveWritingThroughDylibLink(t *testing.T) {
+	cfg := preparedConfig(t)
+	raw, m := runtimeArchive(t,
+		tarEntry{name: "llama-b11669/llama-server", body: "server"},
+		tarEntry{name: "llama-b11669/libreal.dylib", body: "library"},
+		tarEntry{name: "llama-b11669/libalias.dylib", kind: tar.TypeSymlink, link: "libreal.dylib"},
+		tarEntry{name: "llama-b11669/libalias.dylib/escaped", body: "attack through link"},
+	)
+	archive := filepath.Join(t.TempDir(), m.Filename)
+	writeFile(t, archive, raw)
+	if err := installRuntime(t.Context(), cfg, archive, m); model.ErrorCode(err) != "asset_invalid" {
+		t.Fatalf("write-through archive accepted: %v", err)
+	}
+	entries, err := os.ReadDir(cfg.RuntimeDir)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("write-through archive left files: %v %v", entries, err)
+	}
+}
+
+// Fail precisely at a compressed-stream boundary, without relying on timing or
+// allowing gzip's buffered read-ahead to consume bytes beyond that boundary.
+type failingArchiveReader struct {
+	raw              []byte
+	offset, boundary int
+	err              error
+	beforeError      func()
+}
+
+func (r *failingArchiveReader) Read(p []byte) (int, error) {
+	if r.offset == r.boundary {
+		if r.beforeError != nil {
+			r.beforeError()
+		}
+		return 0, r.err
+	}
+	n := copy(p, r.raw[r.offset:r.boundary])
+	r.offset += n
+	return n, nil
+}
+
+func TestRuntimeDecodingPreservesActiveCancellation(t *testing.T) {
+	raw := runtimeDecodingFixture(t)
+	for _, phase := range []struct {
+		name     string
+		boundary int
+	}{
+		{"gzip_header", 0}, {"tar_header", 10}, {"gzip_trailer", len(raw) - 8},
+	} {
+		t.Run(phase.name, func(t *testing.T) {
+			r, err := os.OpenRoot(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer r.Close()
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			reader := &failingArchiveReader{raw: raw, boundary: phase.boundary, err: io.ErrUnexpectedEOF, beforeError: cancel}
+			if err := extractVerifiedRuntime(ctx, reader, r, fixtureManifest(raw)); !errors.Is(err, context.Canceled) {
+				t.Fatalf("active cancellation became corruption: %v", err)
+			}
+		})
+	}
+}
+
+func runtimeDecodingFixture(t *testing.T) []byte {
+	t.Helper()
+	var tarBytes, compressed bytes.Buffer
+	tw := tar.NewWriter(&tarBytes)
+	if err := tw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	gz := gzip.NewWriter(&compressed)
+	// Extra uncompressed bytes ensure tar EOF precedes the gzip trailer read.
+	if _, err := gz.Write(append(tarBytes.Bytes(), make([]byte, 64<<10)...)); err != nil {
+		t.Fatal(err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return compressed.Bytes()
+}
+
+func TestRuntimeDecodingPreservesContextErrors(t *testing.T) {
+	raw := runtimeDecodingFixture(t)
+	for _, phase := range []struct {
+		name     string
+		boundary int
+	}{
+		{"gzip_header", 0}, {"tar_header", 10}, {"gzip_trailer", len(raw) - 8},
+	} {
+		for _, cause := range []error{context.Canceled, context.DeadlineExceeded} {
+			t.Run(phase.name+"/"+cause.Error(), func(t *testing.T) {
+				r, err := os.OpenRoot(t.TempDir())
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer r.Close()
+				reader := &failingArchiveReader{raw: raw, boundary: phase.boundary, err: fmt.Errorf("interrupted archive read: %w", cause)}
+				if err := extractVerifiedRuntime(t.Context(), reader, r, fixtureManifest(raw)); !errors.Is(err, cause) {
+					t.Fatalf("%s lost cancellation identity: %v; want errors.Is(%v)", phase.name, err, cause)
+				}
+			})
+		}
+	}
+}
+
+func TestRuntimeDecodingStillRejectsCorruption(t *testing.T) {
+	raw := runtimeDecodingFixture(t)
+	raw[len(raw)-8] ^= 0xff // Gzip CRC, after the tar end marker.
+	for _, tc := range []struct {
+		name string
+		raw  []byte
+	}{
+		{"gzip_header", []byte("not a gzip archive")},
+		{"gzip_trailer", raw},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r, err := os.OpenRoot(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer r.Close()
+			if err := extractVerifiedRuntime(t.Context(), bytes.NewReader(tc.raw), r, fixtureManifest(tc.raw)); model.ErrorCode(err) != "asset_invalid" {
+				t.Fatalf("corrupt archive no longer rejected: %v", err)
 			}
 		})
 	}

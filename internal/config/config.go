@@ -1,5 +1,5 @@
-// Package config resolves the central collection without creating it. Only
-// Prepare, called by explicit initialization, creates the collection layout.
+// Package config resolves the central collection without creating it. Explicit
+// setup uses Prepare or PrepareIfAbsent to create the collection layout.
 package config
 
 import (
@@ -108,6 +108,29 @@ func Resolve(explicit string) (Config, error) {
 // Prepare creates private directories and durably persists the identities and
 // preferences supplied by initialization. It does not create a database schema.
 func Prepare(cfg Config) error {
+	return prepare(cfg, true)
+}
+
+// PrepareIfAbsent prepares a new collection without replacing a configuration
+// published by another initializer or editor. It always reloads the winning
+// configuration, including when publication loses a race. Existing collections
+// are only read; Prepare retains its intentional replacement behavior.
+func PrepareIfAbsent(cfg Config) (Config, error) {
+	if !filepath.IsAbs(cfg.Root) {
+		return Config{}, invalid("root must be absolute")
+	}
+	if _, err := os.Lstat(filepath.Join(cfg.Root, "config.json")); err == nil {
+		return Resolve(cfg.Root)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return Config{}, err
+	}
+	if err := prepare(cfg, false); err != nil {
+		return Config{}, err
+	}
+	return Resolve(cfg.Root)
+}
+
+func prepare(cfg Config, replace bool) error {
 	if !filepath.IsAbs(cfg.Root) {
 		return invalid("root must be absolute")
 	}
@@ -198,8 +221,20 @@ func Prepare(cfg Config) error {
 	if err := noSymlink(r, "config.json"); err != nil {
 		return err
 	}
-	if err := r.Rename(name, "config.json"); err != nil {
-		return err
+	if replace {
+		if err := r.Rename(name, "config.json"); err != nil {
+			return err
+		}
+	} else {
+		// A hard link atomically publishes complete, already-synced bytes only
+		// if the name is absent. An existence check followed by rename could
+		// clobber a winner; O_EXCL directly on config.json exposes partial JSON.
+		if err := r.Link(name, "config.json"); err != nil && !errors.Is(err, os.ErrExist) {
+			return err
+		}
+		if err := r.Remove(name); err != nil {
+			return err
+		}
 	}
 	dir, err := r.Open(".")
 	if err != nil {
@@ -257,8 +292,13 @@ func canonical(path string) (string, error) {
 		if !errors.Is(err, os.ErrNotExist) {
 			return "", err
 		}
-		if _, statErr := os.Lstat(path); statErr == nil {
-			return "", err
+		if info, statErr := os.Lstat(path); statErr == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return "", err
+			}
+			// Another initializer may have created this real path after the
+			// failed EvalSymlinks. Retry instead of returning its stale ENOENT.
+			continue
 		}
 		suffix = append(suffix, filepath.Base(path))
 		path = filepath.Dir(path)

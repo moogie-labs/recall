@@ -3,13 +3,16 @@ package bootstrap
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"recall/assets"
 	"recall/internal/app"
@@ -42,6 +45,138 @@ func TestPinnedManifestsUseImmutableReleaseIdentities(t *testing.T) {
 	if err := json.Unmarshal([]byte(assets.RuntimeLock()), &version); err != nil || version.Version != "v0.7.0" {
 		t.Fatalf("runtime release version: %+v %v", version, err)
 	}
+}
+
+func TestInitializeCompetingInitializersReloadPublishedWinner(t *testing.T) {
+	cfg, err := config.Resolve(filepath.Join(t.TempDir(), "collection"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Isolate config publication from concurrent creation/canonicalization of the root.
+	if err := os.Mkdir(cfg.Root, 0700); err != nil {
+		t.Fatal(err)
+	}
+	assetsDir := t.TempDir()
+	_, rt := runtimeArchive(t)
+	type outcome struct {
+		id    string
+		ready Readiness
+		err   error
+	}
+	const competitors = 16
+	results := make(chan outcome, competitors)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := range competitors {
+		wg.Go(func() {
+			m := fixtureManifest([]byte("fixture"))
+			m.ID = fmt.Sprintf("competing-model-%d", i)
+			<-start
+			ready, err := initialize(t.Context(), cfg, assetsDir, nil, m, rt, nil, "darwin-arm64")
+			results <- outcome{m.ID, ready, err}
+		})
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	winner, err := config.Resolve(cfg.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for got := range results {
+		wantCode := "asset_invalid"
+		if got.id == winner.ModelID {
+			wantCode = "runtime_unavailable" // The winner proceeds to the missing bundled archive.
+		}
+		if !got.ready.MetadataReady || got.ready.ModelReady || got.ready.RuntimeReady || model.ErrorCode(got.err) != wantCode {
+			t.Errorf("%s did not reload winner %s: readiness=%+v error=%v; want %s", got.id, winner.ModelID, got.ready, got.err, wantCode)
+		}
+	}
+}
+
+func TestInitializeLeavesMetadataUnlockedDuringDownload(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	requested, release := make(chan struct{}), make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
+	modelRaw := []byte("model fixture")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(requested)
+		select {
+		case <-release:
+			w.Write(modelRaw)
+		case <-r.Context().Done():
+		}
+	}))
+	defer server.Close()
+	defer unblock()
+	m := fixtureManifest(modelRaw)
+	m.URL = server.URL
+	raw, rt := runtimeArchive(t, tarEntry{name: "llama-b11669/llama-server", body: "server"})
+	cfg, err := config.Resolve(filepath.Join(t.TempDir(), "collection"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	assetsDir := t.TempDir()
+	archive := filepath.Join(assetsDir, "runtime", "darwin-arm64", rt.Filename)
+	if err := os.MkdirAll(filepath.Dir(archive), 0700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, archive, raw)
+	type outcome struct {
+		ready Readiness
+		err   error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		ready, err := initialize(ctx, cfg, assetsDir, nil, m, rt, server.Client(), "darwin-arm64")
+		done <- outcome{ready, err}
+	}()
+	select {
+	case <-requested:
+	case got := <-done:
+		t.Fatalf("initialization ended before download: %+v %v", got.ready, got.err)
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	saved, err := config.Resolve(cfg.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := app.Open(ctx, saved)
+	if err != nil {
+		t.Fatalf("metadata blocked by download: %v", err)
+	}
+	defer a.Close()
+	if _, err := a.Create(ctx, app.CreateInput{Kind: model.Note, Name: "while-downloading", Body: "user source"}); err != nil {
+		t.Fatalf("metadata write blocked by download: %v", err)
+	}
+	configPath := filepath.Join(cfg.Root, "config.json")
+	configRaw, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var settings map[string]any
+	if err := json.Unmarshal(configRaw, &settings); err != nil {
+		t.Fatal(err)
+	}
+	settings["editor"], settings["unknown_user_key"] = []string{"user-edited"}, "preserved"
+	configRaw, err = json.MarshalIndent(settings, "", "    ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, configPath, configRaw)
+	// Another initializer with a stale proposal must retain the published edit.
+	ready, err := initialize(ctx, cfg, assetsDir, nil, m, rt, nil, "linux-amd64")
+	if !ready.MetadataReady || model.ErrorCode(err) != "unsupported_platform" {
+		t.Fatalf("competing initializer: %+v %v", ready, err)
+	}
+	unblock()
+	got := <-done
+	if got.err != nil || !got.ready.ModelReady || !got.ready.RuntimeReady {
+		t.Fatalf("initialization after release: %+v %v", got.ready, got.err)
+	}
+	assertFile(t, configPath, configRaw)
 }
 
 func TestInitializeRejectsRelativeRootWithoutPreparingIt(t *testing.T) {
