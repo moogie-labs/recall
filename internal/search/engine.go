@@ -156,7 +156,7 @@ func (e *Engine) Search(ctx context.Context, q model.SearchQuery) ([]model.Hit, 
 				}
 				return err
 			}
-			if d.ID != hit.ID {
+			if d.ID != hit.ID || d.Revision != hit.Revision {
 				return indexing()
 			}
 			current, err := e.index.SourceCurrent(ctx, d)

@@ -241,3 +241,42 @@ func TestBodyEditInvalidatesOldSemanticRowsUntilDrained(t *testing.T) {
 		t.Fatalf("current semantic %+v %v calls=%d", h, err, p.calls.Load())
 	}
 }
+
+func TestAllRetrieversCarryActualSourceRevision(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	a, cfg := newTestApp(t)
+	defer a.Close()
+	installProvider(a, &appProvider{})
+	d := mustCreate(t, a, CreateInput{Kind: model.Task, Name: "source", Body: "needle original"})
+	for _, mode := range []string{"keyword", "semantic", "hybrid"} {
+		t.Run(mode, func(t *testing.T) {
+			hits, err := a.Search(t.Context(), model.SearchQuery{Text: "needle", Mode: mode})
+			if err != nil || len(hits) != 1 || hits[0].Revision != d.Revision {
+				t.Fatalf("%s displayed-source revision: %+v %v", mode, hits, err)
+			}
+		})
+	}
+	changed, err := a.SetState(t.Context(), model.Ref{ID: d.ID}, model.InProgress, d.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"keyword", "semantic", "hybrid"} {
+		hits, err := a.Search(t.Context(), model.SearchQuery{Text: "needle", Mode: mode})
+		if err != nil || len(hits) != 1 || hits[0].Revision != changed.Revision || hits[0].State != model.InProgress {
+			t.Fatalf("metadata-only %s revision: %+v %v", mode, hits, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(cfg.Content, d.Path), []byte(strings.Replace(changed.Raw, "needle original", "needle replacement", 1)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	latest, err := a.Read(t.Context(), model.Ref{ID: d.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"keyword", "semantic", "hybrid"} {
+		hits, err := a.Search(t.Context(), model.SearchQuery{Text: "needle", Mode: mode})
+		if err != nil || len(hits) != 1 || hits[0].Revision != latest.Revision || hits[0].Revision == changed.Revision {
+			t.Fatalf("external edit %s revision: %+v %v", mode, hits, err)
+		}
+	}
+}

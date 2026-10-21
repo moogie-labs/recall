@@ -36,6 +36,23 @@ func TestKeywordFTS5SearchesSourceFields(t *testing.T) {
 	}
 }
 
+func TestKeywordCarriesReturnedSourceRevision(t *testing.T) {
+	s := openTestStore(t)
+	d := fixture(t, "a", "work.note.md", "Work", "needle original")
+	apply(t, s, model.Snapshot{Documents: []model.Document{d}})
+	hits, err := s.Keyword(t.Context(), model.SearchQuery{Text: "needle"})
+	if err != nil || len(hits) != 1 || hits[0].Revision != d.Revision {
+		t.Fatalf("missing displayed-source revision: %+v %v", hits, err)
+	}
+	old := hits[0]
+	updated := fixture(t, "a", d.Path, "Work", "needle changed")
+	apply(t, s, model.Snapshot{Documents: []model.Document{updated}})
+	next, err := s.Keyword(t.Context(), model.SearchQuery{Text: "needle"})
+	if err != nil || len(next) != 1 || next[0].Revision != updated.Revision || old.Revision == next[0].Revision {
+		t.Fatalf("revision did not track result generation: old=%+v new=%+v %v", old, next, err)
+	}
+}
+
 func TestKeywordTreatsQueryAsLiteralTerms(t *testing.T) {
 	s := openTestStore(t)
 	apply(t, s, model.Snapshot{Documents: []model.Document{fixture(t, "literal", "literal.note.md", "Literal", "alpha OR beta state:completed"), fixture(t, "other", "other.note.md", "Other", "alpha gamma")}})

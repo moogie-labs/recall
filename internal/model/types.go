@@ -93,6 +93,7 @@ type Hit struct {
 	Title      string  `json:"title"`
 	Snippet    string  `json:"snippet"`
 	IndexState string  `json:"index_state"`
+	Revision   string  `json:"revision"` // Raw-source revision captured with this result.
 	Kind       Kind    `json:"kind"`
 	State      State   `json:"state"`
 	StartLine  int     `json:"start_line"`

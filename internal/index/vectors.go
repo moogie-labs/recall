@@ -218,7 +218,7 @@ func (s *Store) StreamVectors(ctx context.Context, f model.Filter, signature str
 		return err
 	}
 	args = append(args, signature)
-	rows, err := s.db.QueryContext(ctx, `SELECT d.id,d.path,d.title,d.kind,d.state,c.text,c.start_byte,c.end_byte,c.start_line,c.end_line,d.raw,d.body,e.dimensions,e.vector
+	rows, err := s.db.QueryContext(ctx, `SELECT d.id,d.path,d.title,d.kind,d.state,d.revision,c.text,c.start_byte,c.end_byte,c.start_line,c.end_line,d.raw,d.body,e.dimensions,e.vector
 	FROM embeddings e JOIN chunks c ON c.document_id=e.document_id AND c.ordinal=e.ordinal JOIN documents d ON d.id=e.document_id
 	JOIN vector_meta m ON m.signature=e.signature
 	WHERE `+where+` AND e.signature=? AND NOT EXISTS (SELECT 1 FROM embedding_jobs j WHERE j.document_id=d.id)
@@ -232,7 +232,7 @@ func (s *Store) StreamVectors(ctx context.Context, f model.Filter, signature str
 		var start, end, dim int
 		var raw, body string
 		var blob []byte
-		if err = rows.Scan(&h.ID, &h.Path, &h.Title, &h.Kind, &h.State, &h.Snippet, &start, &end, &h.StartLine, &h.EndLine, &raw, &body, &dim, &blob); err != nil {
+		if err = rows.Scan(&h.ID, &h.Path, &h.Title, &h.Kind, &h.State, &h.Revision, &h.Snippet, &start, &end, &h.StartLine, &h.EndLine, &raw, &body, &dim, &blob); err != nil {
 			return unavailable(ctx, err)
 		}
 		v, err := decodeVector(blob, dim)

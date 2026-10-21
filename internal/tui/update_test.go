@@ -1,7 +1,9 @@
 package tui
 
 import (
+	tea "charm.land/bubbletea/v2"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"recall/internal/app"
@@ -117,6 +119,178 @@ func TestDeletionCancellationAndSingleConfirmation(t *testing.T) {
 	execute(m, cmd)
 	if _, err = a.Read(t.Context(), model.Ref{ID: d.ID}); model.ErrorCode(err) != "not_found" {
 		t.Fatalf("confirm did not delete: %v", err)
+	}
+}
+
+func TestSearchHitMutationsRejectChangedOrReplacedSources(t *testing.T) {
+	for _, action := range []string{"move", "state", "delete"} {
+		for _, replacement := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/replaced=%v", action, replacement), func(t *testing.T) {
+				m, a, cfg := fixture(t)
+				d, err := a.Create(t.Context(), app.CreateInput{Kind: model.Task, Name: "source", Body: "needle original"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				m.filters.mode = "keyword"
+				key(m, "/")
+				key(m, "needle")
+				execute(m, key(m, "enter"))
+				if len(m.hits) != 1 {
+					t.Fatal(m.Render())
+				}
+				switch action {
+				case "move":
+					key(m, "r")
+					key(m, "ctrl+u")
+					key(m, "moved.task.md")
+				case "state":
+					key(m, "s")
+					key(m, "j")
+				case "delete":
+					key(m, "d")
+				}
+				raw := strings.Replace(d.Raw, "needle original", "needle changed", 1)
+				if replacement {
+					raw = strings.Replace(raw, d.ID, "different-id", 1)
+				}
+				path := filepath.Join(cfg.Content, d.Path)
+				if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
+					t.Fatal(err)
+				}
+				confirm := "enter"
+				if action == "delete" {
+					confirm = "y"
+				}
+				cmd := key(m, confirm)
+				if cmd == nil {
+					t.Fatal("no mutation attempted")
+				}
+				result := cmd()
+				m.Update(result)
+				if r, ok := result.(operationMsg); !ok || model.ErrorCode(r.err) != "conflict" {
+					t.Fatalf("stale %s mutated newer source: %+v", action, result)
+				}
+				got, err := os.ReadFile(path)
+				if err != nil || string(got) != raw {
+					t.Fatalf("newer source lost: %q %v", got, err)
+				}
+			})
+		}
+	}
+}
+
+func TestOldSearchHitDoesNotBorrowNewerSnapshotRevision(t *testing.T) {
+	m, a, _ := fixture(t)
+	d, err := a.Create(t.Context(), app.CreateInput{Kind: model.Note, Name: "source", Body: "needle original"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.filters.mode = "keyword"
+	key(m, "/")
+	key(m, "needle")
+	execute(m, key(m, "enter"))
+	if _, err := a.Update(t.Context(), model.Ref{ID: d.ID}, d.Revision, strings.Replace(d.Raw, "needle original", "needle updated", 1)); err != nil {
+		t.Fatal(err)
+	}
+	m.snapshot, err = a.List(t.Context(), "", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	key(m, "d")
+	cmd := key(m, "y")
+	if cmd == nil {
+		t.Fatal("delete not attempted")
+	}
+	result := cmd().(operationMsg)
+	if model.ErrorCode(result.err) != "conflict" {
+		t.Fatalf("old result borrowed a newer snapshot revision: %v", result.err)
+	}
+}
+
+func TestRecursiveDeleteRequiresInspectableScopeAfterResize(t *testing.T) {
+	m, a, cfg := fixture(t)
+	if err := a.CreateFolder(t.Context(), "folder"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Create(t.Context(), app.CreateInput{Kind: model.Note, Folder: "folder", Name: "child"}); err != nil {
+		t.Fatal(err)
+	}
+	load(m)
+	m.pane = 1
+	key(m, "d")
+	m.Update(tea.WindowSizeMsg{Width: 24, Height: 4})
+	if cmd := key(m, "y"); cmd != nil {
+		t.Fatal("accepted recursive delete with inaccessible scope")
+	}
+	if _, err := os.Stat(filepath.Join(cfg.Content, "folder", "child.note.md")); err != nil {
+		t.Fatal("resize confirmation lost source", err)
+	}
+	m.Update(tea.WindowSizeMsg{Width: 24, Height: 8})
+	if cmd := key(m, "y"); cmd != nil {
+		t.Fatal("resizing bypassed complete scope review")
+	}
+	var frames string
+	for range 30 {
+		frames += m.Render() + "\n"
+		key(m, "j")
+	}
+	if !strings.Contains(frames, "ALL descendants") {
+		t.Fatal("recursive scope never visible", frames)
+	}
+	m.Update(tea.WindowSizeMsg{Width: 8, Height: 4})
+	if cmd := key(m, "y"); cmd != nil {
+		t.Fatal("accepted after shrinking a reviewed confirmation")
+	}
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	cmd := key(m, "y")
+	if cmd == nil {
+		t.Fatalf("cannot confirm fully visible scope: %s", m.Render())
+	}
+	execute(m, cmd)
+	if _, err := os.Stat(filepath.Join(cfg.Content, "folder")); !os.IsNotExist(err) {
+		t.Fatalf("confirmed folder was not deleted: %v", err)
+	}
+}
+
+type blockedState struct {
+	*app.App
+	started, release chan struct{}
+}
+
+func (s *blockedState) SetState(ctx context.Context, ref model.Ref, state model.State, revision string) (model.Document, error) {
+	close(s.started)
+	select {
+	case <-s.release:
+	case <-ctx.Done():
+		return model.Document{}, ctx.Err()
+	}
+	return s.App.SetState(ctx, ref, state, revision)
+}
+
+func TestStateCompletionDoesNotDismissNewModalGeneration(t *testing.T) {
+	m, a, _ := fixture(t)
+	for _, name := range []string{"first", "second"} {
+		if _, err := a.Create(t.Context(), app.CreateInput{Kind: model.Task, Name: name}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	load(m)
+	m.pane = 1
+	s := &blockedState{a, make(chan struct{}), make(chan struct{})}
+	m.service = s
+	key(m, "s")
+	key(m, "j")
+	cmd := key(m, "enter")
+	done := make(chan any, 1)
+	go func() { done <- cmd() }()
+	<-s.started
+	key(m, "esc")
+	key(m, "j")
+	key(m, "s")
+	close(s.release)
+	m.Update(<-done)
+	if m.modal != "state" || m.target.path != "second.task.md" {
+		t.Fatalf("older completion dismissed new modal: %s %+v", m.modal, m.target)
 	}
 }
 

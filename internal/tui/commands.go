@@ -51,7 +51,7 @@ func RunIO(ctx context.Context, application *app.App, cfg config.Config, input i
 		watcher.Add(1)
 		go func() {
 			defer watcher.Done()
-			_ = syncer.Run(ctx, cfg.Content, func(ctx context.Context) error { _, err := application.Sync(ctx); p.Send(syncMsg{err}); return err }, func(err error) { p.Send(syncMsg{err}) })
+			runWatcher(ctx, application, cfg.Content, p.Send)
 		}()
 	}
 	_, err := p.Run()
@@ -59,6 +59,17 @@ func RunIO(ctx context.Context, application *app.App, cfg config.Config, input i
 	watcher.Wait()
 	m.jobs.stop()
 	return err
+}
+
+func runWatcher(ctx context.Context, application service, content string, send func(tea.Msg)) {
+	err := syncer.Run(ctx, content, func(ctx context.Context) error { _, err := application.Sync(ctx); send(syncMsg{err}); return err }, func(err error) { send(syncMsg{err}) })
+	if ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+		return
+	}
+	if err == nil {
+		err = &model.Error{Code: "internal", Message: "watcher returned unexpectedly"}
+	}
+	send(watcherStoppedMsg{err})
 }
 
 type loadedMsg struct {
@@ -70,13 +81,15 @@ type loadedMsg struct {
 	err        error
 }
 type operationMsg struct {
-	err     error
-	form    *form
-	version uint64
-	modal   string
+	err             error
+	form            *form
+	version         uint64
+	modal           string
+	modalGeneration uint64
 }
 type indexMsg struct{ err error }
 type syncMsg struct{ err error }
+type watcherStoppedMsg struct{ err error }
 type editorReadyMsg struct {
 	command *exec.Cmd
 	err     error
@@ -193,12 +206,14 @@ func (m *Model) mutation(change func(context.Context, service) error) tea.Cmd {
 	}
 	m.busy = true
 	a, ctx := m.service, m.ctx
-	f, modal := m.form, m.modal
+	f, modal, modalGeneration := m.form, m.modal, m.modalGeneration
 	var version uint64
 	if f != nil {
 		version = f.version
 	}
-	return m.jobs.command(func() tea.Msg { return operationMsg{err: change(ctx, a), form: f, version: version, modal: modal} })
+	return m.jobs.command(func() tea.Msg {
+		return operationMsg{err: change(ctx, a), form: f, version: version, modal: modal, modalGeneration: modalGeneration}
+	})
 }
 
 func (m *Model) prepareEditor(target row) tea.Cmd {

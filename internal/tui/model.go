@@ -65,12 +65,16 @@ type Model struct {
 	offset                                  int
 	form                                    *form
 	modal                                   string
+	modalGeneration                         uint64
+	deleteOffset, deleteReviewed            int
+	deleteWidth, deleteHeight               int
 	target                                  row
 	stateCursor                             int
 	helpOffset                              int
 	generation                              uint64
 	loading, busy, indexing                 bool
 	problem, indexProblem, notice           string
+	watchProblem                            string
 }
 
 func NewModel(application *app.App, cfg config.Config) *Model {

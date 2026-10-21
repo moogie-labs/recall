@@ -295,3 +295,44 @@ func TestRealPendingIndexWithSlowEmbeddingKeepsInputResponsive(t *testing.T) {
 		t.Fatal(m.Render())
 	}
 }
+
+func TestWatcherStartupFailureIsPersistentAndDoesNotDiscardDraft(t *testing.T) {
+	m, _, cfg := fixture(t)
+	if err := os.Rename(cfg.Content, cfg.Content+"-old"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(cfg.Content+"-old", cfg.Content); err != nil {
+		t.Fatal(err)
+	}
+	key(m, "n")
+	key(m, "draft survives watcher failure")
+	runWatcher(m.ctx, m.service, cfg.Content, func(msg tea.Msg) { m.Update(msg) })
+	if !strings.Contains(m.Render(), "Watcher stopped") || !strings.Contains(m.Render(), "outside_root") {
+		t.Fatalf("startup error disappeared: %s", m.Render())
+	}
+	load(m)
+	m.Update(operationMsg{})
+	if !strings.Contains(m.Render(), "Watcher stopped") || m.form == nil || m.form.fields[0].value != "draft survives watcher failure" {
+		t.Fatalf("refresh/operation erased terminal watcher failure or draft: %s", m.Render())
+	}
+}
+
+func TestWatcherExpectedCancellationDoesNotReportFailure(t *testing.T) {
+	m, _, cfg := fixture(t)
+	for _, deadline := range []bool{false, true} {
+		var ctx context.Context
+		var cancel context.CancelFunc
+		if deadline {
+			ctx, cancel = context.WithDeadline(m.ctx, time.Now().Add(-time.Second))
+		} else {
+			ctx, cancel = context.WithCancel(m.ctx)
+			cancel()
+		}
+		var messages []tea.Msg
+		runWatcher(ctx, m.service, cfg.Content, func(msg tea.Msg) { messages = append(messages, msg) })
+		cancel()
+		if len(messages) != 0 {
+			t.Fatalf("expected shutdown became watcher failure: %+v", messages)
+		}
+	}
+}

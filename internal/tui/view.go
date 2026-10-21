@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -74,7 +75,7 @@ func (m *Model) rows() []row {
 		}
 	case "search":
 		for _, h := range m.hits {
-			rows = append(rows, row{id: h.ID, path: h.Path, title: h.Title, kind: h.Kind, state: h.State, snippet: h.Snippet, indexState: h.IndexState})
+			rows = append(rows, row{id: h.ID, path: h.Path, title: h.Title, kind: h.Kind, state: h.State, revision: h.Revision, snippet: h.Snippet, indexState: h.IndexState})
 		}
 	}
 	for _, d := range m.snapshot.Diagnostics {
@@ -156,6 +157,9 @@ func (m *Model) Render() string {
 	if m.problem != "" {
 		status = "Error: " + m.problem + " | " + status
 	}
+	if m.watchProblem != "" {
+		status = "Watcher stopped; restart Recall: " + m.watchProblem + " | " + status
+	}
 	title := "Recall | " + m.mode + " | " + display(m.folder)
 	if m.mode != "browse" {
 		folder := m.filters.folder
@@ -192,10 +196,15 @@ func (m *Model) Render() string {
 		start := min(m.helpOffset, max(0, len(all)-available))
 		body = all[start:min(len(all), start+available)]
 	case m.modal == "delete":
-		title = "DELETE permanently? y=yes n=no"
-		body = []string{display(m.target.path), "y: delete once | n/q/Esc: cancel"}
-		if m.target.folder {
-			body = append(body, "Includes every descendant. No trash/undo.")
+		title = "DELETE? Esc cancels"
+		all := m.deleteLines()
+		start := min(m.deleteOffset, max(0, len(all)-available))
+		body = all[start:min(len(all), start+available)]
+		status = "Review all; y disabled"
+		if m.width < 24 || m.height < 6 {
+			status = "Resize to 24x6; y off"
+		} else if m.deleteReady() {
+			status = "y: DELETE | n: cancel"
 		}
 	case m.modal == "state":
 		title = "Task state | Enter: save, Esc: cancel"
@@ -293,6 +302,9 @@ func (m *Model) Render() string {
 	if m.modal == "help" {
 		footer = "j/k: scroll help | q/Esc: close"
 	}
+	if m.modal == "delete" {
+		footer = "j/k scroll | n/Esc cancel"
+	}
 	if m.pane == 0 {
 		title += " | TREE"
 	} else {
@@ -321,4 +333,25 @@ func window(lines []string, cursor, height int) []string {
 	start := max(0, cursor-height+1)
 	start = min(start, len(lines))
 	return lines[start:min(len(lines), start+height)]
+}
+
+// Confirmation identity is quoted ASCII, not display(): control/bidi/escape
+// bytes and literal backslashes must remain distinguishable. Hard-wrap without
+// ellipses so every byte and the complete recursive scope is inspectable.
+func (m *Model) deleteLines() []string {
+	scope := "Scope: FILE ONLY\nPermanently delete this source."
+	if m.target.folder {
+		scope = "Scope: FOLDER RECURSIVE\nALL descendants permanently deleted."
+	}
+	text := scope + "\nNo trash or undo.\nTarget (quoted):\n" + strconv.QuoteToASCII(m.target.path)
+	var lines []string
+	width := max(1, m.width)
+	for _, line := range strings.Split(text, "\n") {
+		for len(line) > width {
+			lines = append(lines, line[:width])
+			line = line[width:]
+		}
+		lines = append(lines, line)
+	}
+	return lines
 }

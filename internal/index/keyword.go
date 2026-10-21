@@ -32,7 +32,7 @@ func (s *Store) Keyword(ctx context.Context, query model.SearchQuery) ([]model.H
 	}
 	args = append([]any{strings.Join(terms, " AND ")}, args...)
 	args = append(args, limit)
-	rows, err := s.db.QueryContext(ctx, `SELECT d.id, d.path, d.title, d.kind, d.state,
+	rows, err := s.db.QueryContext(ctx, `SELECT d.id, d.path, d.title, d.kind, d.state, d.revision,
 		snippet(document_fts, 5, '', '', ' … ', 32),
 		-bm25(document_fts, 0, 10, 3, 1, 1, 1)
 		FROM document_fts JOIN documents d ON d.id = document_fts.id
@@ -44,7 +44,7 @@ func (s *Store) Keyword(ctx context.Context, query model.SearchQuery) ([]model.H
 	defer rows.Close()
 	for rows.Next() {
 		var hit model.Hit
-		if err := rows.Scan(&hit.ID, &hit.Path, &hit.Title, &hit.Kind, &hit.State, &hit.Snippet, &hit.Score); err != nil {
+		if err := rows.Scan(&hit.ID, &hit.Path, &hit.Title, &hit.Kind, &hit.State, &hit.Revision, &hit.Snippet, &hit.Score); err != nil {
 			return nil, unavailable(ctx, err)
 		}
 		// Repair only the preview, never the byte-preserved cached source.

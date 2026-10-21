@@ -28,6 +28,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = max(1, msg.Width)
 		m.height = max(1, msg.Height)
+		if m.modal == "delete" {
+			m.resetDeleteReview()
+		}
 	case loadedMsg:
 		if msg.generation != m.generation {
 			return m, nil
@@ -48,6 +51,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case indexMsg:
 		m.indexing = false
 		m.indexProblem = problem(msg.err)
+	case watcherStoppedMsg:
+		m.watchProblem = problem(msg.err)
 	case syncMsg:
 		if msg.err != nil {
 			m.problem = problem(msg.err)
@@ -61,7 +66,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if m.form == msg.form && (m.form == nil || m.form.version == msg.version) {
 				m.form = nil
 			}
-			if m.modal == msg.modal {
+			if m.modal == msg.modal && m.modalGeneration == msg.modalGeneration {
 				m.modal = ""
 			}
 			m.notice = "Saved"
@@ -157,18 +162,18 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "s":
 			if target, ok := m.selected(); ok && target.kind == model.Task && target.diagnostic == nil {
 				m.target = target
-				m.modal = "state"
+				m.openModal("state")
 				m.stateCursor = 0
 			}
 		case "d":
 			if target, ok := m.selected(); ok && target.path != "." {
 				m.target = target
-				m.modal = "delete"
+				m.openModal("delete")
 			}
 		case "F":
 			m.openFilters()
 		case "?":
-			m.modal = "help"
+			m.openModal("help")
 			m.helpOffset = 0
 		case "]":
 			if m.mode == "tasks" && m.taskPage.NextOffset != nil {
@@ -315,7 +320,17 @@ func (m *Model) modalKey(key string) tea.Cmd {
 			m.helpOffset = max(0, m.helpOffset-1)
 		}
 	case "delete":
-		if key == "y" {
+		switch key {
+		case "j", "down":
+			m.scrollDelete(1)
+		case "k", "up":
+			m.scrollDelete(-1)
+		case "space", "pgdown":
+			m.scrollDelete(max(1, m.height-3))
+		case "pgup":
+			m.scrollDelete(-max(1, m.height-3))
+		}
+		if key == "y" && m.deleteReady() {
 			target := m.target
 			m.modal = ""
 			return m.mutation(func(ctx context.Context, a service) error {
@@ -340,6 +355,33 @@ func (m *Model) modalKey(key string) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+func (m *Model) openModal(kind string) {
+	m.modalGeneration++
+	m.modal = kind
+	if kind == "delete" {
+		m.resetDeleteReview()
+	}
+}
+
+func (m *Model) resetDeleteReview() {
+	m.deleteWidth, m.deleteHeight = m.width, m.height
+	m.deleteOffset, m.deleteReviewed = 0, 0
+	m.scrollDelete(0)
+}
+
+func (m *Model) scrollDelete(delta int) {
+	lines := m.deleteLines()
+	page := max(1, m.height-3)
+	m.deleteOffset = max(0, min(m.deleteOffset+delta, max(0, len(lines)-page)))
+	if m.width >= 24 && m.height >= 6 {
+		m.deleteReviewed = max(m.deleteReviewed, min(len(lines), m.deleteOffset+page))
+	}
+}
+
+func (m *Model) deleteReady() bool {
+	return m.width >= 24 && m.height >= 6 && m.deleteWidth == m.width && m.deleteHeight == m.height && m.deleteReviewed >= len(m.deleteLines())
 }
 
 func (m *Model) openFilters() {
