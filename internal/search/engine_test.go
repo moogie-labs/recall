@@ -3,10 +3,12 @@ package search
 import (
 	"context"
 	"fmt"
+	"math"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"recall/internal/embedding"
@@ -213,5 +215,40 @@ func TestExactCosineOutranksStableIDAndBoundsSemanticPreview(t *testing.T) {
 	}
 	if s.docs[1].Body != body {
 		t.Fatal("preview changed authoritative body")
+	}
+}
+
+// Ascending IDs stream increasingly good candidates: the final best vector
+// arrives after the heap has filled, requiring 30 actual evictions, not ties.
+func TestSemanticHeapEvictsWorseCandidatesForLateBestVector(t *testing.T) {
+	var docs []model.Document
+	for i := 0; i < 80; i++ {
+		docs = append(docs, model.Document{ID: fmt.Sprintf("%03d", i), Body: "body"})
+	}
+	e, _, idx, _ := searchFixture(t, docs...)
+	if err := idx.EnsureSignature(t.Context(), e.signature); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 80; i++ {
+		j, err := idx.ClaimJob(t.Context(), model.Filter{}, e.signature, time.Now)
+		if err != nil || j == nil || j.Document.ID != fmt.Sprintf("%03d", i) {
+			t.Fatalf("claim %d: %+v %v", i, j, err)
+		}
+		v := make([]float32, embedding.Dimensions)
+		x := float64(i+1) / 80
+		v[0], v[1] = float32(x), float32(math.Sqrt(1-x*x))
+		ok, err := idx.Publish(t.Context(), *j, []index.Chunk{{Text: "body", EndByte: 4, StartLine: 1, EndLine: 1}}, [][]float32{v}, time.Now)
+		if err != nil || !ok {
+			t.Fatalf("publish: %v %v", ok, err)
+		}
+	}
+	h, err := e.Search(t.Context(), model.SearchQuery{Text: "concept", Mode: "semantic", Limit: 100})
+	if err != nil || len(h) != 50 {
+		t.Fatalf("hits=%d %v", len(h), err)
+	}
+	for i, hit := range h {
+		if hit.ID != fmt.Sprintf("%03d", 79-i) {
+			t.Fatalf("rank %d: %s, want %03d", i, hit.ID, 79-i)
+		}
 	}
 }

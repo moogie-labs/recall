@@ -259,7 +259,23 @@ func (e *externalEditor) SetStderr(w io.Writer) {
 	}
 }
 func (e *externalEditor) Run() error {
+	// An editor killed by context cancellation cannot restore its own raw
+	// terminal. Restore the released input state before Bubble Tea recaptures
+	// it; otherwise that raw state becomes Bubble Tea's new "original" state.
+	var terminal interface{ Fd() uintptr }
+	var state *term.State
+	if input, ok := e.Stdin.(interface{ Fd() uintptr }); ok && term.IsTerminal(input.Fd()) {
+		var err error
+		state, err = term.GetState(input.Fd())
+		if err != nil {
+			return &model.Error{Code: "internal", Message: "cannot preserve editor terminal state"}
+		}
+		terminal = input
+	}
 	err := e.Cmd.Run()
+	if state != nil {
+		err = errors.Join(err, term.Restore(terminal.Fd(), state))
+	}
 	if err != nil {
 		err = errors.Join(&model.Error{Code: "internal", Message: "editor failed; saved changes reconciled where possible"}, e.ctx.Err())
 	}
