@@ -184,10 +184,9 @@ func TestRealPackagedOnboardingAndOffline(t *testing.T) {
 	if !waitIdle(t, base, root) {
 		t.Fatal("cancelled manager retained native child/ownership")
 	}
-	if strings.Contains(workerLogs.String(), "credentials") || strings.Contains(workerLogs.String(), "Tomatoes") {
-		t.Fatal("worker logged source contents")
-	}
-	t.Logf("owned real-manager cancellation reaped native child/removed sockets/released lifetime lease: %s; no source-content logs", time.Since(start))
+	// This manager received no document/query request. Its captured stderr is
+	// lifecycle diagnostics only, not evidence about active-workload privacy.
+	t.Logf("owned real-manager cancellation reaped native child/removed sockets/released lifetime lease: %s (lifecycle only; no active request)", time.Since(start))
 	// A real TCP control succeeds outside the restriction. Inside it both
 	// loopback and external connections must fail with EPERM/EACCES, not DNS.
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")

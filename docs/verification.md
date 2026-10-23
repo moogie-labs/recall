@@ -38,6 +38,31 @@ traversal, absolute paths, wrong prefixes, escaping/dangling/cyclic/arbitrary
 links, hardlinks and FIFOs. Existing bootstrap link-chain/write-through gates
 remain in place.
 
+Default metadata fixtures are explicitly synthetic: 0700 `content/`, `run/`,
+`models/` and `runtime/` directories plus 0600 `config.json` containing
+`{"timezone":"UTC"}`. They have no asset identities, weights, preowned worker or
+precreated index, and are not claimed as public `init` output. The executable
+creates the derived index on first use. Setup uses this on-disk contract, not
+private config/application helpers. Only the separately built executable can
+host inference; the integration test executable rejects worker dispatch before
+testing flags, rather than entering the CLI in process.
+
+The lazy compiler subprocess alone retains its original startup environment,
+including the effective Go cache/config paths. Every Recall subprocess still
+inherits the isolated runtime HOME/root. This avoids directing a child build
+into a new empty temporary-HOME module cache when GOPATH/GOMODCACHE are unset.
+With developer dependencies already populated, reproduce the network-denied
+default-workflow regression gate without explicit cache variables:
+
+```sh
+sh scripts/verify-default-offline.sh -v -count=1
+```
+
+This Darwin developer harness proves outbound TCP denial with EPERM/EACCES and
+runs the default integration workflows with GOPATH/GOMODCACHE unset. It does
+not download dependencies to make the tests pass. The metadata-only PTY import
+also works with no editor on PATH; Neovim discovery occurs only on actual use.
+
 The added 80-candidate search test streams increasingly good, differently
 ranked vectors, fills the 50-slot heap, forces 30 evictions, and asserts every
 retained ID in order (late best `079`, last retained `030`). Existing owning
@@ -113,7 +138,10 @@ monitoring following completed work, with sockets removed, lifetime lease free
 and no matching manager/guardian/native chain left. No guessed PID was signalled.
 A separate deliberately owned manager was cancelled through its actual process
 handle, not a discovered PID; native reaping, socket removal and free lifetime
-lease were verified in **46.104 ms**. Its captured logs contained no source text.
+lease were verified in **46.104 ms**. This manager received no source/query
+request: this is lifecycle evidence only, **not active-workload log privacy
+evidence**. The CLI convenience helper captures but does not assert stderr on
+success. A targeted captured active-worker/source-query log gate was not run.
 
 The largest sampled aggregate worker-chain RSS in that repeat was **424,288
 KiB** (1 s `ps` samples). This is **not a true peak/high-water mark**; RSS can
@@ -196,7 +224,8 @@ No license was invented for the owner's own code.
 
 **Not run / not claimed:** human visual judgement, personal Neovim configs,
 download-quarantine/Gatekeeper approval UX, other Macs/macOS versions, true
-kernel/native-device peak memory, SSD secure erasure, or exhaustive semantic
+kernel/native-device peak memory, targeted active-request log privacy evidence,
+SSD secure erasure, or exhaustive semantic
 quality evaluation. This is an automated related-query smoke test, not a
 retrieval benchmark. No Developer ID signing/notarization credentials were
 used, no Gatekeeper bypass was performed, and no OpenCode config was modified.

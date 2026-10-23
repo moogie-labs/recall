@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,23 +14,27 @@ import (
 	"testing"
 	"time"
 
-	"recall/internal/cli"
-	"recall/internal/config"
 	"recall/internal/model"
 )
 
 var binary string
 var buildOnce sync.Once
 var buildError error
+
+// Only the Go compiler uses this startup snapshot. Tests later isolate HOME
+// for Recall, which must not redirect the compiler's effective caches/GOENV.
+var compilerEnvironment = os.Environ()
 var repository = func() string {
 	_, file, _, _ := runtime.Caller(0)
 	return filepath.Dir(filepath.Dir(file))
 }()
 
-// Dispatch before testing flags: never recursively run tests as an inference worker.
+// Fail closed before testing flags: only the separately built Recall executable
+// can host inference. This test executable must neither host it nor recurse.
 func TestMain(m *testing.M) {
 	if len(os.Args) > 1 && os.Args[1] == "_embedding-worker" {
-		os.Exit(cli.Run(context.Background(), os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+		fmt.Fprintln(os.Stderr, "integration test executable cannot host inference; use the built Recall executable")
+		os.Exit(2)
 	}
 	code := m.Run()
 	if binary != "" {
@@ -52,6 +57,7 @@ func executable(t testing.TB) string {
 		binary = filepath.Join(dir, "recall")
 		cmd := exec.Command("go", "build", "-o", binary, "./cmd/recall")
 		cmd.Dir = repository
+		cmd.Env = compilerEnvironment
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			buildError = &model.Error{Code: "internal", Message: string(out)}
@@ -73,15 +79,18 @@ func isolated(t *testing.T) string {
 	return os.Getenv("RECALL_HOME")
 }
 
-// Metadata-only fixture: not pristine onboarding and never evidence of inference.
+// Synthetic on-disk metadata fixture, as documented in docs/verification.md:
+// private layout directories plus config.json with a timezone, no asset IDs,
+// weights or preowned worker. Not init output or evidence of semantic readiness.
 func prepared(t *testing.T) string {
 	t.Helper()
 	root := isolated(t)
-	cfg, err := config.Resolve(root)
-	if err != nil {
-		t.Fatal(err)
+	for _, name := range []string{"content", "run", "models", "runtime"} {
+		if err := os.MkdirAll(filepath.Join(root, name), 0700); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := config.Prepare(cfg); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte("{\"timezone\":\"UTC\"}\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	return root

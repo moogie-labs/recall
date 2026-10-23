@@ -15,8 +15,6 @@ import termios
 import time
 
 BIN = Path(sys.argv[1] if len(sys.argv) > 1 else "build/recall").resolve()
-NVIM = shutil.which("nvim")
-assert NVIM, "installed nvim required; this script does not install it"
 BASE = Path(tempfile.gettempdir())
 
 
@@ -85,6 +83,8 @@ class Session:
 
 
 def main():
+    NVIM = shutil.which("nvim")
+    assert NVIM, "installed nvim required; this script does not install it"
     print(subprocess.check_output([NVIM, "--version"], text=True).splitlines()[0])
     with tempfile.TemporaryDirectory(prefix="recall-neovim-", dir=BASE) as tmp:
         home = Path(tmp).resolve()  # Recall canonicalizes Darwin's /var -> /private/var

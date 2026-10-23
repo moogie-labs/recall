@@ -139,6 +139,11 @@ def notices(dest):
         require(files, "no license found for " + name)
         for p in files:
             target = dest / "go" / name / p.relative_to(source)
+            # A copyright-named .go file can be a notice-bearing source/test.
+            # Retain its bytes, but never expose it as a compilable Go package
+            # when a developer extracts the release beneath this repository.
+            if target.suffix == ".go":
+                target = target.with_suffix(".go.txt")
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(p, target)
         records.append(name)
@@ -205,6 +210,7 @@ def verify(path):
         for name in DOCS + ["notices/README.txt", "notices/nomic-Apache-2.0.txt", "notices/Go-LICENSE", "notices/llama.cpp/LICENSE", "notices/BoringSSL-0.20260929.0-LICENSE", "notices/BoringSSL-fiat-LICENSE"]:
             require((root / name).is_file() and (root / name).stat().st_size > 0, "missing documentation/notice: " + name)
         require(any((root / "notices/go").rglob("LICENSE*")), "missing linked dependency notices")
+        require(not list((root / "notices/go").rglob("*.go")), "Go notice sources must have documentation extensions")
         for name in ["runtime", "model"]:
             require((root / f"bin/assets/{name}.lock.json").read_bytes() == (REPO / f"assets/{name}.lock.json").read_bytes(), "manifest mismatch")
         require(not list(root.rglob("*.gguf")), "weights must not be in the release")

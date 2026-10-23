@@ -82,6 +82,14 @@ The runtime's statically linked BoringSSL and Fiat Crypto notices are included;
 those dependencies are not apparent from `otool -L` alone.
 No license for the owner's Recall code is invented by this process.
 
+After developer dependencies are populated, run
+`sh scripts/verify-default-offline.sh -v -count=1` for default executable workflows
+with GOPATH/GOMODCACHE unset and
+per-process outbound TCP denied. Compiler subprocesses retain their original
+Go environment; Recall runtime processes still use isolated temporary HOME.
+Notice-bearing Go source files retain their full bytes as `.go.txt`, so an
+extracted release beneath the repository cannot enter `go test ./...` discovery.
+
 The verifier checks checksum, paths, modes, links, manifests, notices, absence
 of weights, `otool -L` dependency relocation and runtime startup from a clean
 directory containing spaces. Native `--version` is not model inference; use
