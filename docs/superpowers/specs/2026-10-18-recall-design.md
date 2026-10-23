@@ -1,7 +1,7 @@
 # Recall: first-version design
 
 Date: 2026-10-18  
-Status: Approved by the owner for implementation planning on 2026-10-18; execution awaits implementation-plan review.
+Status: Approved and implemented on `feat/recall-v1`; fourteen task reviews complete. Whole-branch review and final independent verification are pending as of 2026-10-23.
 
 ## 1. Purpose
 
