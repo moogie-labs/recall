@@ -256,8 +256,9 @@ Neovim evidence.
 ## Artifacts, notices and remaining limits
 
 Archive: `build/recall-darwin-arm64.tar.gz`; checksum:
-`build/recall-darwin-arm64.tar.gz.sha256`. Extracted package executable:
-`build/task14-package/recall-darwin-arm64/bin/recall` (local ignored build output).
+`build/recall-darwin-arm64.tar.gz.sha256`. Extracted final handover executable:
+`build/handover/recall-darwin-arm64/bin/recall` (local ignored build output,
+created from the final verified archive rather than an older test extraction).
 The runtime archive is exactly beside it under
 `bin/assets/runtime/darwin-arm64/llama-b11669-bin-macos-arm64.tar.gz`.
 For first use, see the root README; keep `bin/assets/` with the executable.
@@ -278,3 +279,33 @@ retrieval benchmark. No Developer ID signing/notarization credentials were
 used, no Gatekeeper bypass was performed, and no OpenCode config was modified.
 The OpenCode V2 registration example was checked against its current official
 MCP documentation; actual user registration remains an owner action.
+
+## Independent corrected-commit verification — 2026-10-24
+
+After all branch-review findings were corrected and the scoped correction review
+passed, the coordinator ran a fresh matrix at exact revision
+`6d399cc01f73cdd6bbe67db38a13a8070aa18487` (product correction `a161dc7`).
+The run exited 0 and verified that HEAD did not change while tests ran:
+
+- `gofmt -l ./cmd ./internal ./integration`: no files listed; `go vet ./...`: exit 0.
+- `go test -count=1 ./...` and `go test -race -count=1 ./...`: all 17 tested
+  packages passed without cached test results; two additional packages have no tests.
+- Rebuilt the executable and distribution; standard package verifier passed,
+  including 41 relocated Mach-O files, notices, checksums and no bundled weights.
+- `sh scripts/verify-default-offline.sh -v -count=1`: passed with the original
+  compiler-cache regression constrained offline.
+- Cached actual executable CLI/MCP and embedding smoke checks passed with
+  768-dimensional vectors; no model redownload was required.
+- `python3 scripts/verify-neovim.py build/recall`: actual clean Neovim note/task
+  paths, atomic saves, W12 keep/reload and canceled-editor terminal restoration passed.
+- The real packaged workflow with `RECALL_REAL_MODEL_TEST=1` and
+  `RECALL_REUSE_MODEL` passed in 270.804 seconds, including a new restricted
+  worker chain and CLI/MCP under outbound-network denial. This was a verified
+  seeded repeat, not another pristine download or a new performance benchmark.
+- The 10,000-chunk exact-search check passed. Earlier idle CPU measurements and
+  all explicitly unrun limits above remain unchanged.
+- Final observations: no real default Recall collection existed and the real
+  socket cache had zero entries. The source worktree was clean.
+
+The subsequent documentation-only checkpoint records this evidence; it does not
+change the tested product source or turn the unrun limits into passed checks.
