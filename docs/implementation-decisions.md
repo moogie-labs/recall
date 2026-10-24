@@ -1,6 +1,6 @@
 # Implementation checkpoints and decisions
 
-As of 2026-10-23, all fourteen implementation tasks have passed their independent task reviews. The complete branch still awaits its whole-branch review and final independent verification. This is an execution record, not a claim of production certification or human visual acceptance.
+As of 2026-10-24, all fourteen implementation tasks have passed their independent task reviews. Whole-branch review identified three output/filter findings; their complete correction passed the final scoped re-review. Verification evidence and remaining limits are recorded in `docs/verification.md`. This is an execution record, not a claim of production certification or human visual acceptance.
 
 The owner explicitly authorized local repository initialization and an isolated worktree. Implementation is on `feat/recall-v1`; no merge, push, tag, publication, global installation or OpenCode registration has been performed.
 
@@ -25,6 +25,8 @@ Each range includes the initial implementation and its reviewed corrections.
 | Yes | 13. TUI and safe recovery | `ea555c8..92a1f74` |
 | Yes | 14. Distribution and acceptance | `92a1f74..5e60d48` |
 
+Whole-branch output/filter correction: `364862d..a161dc7`. It adds bounded display metadata without source rewriting, inert human CLI previews without changing explicit raw/JSON source, and task-only state filters. The full correction passed scoped review; no residual code finding was parked.
+
 ## Coordinator rulings, in order
 
 1. **Use Git's worktree fallback.** The native harness could not create a worktree after repository initialization, despite a valid Git checkout. **Cost if wrong:** the native UI may not list this worktree; Git still tracks the isolated branch.
@@ -39,6 +41,7 @@ Each range includes the initial implementation and its reviewed corrections.
 10. **Return summaries from list adapters.** Full bodies/raw/history belong to explicit get/history operations, not every list page. **Cost if wrong:** the unshipped JSON list item shape is leaner than the initial CLI draft; source/core service contracts remain unchanged.
 11. **Permit malformed-file editor/delete recovery by explicit path.** Recognized typed regular files remain repairable/removable with confinement and revision checks; ambiguous ID operations still fail. **Cost if wrong:** explicit path intent can remove a file without parsing its invalid metadata.
 12. **Carry captured source revisions in search hits.** Valid search actions use the revision attached to the displayed result, not a newer selection-time read. **Cost if wrong:** an additive shared/JSON result field and retriever tests; no source schema change.
+13. **Bound authored metadata at output boundaries.** Use 256-byte UTF-8 title previews, 4 KiB serialized preview rows and 32 KiB list/search data. Preserve exact identities or return bounded actionable `output_too_large`; full source stays unchanged. **Cost if wrong:** clipped display titles and narrower/lower-limit requests for oversized pages; additive preview/error fields, not source-schema restrictions.
 
 ## Verification limits and an execution incident
 

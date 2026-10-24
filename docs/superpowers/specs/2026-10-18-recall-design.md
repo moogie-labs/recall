@@ -1,7 +1,7 @@
 # Recall: first-version design
 
 Date: 2026-10-18  
-Status: Approved and implemented on `feat/recall-v1`; fourteen task reviews complete. Whole-branch review and final independent verification are pending as of 2026-10-23.
+Status: Approved and implemented on `feat/recall-v1`; fourteen task reviews, whole-branch review and its final correction review are complete as of 2026-10-24. See `docs/verification.md` for actual checks and remaining limits.
 
 ## 1. Purpose
 
