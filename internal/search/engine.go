@@ -135,7 +135,10 @@ func (e *Engine) Search(ctx context.Context, q model.SearchQuery) ([]model.Hit, 
 			kq := q
 			kq.Mode = "keyword"
 			kq.Limit = 50
-			keyword, err = e.index.Keyword(ctx, kq)
+			err = e.index.StreamKeyword(ctx, kq, func(hit model.Hit) error {
+				keyword = append(keyword, hit)
+				return nil
+			})
 			if err != nil {
 				return err
 			}
@@ -171,6 +174,16 @@ func (e *Engine) Search(ctx context.Context, q model.SearchQuery) ([]model.Hit, 
 		return nil
 	})
 	if err != nil {
+		return nil, err
+	}
+	// Scoring/fusion changes the serialized row after the vector stream's
+	// projection. Enforce the row budget on the actual final scored hits too.
+	for _, hit := range result {
+		if err := model.CheckPreviewRow(hit, hit.ID, hit.Path, hit.Revision); err != nil {
+			return nil, err
+		}
+	}
+	if err := model.CheckPreviewData(result); err != nil {
 		return nil, err
 	}
 	return result, nil

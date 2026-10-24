@@ -88,17 +88,18 @@ type SearchQuery struct {
 }
 
 type Hit struct {
-	ID         string  `json:"id"`
-	Path       string  `json:"path"`
-	Title      string  `json:"title"`
-	Snippet    string  `json:"snippet"`
-	IndexState string  `json:"index_state"`
-	Revision   string  `json:"revision"` // Raw-source revision captured with this result.
-	Kind       Kind    `json:"kind"`
-	State      State   `json:"state"`
-	StartLine  int     `json:"start_line"`
-	EndLine    int     `json:"end_line"`
-	Score      float64 `json:"score"`
+	ID             string  `json:"id"`
+	Path           string  `json:"path"`
+	Title          string  `json:"title"`
+	TitleTruncated bool    `json:"title_truncated" jsonschema:"True when title is a display preview; explicitly get the document for its full title"`
+	Snippet        string  `json:"snippet"`
+	IndexState     string  `json:"index_state"`
+	Revision       string  `json:"revision"` // Raw-source revision captured with this result.
+	Kind           Kind    `json:"kind"`
+	State          State   `json:"state"`
+	StartLine      int     `json:"start_line"`
+	EndLine        int     `json:"end_line"`
+	Score          float64 `json:"score"`
 }
 
 type SyncReport struct {

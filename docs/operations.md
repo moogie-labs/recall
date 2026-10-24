@@ -14,6 +14,20 @@ Do not remove a live index while interfaces are using it. Unknown source
 metadata/body bytes are preserved; malformed files are diagnosed, not repaired
 by force.
 
+Discovery output is not source validation: long titles remain authoritative in
+files, fingerprints, inference inputs and explicit get/raw/history. Summary/hit
+titles use a 256-byte UTF-8 display preview with `title_truncated`; exact IDs,
+paths and revisions are never clipped. Compact JSON discovery data is capped at
+32 KiB (including auxiliary arrays), individual rows at 4 KiB. Oversized pages
+fail explicitly with `output_too_large`; lower limits/narrower scope or explicit
+full get by known path are recovery options. CLI document-list auxiliary arrays
+are not paged, so narrow folder scope when those dominate. Oversized error paths
+are omitted via a fixed bounded error, not substituted preview references.
+See `cli.md` for budget layers and terminal-display boundaries. Human previews
+escape authored terminal controls; full raw document output deliberately does
+not. Use redirection or JSON when inspecting untrusted raw source.
+Current-state filters apply only to tasks, without deleting note metadata.
+
 Direct editor changes reconcile at startup, explicit sync, and in long-lived
 interfaces after a 250 ms quiet period, periodic 30 s scan, or watcher recovery.
 Darwin uses 100 ms metadata polling, linear in entries; it is not a constant-cost

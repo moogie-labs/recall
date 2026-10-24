@@ -250,6 +250,10 @@ func (s *Store) StreamVectors(ctx context.Context, f model.Filter, signature str
 		}
 		h.Snippet = preview(h.Snippet)
 		h.IndexState = "current"
+		h, err = model.PreviewHit(h)
+		if err != nil {
+			return err
+		}
 		if err = visit(h, v); err != nil {
 			return err
 		}

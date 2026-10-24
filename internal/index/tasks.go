@@ -136,6 +136,9 @@ func filterSQL(f model.Filter) (string, []any, error) {
 		clauses = append(clauses, "d.kind IN ("+placeholders(len(f.Kinds))+")")
 	}
 	if len(f.States) > 0 {
+		// Current-state filters, like date filters, describe tasks only. Notes
+		// may retain valid authored state metadata without acquiring task meaning.
+		clauses = append(clauses, "d.kind = 'task'")
 		for _, state := range f.States {
 			if !validState(state) {
 				return "", nil, invalid("unsupported task state")

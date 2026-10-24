@@ -2,7 +2,6 @@ package mcpserver
 
 import (
 	"context"
-	"errors"
 	"slices"
 	"strings"
 	"time"
@@ -139,20 +138,13 @@ func addTool[In, Out any](server *mcp.Server, name, description string, readOnly
 	mcp.AddTool(server, &mcp.Tool{Name: name, Description: description, Annotations: &mcp.ToolAnnotations{ReadOnlyHint: readOnly, DestructiveHint: &destructive, IdempotentHint: idempotent, OpenWorldHint: &closedWorld}},
 		func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, result[Out], error) {
 			out, err := run(ctx, in)
+			if err == nil && (name == "documents_list" || name == "tasks_list" || name == "folders_list" || name == "search") {
+				err = model.CheckPreviewData(out)
+			}
 			if err == nil {
 				return nil, result[Out]{Data: &out}, nil
 			}
-			problem := &model.Error{Code: model.ErrorCode(err), Message: "operation failed"}
-			var typed *model.Error
-			if errors.As(err, &typed) {
-				problem.Message, problem.Path = typed.Message, typed.Path
-			}
-			if errors.Is(err, context.Canceled) {
-				problem.Message = "operation canceled"
-			}
-			if errors.Is(err, context.DeadlineExceeded) {
-				problem.Message = "operation timed out"
-			}
+			problem := model.PublicError(err)
 			return &mcp.CallToolResult{IsError: true}, result[Out]{Error: problem}, nil
 		})
 }
@@ -192,7 +184,8 @@ func registerTools(server *mcp.Server, a *app.App) {
 			return foldersResult{}, err
 		}
 		start, end, next := pageRange(len(folders), limit, in.Offset)
-		return foldersResult{Folders: append([]string{}, folders[start:end]...), NextOffset: next}, nil
+		page := append([]string{}, folders[start:end]...)
+		return foldersResult{Folders: page, NextOffset: next}, model.CheckFolders(page)
 	})
 	addTool(server, "folder_create", "Create a content-relative folder.", false, false, false, func(ctx context.Context, in folderInput) (mutationResult, error) {
 		err := a.CreateFolder(ctx, in.Path)
@@ -208,11 +201,11 @@ func registerTools(server *mcp.Server, a *app.App) {
 	})
 	addTool(server, "tasks_list", "Query bounded task metadata with shared filters and sorting. Dates are RFC3339 [from, until); use task_history for full events.", true, false, false, func(ctx context.Context, in taskQueryInput) (model.Page[model.DocumentSummary], error) {
 		page, err := a.Tasks(ctx, model.TaskQuery{Filter: in.Filter.filter(), Sort: in.Sort, Desc: in.Desc, Limit: in.Limit, Offset: in.Offset})
-		out := model.Page[model.DocumentSummary]{Items: make([]model.DocumentSummary, len(page.Items)), NextOffset: page.NextOffset}
-		for n, d := range page.Items {
-			out.Items[n] = model.Summarize(d)
+		if err != nil {
+			return model.Page[model.DocumentSummary]{}, err
 		}
-		return out, err
+		rows, err := model.Summaries(page.Items)
+		return model.Page[model.DocumentSummary]{Items: rows, NextOffset: page.NextOffset}, err
 	})
 	addTool(server, "task_set_state", "Set a task state immediately. Repeating the same state preserves exact event history.", false, true, true, func(ctx context.Context, in stateInput) (model.Document, error) {
 		return a.SetState(ctx, in.ref(), in.State, in.Revision)
@@ -273,11 +266,11 @@ func listDocuments(ctx context.Context, a *app.App, in listInput) (documentsResu
 	start, end, next := pageRange(count+len(documents), limit, in.Offset)
 	diagnosticPage := append([]model.Diagnostic{}, diagnostics[min(start, count):min(end, count)]...)
 	documentPage := documents[max(0, start-count):max(0, end-count)]
-	summaries := make([]model.DocumentSummary, len(documentPage))
-	for n, d := range documentPage {
-		summaries[n] = model.Summarize(d)
+	summaries, err := model.Summaries(documentPage)
+	if err != nil {
+		return documentsResult{}, err
 	}
-	return documentsResult{Documents: summaries, Diagnostics: diagnosticPage, NextOffset: next}, nil
+	return documentsResult{Documents: summaries, Diagnostics: diagnosticPage, NextOffset: next}, model.CheckDiagnostics(diagnosticPage)
 }
 
 func pageLimit(limit, offset int) (int, error) {

@@ -1,6 +1,7 @@
 package index
 
 import (
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -103,7 +104,7 @@ func TestKeywordLimitsTiesAndStaleText(t *testing.T) {
 	s := openTestStore(t)
 	var docs []model.Document
 	for i := range 105 {
-		id := strings.Repeat("x", i+1)
+		id := fmt.Sprintf("%03d", i)
 		docs = append(docs, fixture(t, id, id+".note.md", "Same", "limitword"))
 	}
 	apply(t, s, model.Snapshot{Documents: docs})
@@ -113,7 +114,7 @@ func TestKeywordLimitsTiesAndStaleText(t *testing.T) {
 			t.Fatalf("limit %d: %d %v", tc.limit, len(hits), err)
 		}
 		for i, h := range hits {
-			if h.ID != strings.Repeat("x", i+1) {
+			if h.ID != fmt.Sprintf("%03d", i) {
 				t.Fatalf("unstable tie at %d: %s", i, h.ID)
 			}
 		}

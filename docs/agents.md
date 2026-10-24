@@ -49,12 +49,25 @@ Tools: `documents_list`, `document_get`, `document_create`, `document_update`,
 
 - List/search returns bounded summaries/passages; explicitly get a document
   for full body/raw/history. References require exactly one ID or path.
+- Summary/hit `title` is a UTF-8-safe display preview (256 bytes including any
+  ellipsis); `title_truncated` is explicit. Never use it as an identity. IDs,
+  paths and captured revisions remain exact. Full get retains the full title.
+- Compact JSON **data values** are capped at 32 KiB, including auxiliary arrays
+  and cursors; each summary/hit/diagnostic/folder reference is capped at 4 KiB.
+  The outer `data` envelope, MCP JSON-RPC, and SDK text plus structured copies
+  add protocol overhead beyond that budget. A page that cannot fit returns a
+  bounded `output_too_large`, not a silently shortened page. Reduce `limit` or
+  narrow scope; use explicit full get by known path for an oversized identity.
+  Oversized error messages/paths return that fixed error with an empty path,
+  never a clipped usable reference. Source metadata is not restricted/rewritten.
 - Read `revision`, then use `if_revision` when updating/moving/deleting/changing
   state. Raw updates require it and complete source Markdown with unchanged ID.
 - MCP create uses `kind` (`note`/`task`); CLI uses `--type`.
 - MCP filters take RFC3339 timezone-bearing `[from, until)` timestamps, unlike
   human CLI inclusive calendar dates. Folder `recursive` defaults false for
   MCP; an empty folder remains global.
+- Current-state filters, like date filters, require tasks. Valid note `state`
+  metadata remains in source/index but cannot make a note match those filters.
 - Lists use bounded limit/offset pages; follow `next_offset`. MCP document
   diagnostics share the document page budget (diagnostics first); CLI lists
   return diagnostics alongside a document-only page.
@@ -62,6 +75,9 @@ Tools: `documents_list`, `document_get`, `document_create`, `document_update`,
   handle `indexing`/`runtime_unavailable` instead of assuming a silent fallback.
 - Tools return structured `data` or stable `error` and set MCP `isError` for
   application failures. Stdout contains protocol only.
+- JSON preserves authored controls (encoded normally); human CLI previews escape
+  them. Explicit non-JSON raw document output remains exact and can contain
+  terminal controls: redirect untrusted source rather than displaying it.
 - Agents have full permissions **inside Recall**. CLI/MCP deletion does not
   prompt, stage approval, or create trash. Folder recursion must be explicit.
   Backups and agent transcripts can retain copied content outside Recall.

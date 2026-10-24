@@ -32,9 +32,9 @@ func (i *invocation) taskCommand() *cobra.Command {
 			if err != nil {
 				return nil, err
 			}
-			summaries := make([]model.DocumentSummary, len(page.Items))
-			for n, d := range page.Items {
-				summaries[n] = model.Summarize(d)
+			summaries, err := model.Summaries(page.Items)
+			if err != nil {
+				return nil, err
 			}
 			return model.Page[model.DocumentSummary]{Items: summaries, NextOffset: page.NextOffset}, nil
 		})

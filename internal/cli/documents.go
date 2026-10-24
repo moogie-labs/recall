@@ -71,9 +71,9 @@ func (i *invocation) documentListCommand() *cobra.Command {
 				next = &end
 			}
 			snapshot.Documents = snapshot.Documents[start:end]
-			summaries := make([]model.DocumentSummary, len(snapshot.Documents))
-			for n, d := range snapshot.Documents {
-				summaries[n] = model.Summarize(d)
+			summaries, err := model.Summaries(snapshot.Documents)
+			if err != nil {
+				return nil, err
 			}
 			return documentList{Documents: summaries, Diagnostics: snapshot.Diagnostics, Folders: snapshot.Folders, NextOffset: next}, nil
 		})

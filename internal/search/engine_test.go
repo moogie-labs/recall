@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"math"
 	"path/filepath"
@@ -98,7 +99,7 @@ func searchFixture(t *testing.T, docs ...model.Document) (*Engine, *memorySource
 		if docs[i].Raw == "" {
 			docs[i].Raw = docs[i].Body
 		}
-		docs[i].Revision = fmt.Sprint(i, docs[i].Title, docs[i].Body)
+		docs[i].Revision = fmt.Sprintf("%x", sha256.Sum256([]byte(docs[i].Title+"\x00"+docs[i].Raw)))
 	}
 	s := &memorySource{docs: docs}
 	if _, err = idx.Apply(t.Context(), model.Snapshot{Documents: docs}); err != nil {

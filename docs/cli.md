@@ -85,6 +85,37 @@ day in the collection timezone (DST-aware). Task sorts: title, created,
 state_changed, with stable ID ties. Task/document lists default 50, maximum
 200; search defaults 20, maximum 100 (semantic candidate pool is 50 passages).
 Lists paginate via nonnegative offset and `next_offset`.
+Current-state and date filters are task-only, including mixed-document search.
+A note's valid authored `state` metadata is preserved but does not make it a task.
+
+## Preview boundaries
+
+Document/task summaries and all keyword/semantic/hybrid hits expose a display
+`title` of at most **256 UTF-8 bytes**, including `…` when clipped, and an explicit
+`title_truncated` boolean. Full titles remain in source and explicit get results;
+sorting, inference inputs and source revisions do not use the clipped title.
+IDs, paths and captured revisions are always exact, never preview identities.
+
+Each serialized summary/hit/diagnostic (and folder reference) is at most **4 KiB**.
+List/search data is at most **32 KiB**, including diagnostics, folders and cursors.
+These are compact Go JSON **data-value** budgets, before the CLI envelope/newline
+and human formatting/visible escaping. A page that cannot fit fails as a whole
+with `output_too_large` (exit 1); no rows/auxiliary arrays are silently dropped.
+Lower the limit or narrow the folder scope. CLI document diagnostics/folders are
+not independently paged, so lowering its document limit alone may not suffice.
+An oversized/unrepresentable reference instead requires an explicit full get by
+known path. Error objects are also bounded to 4 KiB: oversized error messages or
+paths become a fixed actionable `output_too_large` with no echoed path, not a
+clipped usable reference. No source-schema length limit is imposed.
+
+Human list/search/folder/diagnostic/error fields visibly escape terminal controls
+(including CSI/OSC initiators, ESC, BEL and C1); passage LF newlines are retained.
+JSON does not perform this display sanitization: decoding recovers the original
+strings within the preview contract. **Full raw source output is not sanitized**:
+`document get` and other document-returning commands still emit exact raw Markdown
+in non-JSON mode. Redirect untrusted raw source to a file, or use `--json`, rather
+than displaying it directly in a terminal. Full get/raw/history are not subject
+to discovery budgets.
 
 ## JSON and exit status
 

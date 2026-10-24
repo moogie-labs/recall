@@ -165,6 +165,9 @@ func (i *invocation) command(use, short string, args cobra.PositionalArgs, run f
 			return err
 		}
 		data, err := run(c, args)
+		if err == nil {
+			err = checkDiscovery(data)
+		}
 		i.data = data
 		return err
 	}}
@@ -243,23 +246,13 @@ type envelope struct {
 }
 
 func (i *invocation) failure(err error) int {
-	problem := &model.Error{Code: model.ErrorCode(err), Message: "operation failed"}
-	var typed *model.Error
-	if errors.As(err, &typed) {
-		problem.Message, problem.Path = typed.Message, typed.Path
-	}
-	if errors.Is(err, context.Canceled) {
-		problem.Message = "operation canceled"
-	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		problem.Message = "operation timed out"
-	}
+	problem := model.PublicError(err)
 	if i.json {
 		if json.NewEncoder(i.stdout).Encode(envelope{Error: problem}) != nil {
 			fmt.Fprintln(i.stderr, "recall: cannot write error result")
 		}
 	} else {
-		fmt.Fprintln(i.stderr, "recall:", problem.Error())
+		fmt.Fprintln(i.stderr, "recall:", terminalText(problem.Error(), false))
 		if problem.Code == "not_initialized" {
 			fmt.Fprintln(i.stderr, "Run recall init with the same --root to initialize this collection.")
 		}
@@ -282,7 +275,7 @@ func (i *invocation) success() error {
 	}
 	switch data := i.data.(type) {
 	case string:
-		_, err := io.WriteString(i.stdout, data)
+		_, err := io.WriteString(i.stdout, terminalText(data, true))
 		return err
 	case model.Document:
 		_, err := io.WriteString(i.stdout, data.Raw)
@@ -291,12 +284,12 @@ func (i *invocation) success() error {
 		return writeDocuments(i.stdout, data.Items)
 	case documentList:
 		for _, d := range data.Diagnostics {
-			fmt.Fprintf(i.stderr, "%s: %s: %s\n", d.Path, d.Code, d.Message)
+			fmt.Fprintf(i.stderr, "%s: %s: %s\n", terminalText(d.Path, false), terminalText(d.Code, false), terminalText(d.Message, false))
 		}
 		return writeDocuments(i.stdout, data.Documents)
 	case []string:
 		for _, value := range data {
-			if _, err := fmt.Fprintln(i.stdout, value); err != nil {
+			if _, err := fmt.Fprintln(i.stdout, terminalText(value, false)); err != nil {
 				return err
 			}
 		}
@@ -319,13 +312,18 @@ func (i *invocation) success() error {
 			if hit.StartLine > 0 {
 				location = fmt.Sprintf("%s:%d-%d", hit.Path, hit.StartLine, hit.EndLine)
 			}
-			fmt.Fprintf(w, "%s\t%s\t%s\n%s\n", location, hit.Title, hit.IndexState, hit.Snippet)
+			fmt.Fprintf(w, "%s\t%s\t%s\n%s\n", terminalText(location, false), terminalText(hit.Title, false), terminalText(hit.IndexState, false), terminalText(hit.Snippet, true))
 		}
 		return w.Flush()
 	default:
-		encoder := json.NewEncoder(i.stdout)
+		var out bytes.Buffer
+		encoder := json.NewEncoder(&out)
 		encoder.SetIndent("", "  ")
-		return encoder.Encode(data)
+		if err := encoder.Encode(data); err != nil {
+			return err
+		}
+		_, err := io.WriteString(i.stdout, terminalText(out.String(), true))
+		return err
 	}
 }
 
@@ -333,7 +331,7 @@ func writeDocuments(out io.Writer, documents []model.DocumentSummary) error {
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 	fmt.Fprintln(w, "ID\tPATH\tSTATE\tTITLE")
 	for _, d := range documents {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", d.ID, d.Path, d.State, d.Title)
+		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", terminalText(d.ID, false), terminalText(d.Path, false), terminalText(string(d.State), false), terminalText(d.Title, false))
 	}
 	return w.Flush()
 }

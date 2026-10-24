@@ -1,4 +1,4 @@
-# Verification — 2026-10-21–22
+# Verification — baseline 2026-10-21–22; correction 2026-10-23–24
 
 ## Environment and scope
 
@@ -15,7 +15,54 @@ the harness's normal temporary path plus Unix-socket suffix exceeds Darwin's
 user's Recall root or desktop. No user configuration, firewall, networking,
 launch agents or global installation was changed. Nothing was published/tagged.
 
-## Final code verification matrix
+## Final correction wave (I1/I2/M1)
+
+At base `364862d` plus the final output/filter correction, fresh checks passed:
+
+| Command / gate | Actual result |
+| --- | --- |
+| `go test ./... -count=1` | All 17 test packages pass (assets/cmd have no tests) |
+| `go test -race ./internal/model ./internal/index ./internal/search ./internal/app ./internal/cli ./internal/mcpserver -count=1` | All six affected packages pass, no race report |
+| `go vet ./...`; `gofmt -l ./cmd ./internal ./integration`; `git diff --check` | Exit 0; no output |
+| Focused I1 RED/GREEN | Public MCP/JSON CLI, keyword/vector and all three retrieval modes: large titles/IDs, encoded bytes, whole pages and auxiliary arrays; exact references/get/source preserved |
+| Focused I2 RED/GREEN | Actual executable, pipe-captured list/folder/search/diagnostic/error controls escaped; passage newlines preserved; full raw and decoded JSON unchanged; status/sync covered too |
+| Focused M1 RED/GREEN | Keyword/vector/semantic/hybrid and CLI/MCP exclude notes when state-filtered; authored note state retained |
+| Final-score row boundary | RED reproduced a 4,097-byte final hit; GREEN checks scored/fused rows as well as initial vector rows |
+| Hidden evidence versus returned page | RED rejected a representable one-hit hybrid page; GREEN streams row-bounded keyword evidence and applies the payload budget to the actual final page |
+| Cached native executable workflow | Real CLI and MCP keyword/semantic/hybrid, 768-component normalized vector, init verification and owned worker cleanup pass (12.56 s test under concurrent verification); no new weights downloaded |
+| `go build -o ./build/recall ./cmd/recall` | Exit 0 |
+| Cached release rebuild + `sh scripts/verify-package.sh` | Exit 0; checksum/modes/links/notices/manifests/no weights, 41 relocated Mach-O files, native `--version` |
+| Pipe-captured rebuilt release CLI/MCP smoke | Title bounds, exact raw/revisions, inert human previews, task-only state filtering and inference-free keyword discovery pass |
+
+Exact commands/output and local logs are recorded in
+`.superpowers/sdd/2026-10-18-recall-v1/final-fix-report.md` and
+`build/final-fix-*.log`. Packaging used the existing verified runtime, cached
+notice files with a cache-only fetch function (missing cache fails), and Go's
+offline module settings. No new asset download, global install, registration,
+publication or user collection/configuration change occurred.
+
+The output contract measures compact Go JSON **data values**: 256 UTF-8 bytes
+per display title including any ellipsis, explicit `title_truncated`, 4 KiB per
+summary/hit/diagnostic/folder reference, 32 KiB per list/search data payload
+including auxiliaries. CLI/MCP envelopes, SDK text/structured copies and human
+escaping add overhead. An unrepresentable/oversized exact reference or page
+returns bounded `output_too_large`, never a clipped identity or skipped rows.
+Full explicit document/raw/history operations remain unbounded; source bytes,
+inference inputs, fingerprints and captured revision checks are unchanged.
+State filtering adds a task-kind condition, not a source-schema restriction.
+
+The existing source/query deletion, lease/reset, stale revision, TUI and other
+default regressions passed in the full suite; the six-package race run includes
+the owning app/index/search race regressions. Synthetic vectors establish
+contracts, not semantic quality. New terminal tests use pipes, **not a PTY**:
+no malicious terminal action is executed. Source-output safety and the cached
+native smoke test are **not dynamic active-request log privacy verification**.
+The longer real packaged offline/idle/Neovim/scale gates below are prior baseline
+evidence, not rerun in this correction; unchanged long benchmarks/idle waits were
+not repeated. Their existing limits, including ~50% one-core idle CPU at 10k
+files and the unrun active-log privacy gate, still apply.
+
+## Prior baseline verification matrix (2026-10-21–22)
 
 | Command / gate | Actual result |
 | --- | --- |

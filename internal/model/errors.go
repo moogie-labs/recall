@@ -1,6 +1,9 @@
 package model
 
-import "errors"
+import (
+	"context"
+	"errors"
+)
 
 type Error struct {
 	Code    string `json:"code"`
@@ -30,4 +33,24 @@ func ErrorCode(err error) string {
 		return appError.Code
 	}
 	return "internal"
+}
+
+// PublicError omits internal causes and bounds authored messages/paths without
+// converting a clipped error-path preview into a usable document identity.
+func PublicError(err error) *Error {
+	problem := &Error{Code: ErrorCode(err), Message: "operation failed"}
+	var typed *Error
+	if errors.As(err, &typed) && typed != nil {
+		problem.Message, problem.Path = typed.Message, typed.Path
+	}
+	if errors.Is(err, context.Canceled) {
+		problem.Message = "operation canceled"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		problem.Message = "operation timed out"
+	}
+	if CheckPreviewRow(problem, problem.Path) != nil {
+		return outputTooLarge()
+	}
+	return problem
 }
