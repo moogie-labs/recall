@@ -4,6 +4,8 @@ Local-first notes, tasks, and offline hybrid search for Apple Silicon macOS.
 Typed Markdown files are authoritative; SQLite and embeddings are rebuildable.
 No accounts, cloud API, Ollama, launch agent, or generated answers.
 
+To build from source with Go 1.27+, run `go build -o ./build/recall ./cmd/recall` from the repository root; see [developer packaging](docs/operations.md#developer-packaging) for a complete distributable package.
+
 ## First use
 
 Obtain the `recall-darwin-arm64.tar.gz` archive and its `.sha256` from a trusted
@@ -40,6 +42,24 @@ printf 'Reset credentials in account settings.\n' |
 In the TUI: Tab changes pane; Enter opens the selected real source in the
 editor; `t` opens tasks; `/` opens search; `?` shows contextual keys; `q` backs
 out/quits. Destructive TUI actions require confirmation; CLI/MCP do not.
+
+## Install to `/usr/local/bin`
+
+After verifying and extracting the release archive above, run these commands
+from the extracted `recall-darwin-arm64` directory:
+
+```sh
+sudo mkdir -p /usr/local/bin /usr/local/share/recall
+sudo install -m 755 bin/recall /usr/local/bin/recall
+sudo cp -R bin/assets /usr/local/share/recall/
+RECALL_ASSETS_DIR=/usr/local/share/recall/assets /usr/local/bin/recall init
+/usr/local/bin/recall
+```
+
+Because the bundled assets are installed separately from the executable, set
+`RECALL_ASSETS_DIR` as shown whenever you run `init`. Run Recall itself without
+`sudo` so the collection remains owned by your user. With `/usr/local/bin` on
+your `PATH`, use `recall` instead of `./bin/recall` in the examples above.
 
 ## Guides
 
