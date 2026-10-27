@@ -25,5 +25,6 @@ export class Workspace {
   this.transitions=next;return next;
  }
  clearDocument(){this.request++;this.coordinator.clear();this.update({document:null,treeSelection:null,searchActive:false,problem:null})}
+ clearSelection(){this.update({treeSelection:null})}
  updateCleanDocument(doc:DocumentView){if(this.coordinator.snapshot().status==='saved'&&!this.coordinator.snapshot().busy){this.coordinator.open(this.state.session,doc);this.update({document:doc})}}
 }
