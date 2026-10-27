@@ -7,7 +7,43 @@ type Problem struct {
 	Path    string `json:"path"`
 }
 type OperationReply struct {
-	Problem *Problem `json:"problem"`
+	Problem         *Problem `json:"problem"`
+	IndexingWarning *Problem `json:"indexingWarning"`
+}
+
+type TreeEntry struct {
+	ID   string `json:"id"`
+	Path string `json:"path"`
+	Name string `json:"name"`
+	Kind string `json:"kind"`
+}
+type TreeSnapshot struct {
+	Session     string      `json:"session"`
+	Entries     []TreeEntry `json:"entries"`
+	Diagnostics []Problem   `json:"diagnostics"`
+}
+type TreeReply struct {
+	Tree    *TreeSnapshot `json:"tree"`
+	Problem *Problem      `json:"problem"`
+}
+type CreateInput struct {
+	Session string `json:"session"`
+	Kind    string `json:"kind"`
+	Parent  string `json:"parent"`
+	Name    string `json:"name"`
+}
+type CreateReply struct {
+	Entry           *TreeEntry    `json:"entry"`
+	Document        *DocumentView `json:"document"`
+	Problem         *Problem      `json:"problem"`
+	IndexingWarning *Problem      `json:"indexingWarning"`
+}
+type DeleteInput struct {
+	Session          string `json:"session"`
+	ID               string `json:"id"`
+	Path             string `json:"path"`
+	ExpectedRevision string `json:"expectedRevision"`
+	Recursive        bool   `json:"recursive"`
 }
 
 type DocumentView struct {
