@@ -6,6 +6,24 @@ type Problem struct {
 	Message string `json:"message"`
 	Path    string `json:"path"`
 }
+type SearchInput struct {
+	Session string `json:"session"`
+	Query   string `json:"query"`
+	Mode    string `json:"mode"`
+	Limit   int    `json:"limit"`
+}
+type SearchHit struct {
+	ID      string `json:"id"`
+	Path    string `json:"path"`
+	Title   string `json:"title"`
+	Snippet string `json:"snippet"`
+	Kind    string `json:"kind"`
+	State   string `json:"state"`
+}
+type SearchReply struct {
+	Hits    []SearchHit `json:"hits"`
+	Problem *Problem    `json:"problem"`
+}
 type OperationReply struct {
 	Problem         *Problem `json:"problem"`
 	IndexingWarning *Problem `json:"indexingWarning"`

@@ -15,5 +15,6 @@ export function fakeBridge(documents:DocumentView[]=[],folders:string[]=[]):Desk
    const doc:DocumentView={id:`test-${++version}`,path,name:input.name,title:input.name,body:'',kind:input.kind,state:input.kind==='task'?'planned':'',revision:`revision-${version}`};docs.set(doc.id,doc);return {entry:{id:doc.id,path,name:doc.name,kind:doc.kind},document:doc,problem:null};
   },
   delete:async input=>{if(input.id.startsWith('folder:')){for(const path of dirs)if(path===input.path||path.startsWith(input.path+'/'))dirs.delete(path);for(const [id,d] of docs)if(d.path.startsWith(input.path+'/'))docs.delete(id)}else{const doc=docs.get(input.id);if(doc?.revision!==input.expectedRevision)return {problem:issue('conflict','Source changed')};docs.delete(input.id)}return {problem:null}},
+  search:async input=>({hits:[...docs.values()].filter(d=>(d.title+' '+d.body).toLowerCase().includes(input.query.toLowerCase())).map(d=>({...d,snippet:d.body.slice(0,150)})),problem:null}),
  };
 }

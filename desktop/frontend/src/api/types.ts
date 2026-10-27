@@ -12,7 +12,11 @@ export interface DesktopAPI {
  tree(session:string):Promise<TreeReply>;
  create(input:CreateInput):Promise<CreateReply>;
  delete(input:DeleteInput):Promise<OperationReply>;
+ search(input:SearchInput):Promise<SearchReply>;
 }
+export interface SearchInput {session:string;query:string;mode:string;limit:number}
+export interface SearchHit {id:string;path:string;title:string;snippet:string;kind:string;state:string}
+export interface SearchReply {hits:SearchHit[];problem:Problem|null}
 export interface TreeEntry {id:string;path:string;name:string;kind:string}
 export interface TreeSnapshot {session:string;entries:TreeEntry[];diagnostics:Problem[]}
 export interface TreeReply {tree:TreeSnapshot|null;problem:Problem|null}
