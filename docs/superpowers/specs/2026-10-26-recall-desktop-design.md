@@ -1,6 +1,6 @@
 # Recall desktop for macOS
 
-Status: builder-reviewed draft for user approval. Product code has not been implemented.
+Status: approved by the user. Product code has not been implemented.
 
 ## Intent
 
@@ -8,7 +8,7 @@ Add a focused desktop interface to Recall: find notes and tasks, browse their
 folders, read rendered Markdown, and edit in place. Preserve the existing
 local-first collection and CLI/TUI/MCP behavior rather than creating a second
 storage system. The user approved the interactive layout and chose macOS and
-Wails. The complete design below still needs approval before implementation.
+Wails, and subsequently approved the complete design before planning.
 
 ## Decisions agreed with the user
 
@@ -242,7 +242,7 @@ Required verification:
 - [x] Explore the existing application and collection APIs.
 - [x] Capture agreed behavior and label author-selected defaults.
 - [x] Fresh builder review; no important unanswered questions identified.
-- [ ] Present the reviewed design for user approval.
+- [x] Present the reviewed design for user approval; user approved.
 - [ ] After approval, write the implementation plan; do not build prematurely.
 
 Details left to the builder: component names and frontend folder organization,
