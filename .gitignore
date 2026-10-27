@@ -2,3 +2,9 @@
 /build/
 /.superpowers/
 /.worktrees/
+/desktop/build/bin/
+/desktop/frontend/node_modules/
+/desktop/frontend/dist/
+/desktop/frontend/wailsjs/
+/desktop/frontend/test-results/
+/desktop/frontend/playwright-report/

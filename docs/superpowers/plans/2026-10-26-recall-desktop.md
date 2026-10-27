@@ -198,7 +198,7 @@ always include the collection session token; tokens change on collection switch.
 
 ### Task 9: Package, secure, and verify the desktop release candidate
 
-**Files:** Complete `scripts/{build-desktop.sh,verify-desktop.sh}`, `desktop/build` resources as required, frontend Playwright config/browser suites, `docs/desktop.md`; update `README.md` and `docs/operations.md`. Do not change CLI distribution scripts unless a demonstrated shared-asset requirement needs a separately regression-tested adjustment.
+**Files:** Complete `scripts/{build-desktop.sh,verify-desktop.sh}`, `desktop/build` resources as required, frontend Playwright config/browser suites, `docs/desktop.md`; update `README.md` and `docs/operations.md`. Per the user's execution-time request, README must contain desktop installation instructions directly, not just a guide link. Do not change CLI distribution scripts unless a demonstrated shared-asset requirement needs a separately regression-tested adjustment.
 
 **Interfaces:** `sh scripts/build-desktop.sh` produces `build/Recall.app` from pinned local dependencies and frontend assets; `sh scripts/verify-desktop.sh` validates that bundle with an isolated temporary HOME/root and cleans up only owned processes/files. Native smoke exercises real Go bindings, unlike browser acceptance suites. Record evidence and limitations in `docs/desktop.md`.
 
