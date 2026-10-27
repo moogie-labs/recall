@@ -42,6 +42,7 @@ func main() {
 	defer service.Close()
 	host := newHost(func(name string, payload any) { runtime.EventsEmit(appctx, name, payload) }, func() { runtime.Quit(appctx) }, func(url string) { runtime.BrowserOpenURL(appctx, url) })
 	host.close = service.Close
+	host.copy = func(text string) error { return runtime.ClipboardSetText(appctx, text) }
 	host.choose = func() (string, error) {
 		return runtime.OpenDirectoryDialog(appctx, runtime.OpenDialogOptions{Title: "Choose Recall collection", CanCreateDirectories: false})
 	}

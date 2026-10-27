@@ -42,6 +42,11 @@ files, editor swap/backup files, or external agent transcripts.
 
 ## Runtime and editing
 
+The optional [macOS desktop app](desktop.md) uses the same collection and shared
+inference worker. Its built-in body editor autosaves after three quiet seconds
+and flushes before switching or quitting. Conflicts preserve the draft and block
+unsafe navigation/quit. Desktop installation commands are in the README.
+
 `init` verifies pinned assets and performs real inference. Keep the complete
 package together: bootstrap locates `assets/` relative to `bin/recall`, notably
 `bin/assets/runtime/darwin-arm64/llama-b11669-bin-macos-arm64.tar.gz`.

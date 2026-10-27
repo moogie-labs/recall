@@ -1,13 +1,158 @@
-import {useEffect,useRef,useState,useSyncExternalStore} from 'react';
-import type {DesktopAPI,Problem,SearchHit} from '../api/types';
-import {Workspace} from '../navigation/workspace';
-export function Search({api,workspace,session,reveal}:{api:DesktopAPI;workspace:Workspace;session:string;reveal:(path:string)=>void}){
- const state=useSyncExternalStore(workspace.subscribe,workspace.snapshot),input=useRef<HTMLInputElement>(null),generation=useRef(0);
- const [query,setQuery]=useState(''),[mode,setMode]=useState('hybrid'),[hits,setHits]=useState<SearchHit[]>([]),[error,setError]=useState<Problem|null>(null),[loading,setLoading]=useState(false),[composing,setComposing]=useState(false);
- function clear(){generation.current++;setQuery('');setHits([]);setError(null);setMode('hybrid');workspace.clearSearch()}
- useEffect(()=>{const key=(event:KeyboardEvent)=>{if(event.isComposing)return;if(event.metaKey&&event.key.toLowerCase()==='f'){event.preventDefault();input.current?.focus();input.current?.select()}else if(event.key==='Escape'&&query){event.preventDefault();clear()}};document.addEventListener('keydown',key,true);return ()=>document.removeEventListener('keydown',key,true)},[query]);
- useEffect(()=>{if(!state.searchActive&&query){setQuery('');setMode('hybrid')}},[state.searchActive]);
- useEffect(()=>{clear()},[session]);
- useEffect(()=>{const request=++generation.current;if(!query.trim()||!session||composing){setLoading(false);setHits([]);return}setLoading(true);setError(null);const timer=setTimeout(()=>{void api.search({session,query,mode,limit:20}).then(r=>{if(request!==generation.current)return;setHits(r.hits);setError(r.problem);setLoading(false)}).catch(e=>{if(request===generation.current){setError({code:'internal',message:e.message,path:''});setLoading(false)}})},250);return ()=>{clearTimeout(timer);generation.current++}},[query,mode,session,composing,api]);
- return <><div className="search-slot"><input ref={input} placeholder="Search" aria-label="Search" value={query} onCompositionStart={()=>setComposing(true)} onCompositionEnd={()=>setComposing(false)} onChange={event=>{setQuery(event.target.value);if(event.target.value)workspace.beginSearch();else workspace.clearSearch()}}/><kbd>⌘ F</kbd></div>{state.searchActive&&<section className="search-results" aria-label="Search results"><div className="search-heading"><h1>Search</h1><button aria-label="Clear search" onClick={clear}>×</button></div><p className="search-mode">{mode==='keyword'?'Keyword search':'Hybrid search'}</p>{loading&&<p role="status">Searching…</p>}{error&&<div role="alert"><p>{error.message}</p>{['runtime_unavailable','indexing'].includes(error.code)&&mode!=='keyword'&&<button onClick={()=>setMode('keyword')}>Search keywords instead</button>}</div>}{!loading&&!error&&hits.length===0&&<p>No results.</p>}{!loading&&hits.map((hit,index)=><button className="search-hit" key={hit.id+':'+index} onClick={()=>{void workspace.openDocument(hit.id).then(()=>{reveal(hit.path);clear()}).catch(e=>setError({code:'save_failed',message:e.message,path:hit.path}))}}><strong>{hit.title}</strong><span>{hit.path}</span><p>{hit.snippet}</p></button>)}</section>}</>;
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import type { DesktopAPI, Problem, SearchHit } from "../api/types";
+import { Workspace } from "../navigation/workspace";
+export function Search({
+  api,
+  workspace,
+  session,
+  reveal,
+}: {
+  api: DesktopAPI;
+  workspace: Workspace;
+  session: string;
+  reveal: (path: string) => void;
+}) {
+  const state = useSyncExternalStore(workspace.subscribe, workspace.snapshot),
+    input = useRef<HTMLInputElement>(null),
+    generation = useRef(0);
+  const [query, setQuery] = useState(""),
+    [mode, setMode] = useState("hybrid"),
+    [hits, setHits] = useState<SearchHit[]>([]),
+    [error, setError] = useState<Problem | null>(null),
+    [loading, setLoading] = useState(false),
+    [composing, setComposing] = useState(false);
+  function clear() {
+    generation.current++;
+    setQuery("");
+    setHits([]);
+    setError(null);
+    setMode("hybrid");
+    workspace.clearSearch();
+  }
+  useEffect(() => {
+    const key = (event: KeyboardEvent) => {
+      if (event.isComposing) return;
+      if (event.metaKey && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        input.current?.focus();
+        input.current?.select();
+      } else if (event.key === "Escape" && query) {
+        event.preventDefault();
+        clear();
+      }
+    };
+    document.addEventListener("keydown", key, true);
+    return () => document.removeEventListener("keydown", key, true);
+  }, [query]);
+  useEffect(() => {
+    if (!state.searchActive && query) {
+      setQuery("");
+      setMode("hybrid");
+    }
+  }, [state.searchActive]);
+  useEffect(() => {
+    clear();
+  }, [session]);
+  useEffect(() => {
+    const request = ++generation.current;
+    if (!query.trim() || !session || composing) {
+      setLoading(false);
+      setHits([]);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    const timer = setTimeout(() => {
+      void api
+        .search({ session, query, mode, limit: 20 })
+        .then((r) => {
+          if (request !== generation.current) return;
+          setHits(r.hits);
+          setError(r.problem);
+          setLoading(false);
+        })
+        .catch((e) => {
+          if (request === generation.current) {
+            setError({ code: "internal", message: e.message, path: "" });
+            setLoading(false);
+          }
+        });
+    }, 250);
+    return () => {
+      clearTimeout(timer);
+      generation.current++;
+    };
+  }, [query, mode, session, composing, api]);
+  return (
+    <>
+      <div className="search-slot">
+        <input
+          ref={input}
+          placeholder="Search"
+          aria-label="Search"
+          value={query}
+          onCompositionStart={() => setComposing(true)}
+          onCompositionEnd={() => setComposing(false)}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            if (event.target.value) workspace.beginSearch();
+            else workspace.clearSearch();
+          }}
+        />
+        <kbd>⌘ F</kbd>
+      </div>
+      {state.searchActive && (
+        <section className="search-results" aria-label="Search results">
+          <div className="search-heading">
+            <h1>Search</h1>
+            <button aria-label="Clear search" onClick={clear}>
+              ×
+            </button>
+          </div>
+          <p className="search-mode">
+            {mode === "keyword" ? "Keyword search" : "Hybrid search"}
+          </p>
+          {loading && <p role="status">Searching…</p>}
+          {error && (
+            <div role="alert">
+              <p>{error.message}</p>
+              {["runtime_unavailable", "indexing"].includes(error.code) &&
+                mode !== "keyword" && (
+                  <button onClick={() => setMode("keyword")}>
+                    Search keywords instead
+                  </button>
+                )}
+            </div>
+          )}
+          {!loading && !error && hits.length === 0 && <p>No results.</p>}
+          {!loading &&
+            hits.map((hit, index) => (
+              <button
+                className="search-hit"
+                key={hit.id + ":" + index}
+                onClick={() => {
+                  void workspace
+                    .openDocument(hit.id)
+                    .then(() => {
+                      reveal(hit.path);
+                      clear();
+                    })
+                    .catch((e) =>
+                      setError({
+                        code: "save_failed",
+                        message: e.message,
+                        path: hit.path,
+                      }),
+                    );
+                }}
+              >
+                <strong>{hit.title}</strong>
+                <span>{hit.path}</span>
+                <p>{hit.snippet}</p>
+              </button>
+            ))}
+        </section>
+      )}
+    </>
+  );
 }

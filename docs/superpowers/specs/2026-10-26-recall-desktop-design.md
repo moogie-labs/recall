@@ -1,6 +1,6 @@
 # Recall desktop for macOS
 
-Status: approved by the user. Product code has not been implemented.
+Status: approved and implemented; final whole-branch review pending.
 
 ## Intent
 
@@ -243,7 +243,7 @@ Required verification:
 - [x] Capture agreed behavior and label author-selected defaults.
 - [x] Fresh builder review; no important unanswered questions identified.
 - [x] Present the reviewed design for user approval; user approved.
-- [ ] After approval, write the implementation plan; do not build prematurely.
+- [x] After approval, write the implementation plan; implementation followed approval.
 
 Details left to the builder: component names and frontend folder organization,
 dependency versions after compatibility checks, exact typography/spacing close

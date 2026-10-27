@@ -85,6 +85,13 @@ func (s *Service) OpenCollection(root string) CollectionReply {
 		cancel()
 		return CollectionReply{Root: cfg.Root, Problem: problem(err)}
 	}
+	if explicit && s.preferences != nil {
+		if err := s.preferences.SaveRoot(cfg.Root); err != nil {
+			cancel()
+			a.Close()
+			return CollectionReply{Root: cfg.Root, Problem: problem(err)}
+		}
+	}
 	s.stopWorkers()
 	s.mu.Lock()
 	if s.application != nil {
@@ -99,11 +106,6 @@ func (s *Service) OpenCollection(root string) CollectionReply {
 	s.cancel = cancel
 	s.mu.Unlock()
 	s.startWorkers(ctx, a, cfg, s.session)
-	if explicit && s.preferences != nil {
-		if err := s.preferences.SaveRoot(cfg.Root); err != nil {
-			return CollectionReply{Session: s.session, Root: cfg.Root, Problem: problem(err)}
-		}
-	}
 	return CollectionReply{Session: s.session, Root: cfg.Root}
 }
 func (s *Service) Close() error {

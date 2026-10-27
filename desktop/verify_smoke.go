@@ -30,10 +30,11 @@ func (h *Host) VerifyExternalChange() error {
 }
 func verifyDOMReady(ctx context.Context) {
 	mode := os.Getenv("RECALL_DESKTOP_VERIFY")
-	if mode != "1" && mode != "conflict" {
+	if mode != "1" && mode != "conflict" && mode != "real" {
 		return
 	}
 	runtime.WindowExecJS(ctx, fmt.Sprintf("window.__recallVerifyConflict=%t;", mode == "conflict"))
+	runtime.WindowExecJS(ctx, fmt.Sprintf("window.__recallVerifyReal=%t;", mode == "real"))
 	runtime.WindowExecJS(ctx, `(async()=>{
  const sleep=ms=>new Promise(r=>setTimeout(r,ms));
  const wait=async(fn,label)=>{for(let i=0;i<300;i++){const result=fn();if(result)return result;await sleep(40)}throw Error('Timeout: '+label)};
@@ -45,8 +46,12 @@ func verifyDOMReady(ctx context.Context) {
   await wait(()=>button('Edit'),'document');button('Edit').click();await insert('\nAutosaved 自由');
   await wait(()=>status()==='Autosaving','one-second message');await wait(()=>status()==='Saved','three-second source save');
   const input=document.querySelector('input[aria-label=Search]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Autosaved');input.dispatchEvent(new Event('input',{bubbles:true}));
-  const result=await wait(()=>{const retry=button('Search keywords instead');if(retry)retry.click();return document.querySelector('.search-hit')},'keyword result');result.click();
-  await wait(()=>!document.querySelector('.search-results'),'result navigation');button('Edit').click();await insert('\nQuit flush 😀');
+  const result=await wait(()=>{const retry=button('Search keywords instead');if(retry){if(window.__recallVerifyReal)throw Error('Real-model hybrid search failed');retry.click()}return document.querySelector('.search-hit')},'search result');result.click();
+  await wait(()=>!document.querySelector('.search-results'),'result navigation');
+  const create=async(kind,name,path)=>{document.querySelector('button[aria-label=Create]').click();const choice=await wait(()=>button('New '+kind),'create menu');choice.click();const field=await wait(()=>document.querySelector('dialog input'),'create dialog');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(field,name);field.dispatchEvent(new Event('input',{bubbles:true}));await sleep(0);button('Create item').click();await wait(()=>document.querySelector('[role=treeitem][data-path="'+path+'"]'),'created '+kind);await wait(()=>!document.querySelector('dialog'),'closed create dialog')};
+  await create('folder','Temporary','Temporary');await create('note','Outline','Temporary/Outline.note.md');await create('task','Checklist','Temporary/Checklist.task.md');
+  document.querySelector('[role=treeitem][data-path=Temporary]').click();await wait(()=>document.querySelector('[role=treeitem][data-path=Temporary]')?.getAttribute('aria-selected')==='true','folder selection');document.querySelector('button[aria-label="Delete selection"]').click();await wait(()=>button('Delete permanently'),'recursive delete confirmation');button('Delete permanently').click();await wait(()=>!document.querySelector('[role=treeitem][data-path=Temporary]'),'deleted folder');
+  document.querySelector('[role=treeitem][data-path="smoke.note.md"]').click();await wait(()=>button('Edit'),'reopen note');button('Edit').click();await insert('\nQuit flush 😀');
   if(window.__recallVerifyConflict){
    await window.go.main.Host.VerifyExternalChange();window.runtime.Quit();await wait(()=>status()==='Save failed','blocked conflicting Quit');await sleep(500);window.runtime.Quit();await sleep(500);if(status()!=='Save failed')throw Error('Conflicting quit lost draft');await window.go.main.Host.VerifyMarker('NATIVE_CONFLICT_PASS');window.confirm=()=>true;button('Reload file…').click();await wait(()=>status()==='Saved','explicit discard/reload');window.runtime.Quit();
   }else{await window.go.main.Host.VerifyMarker('NATIVE_SMOKE_PASS');window.runtime.Quit()}

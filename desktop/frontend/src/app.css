@@ -505,4 +505,86 @@ dialog input {
   color: white;
   border-color: #a14e3e;
 }
-.app{--sidebar-width:250px}.app.sidebar-hidden{--sidebar-width:0px}.search-results{position:fixed;z-index:5;top:59px;bottom:0;left:var(--sidebar-width);right:0;background:#fff;overflow:auto;padding:35px clamp(28px,7vw,90px);transition:left 220ms ease}.search-heading{display:flex;align-items:center;justify-content:space-between}.search-heading h1{font-size:25px}.search-heading button{border:0;background:none;font-size:24px;color:#929889}.search-mode{font-size:11px;color:#8c9583}.search-hit{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid #eeeee8;background:none;padding:20px 0}.search-hit strong{display:block;font-size:16px;color:#3c5033}.search-hit span{display:block;font-size:11px;color:#909787;margin-top:6px}.search-hit p{font-size:13px;line-height:1.7;color:#6d7564;white-space:pre-wrap;overflow-wrap:anywhere}.search-results>p{color:#7b856f}.search-results [role=alert]{background:#fff4e8;padding:15px;font-size:13px}
+.app {
+  --sidebar-width: 250px;
+}
+.app.sidebar-hidden {
+  --sidebar-width: 0px;
+}
+.search-results {
+  position: fixed;
+  z-index: 5;
+  top: 59px;
+  bottom: 0;
+  left: var(--sidebar-width);
+  right: 0;
+  background: #fff;
+  overflow: auto;
+  padding: 35px clamp(28px, 7vw, 90px);
+  transition: left 220ms ease;
+}
+.search-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.search-heading h1 {
+  font-size: 25px;
+}
+.search-heading button {
+  border: 0;
+  background: none;
+  font-size: 24px;
+  color: #929889;
+}
+.search-mode {
+  font-size: 11px;
+  color: #8c9583;
+}
+.search-hit {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-bottom: 1px solid #eeeee8;
+  background: none;
+  padding: 20px 0;
+}
+.search-hit strong {
+  display: block;
+  font-size: 16px;
+  color: #3c5033;
+}
+.search-hit span {
+  display: block;
+  font-size: 11px;
+  color: #909787;
+  margin-top: 6px;
+}
+.search-hit p {
+  font-size: 13px;
+  line-height: 1.7;
+  color: #6d7564;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.search-results > p {
+  color: #7b856f;
+}
+.search-results [role="alert"] {
+  background: #fff4e8;
+  padding: 15px;
+  font-size: 13px;
+}
+.collection-button {
+  border: 1px solid #dfdfd6;
+  background: transparent;
+  color: #737d69;
+  border-radius: 5px;
+  padding: 5px 9px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.collection-button:hover {
+  background: #eeede8;
+}

@@ -43,3 +43,11 @@ func TestExternalURLsAreValidated(t *testing.T) {
 		t.Fatal("http URL rejected")
 	}
 }
+func TestNativeDraftCopy(t *testing.T) {
+	h := newHost(func(string, any) {}, func() {}, func(string) {})
+	var copied string
+	h.copy = func(text string) error { copied = text; return nil }
+	if h.CopyDraft("unsaved 自由").Problem != nil || copied != "unsaved 自由" {
+		t.Fatal("draft not copied through native clipboard boundary")
+	}
+}

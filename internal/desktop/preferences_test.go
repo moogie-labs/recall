@@ -2,9 +2,12 @@ package desktop
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"recall/internal/app"
 	"recall/internal/config"
+	"recall/internal/model"
 	"testing"
 )
 
@@ -44,5 +47,35 @@ func TestRootPreferences(t *testing.T) {
 	os.WriteFile(filepath.Join(prefs.Directory, "desktop.json"), []byte("not JSON"), 0600)
 	if _, err := prefs.LoadRoot(); err == nil {
 		t.Fatal("invalid prefs silently ignored")
+	}
+}
+
+type unwritablePreferences struct{}
+
+func (unwritablePreferences) LoadRoot() (string, error) { return "", nil }
+func (unwritablePreferences) SaveRoot(string) error {
+	return errors.New("preferences directory is read-only")
+}
+func TestPreferenceFailurePreservesActiveCollection(t *testing.T) {
+	s, a, _, session := fixture(t)
+	d, err := a.Create(t.Context(), app.CreateInput{Kind: model.Note, Name: "keep", Body: "current"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	next, err := config.Resolve(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = config.Prepare(next); err != nil {
+		t.Fatal(err)
+	}
+	s.preferences = unwritablePreferences{}
+	s.open = func(ctx context.Context, cfg config.Config) (Application, error) { return app.Open(ctx, cfg) }
+	reply := s.OpenCollection(next.Root)
+	if reply.Problem == nil {
+		t.Fatal("preference failure was hidden")
+	}
+	if current := s.OpenDocument(session, d.ID); current.Problem != nil || current.Document.Body != "current" {
+		t.Fatal("preference failure invalidated active collection", current)
 	}
 }

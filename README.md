@@ -61,8 +61,45 @@ Because the bundled assets are installed separately from the executable, set
 `sudo` so the collection remains owned by your user. With `/usr/local/bin` on
 your `PATH`, use `recall` instead of `./bin/recall` in the examples above.
 
+## Desktop app (macOS)
+
+Recall also has a Wails desktop app with a collapsible file tree, Markdown
+preview/edit modes, and global search (⌘F). It uses the **same collection** as
+the CLI and MCP, without installing an always-on service.
+
+First initialize your collection using the CLI [first-use steps](#first-use)
+above. The desktop app does not initialize collections or download models.
+
+To build and install from this repository, use an Apple Silicon Mac with
+macOS 13 or later, Go 1.27+, Node.js 22.12+ with npm, and Xcode command-line
+tools (`xcode-select --install` if needed). From the repository root:
+
+```sh
+sh scripts/build-desktop.sh
+mkdir -p "$HOME/Applications"
+ditto build/Recall.app "$HOME/Applications/Recall.app"
+open "$HOME/Applications/Recall.app"
+```
+
+The build script installs pinned frontend/build dependencies; no separate Wails
+installation is required. The app defaults to `~/.local/share/recall`. Use
+**Collection…** to select an existing custom collection root (not its `content/`
+subfolder); this choice is remembered for Finder launches.
+
+Edits autosave after **3 seconds without typing**; “Autosaving” appears after
+1 second. Switching documents or quitting saves pending edits immediately.
+A green **Saved** indicator confirms the file write. Save failures/conflicts
+keep the draft and block switching or quitting; use retry, copy, or explicit reload.
+
+Builds are ad-hoc signed, **not Developer ID signed or notarized**. Use macOS's
+normal approval flow for software you trust; do not disable Gatekeeper. macOS
+13 is the deployment target; native verification was performed on macOS 26.6.2,
+not every earlier supported OS. See [desktop details](docs/desktop.md) for
+verification commands and limitations.
+
 ## Guides
 
+- [Desktop app](docs/desktop.md)
 - [CLI and filters](docs/cli.md)
 - [Agents and global OpenCode MCP registration](docs/agents.md)
 - [Operations, backups, deletion, developer packaging](docs/operations.md)

@@ -22,12 +22,22 @@ type Host struct {
 	browse         func(string)
 	choose         func() (string, error)
 	close          func() error
+	copy           func(string) error
 }
 
 func newHost(emit func(string, any), quit func(), browse func(string)) *Host {
 	return &Host{emit: emit, quit: quit, browse: browse}
 }
 func (h *Host) Ready() { h.mu.Lock(); h.ready = true; h.mu.Unlock() }
+func (h *Host) CopyDraft(text string) dto.OperationReply {
+	if h.copy == nil {
+		return dto.OperationReply{Problem: &dto.Problem{Code: "runtime_unavailable", Message: "Native clipboard is unavailable"}}
+	}
+	if err := h.copy(text); err != nil {
+		return dto.OperationReply{Problem: &dto.Problem{Code: "internal", Message: "Could not copy the draft"}}
+	}
+	return dto.OperationReply{}
+}
 func (h *Host) BeforeClose(ctx context.Context) bool {
 	h.mu.Lock()
 	if !h.ready || h.allowed {

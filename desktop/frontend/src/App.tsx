@@ -37,14 +37,57 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
     if (r.problem) throw new Error(r.problem.message);
     setTree(r.tree);
   };
-  useEffect(()=>registerShutdown(host,workspace,coordinator),[host,workspace,coordinator]);
-  useEffect(()=>{
-    const update=({session}:{session:string})=>{if(session!==workspace.snapshot().session)return;void refresh(session).then(()=>workspace.refreshDocument()).catch(e=>setError(e.message))};
-    const off=host.on('desktop:collection-changed',update),warn=host.on('desktop:collection-warning',({session,problem})=>{if(session===workspace.snapshot().session&&problem)setError(problem.message)});
-    const focus=()=>{const session=workspace.snapshot().session;if(session)void api.refresh(session).then(r=>{if(session!==workspace.snapshot().session)return;if(r.problem){setError(r.problem.message);return}setTree(r.tree);return workspace.refreshDocument()}).catch(e=>setError(e.message))};
-    window.addEventListener('focus',focus);return ()=>{off();warn();window.removeEventListener('focus',focus)};
-  },[api,host,workspace]);
-  async function chooseCollection(){const root=await host.chooseCollection?.();if(!root)return;await workspace.flushBefore(async()=>{const r=await api.openCollection(root);if(r.problem)throw new Error(r.problem.message);workspace.setCollection(r.session);setExpanded(new Set());setError('');await refresh(r.session)})}
+  useEffect(
+    () => registerShutdown(host, workspace, coordinator),
+    [host, workspace, coordinator],
+  );
+  useEffect(() => {
+    const update = ({ session }: { session: string }) => {
+      if (session !== workspace.snapshot().session) return;
+      void refresh(session)
+        .then(() => workspace.refreshDocument())
+        .catch((e) => setError(e.message));
+    };
+    const off = host.on("desktop:collection-changed", update),
+      warn = host.on("desktop:collection-warning", ({ session, problem }) => {
+        if (session === workspace.snapshot().session && problem)
+          setError(problem.message);
+      });
+    const focus = () => {
+      const session = workspace.snapshot().session;
+      if (session)
+        void api
+          .refresh(session)
+          .then((r) => {
+            if (session !== workspace.snapshot().session) return;
+            if (r.problem) {
+              setError(r.problem.message);
+              return;
+            }
+            setTree(r.tree);
+            return workspace.refreshDocument();
+          })
+          .catch((e) => setError(e.message));
+    };
+    window.addEventListener("focus", focus);
+    return () => {
+      off();
+      warn();
+      window.removeEventListener("focus", focus);
+    };
+  }, [api, host, workspace]);
+  async function chooseCollection() {
+    const root = await host.chooseCollection?.();
+    if (!root) return;
+    await workspace.flushBefore(async () => {
+      const r = await api.openCollection(root);
+      if (r.problem) throw new Error(r.problem.message);
+      workspace.setCollection(r.session);
+      setExpanded(new Set());
+      setError("");
+      await refresh(r.session);
+    });
+  }
   useEffect(() => {
     let active = true;
     void api
@@ -173,8 +216,22 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
           ◧
         </button>
         <span className="brand">Recall</span>
-        <Search api={api} workspace={workspace} session={state.session} reveal={reveal}/>
-        <button className="collection-button" aria-label="Choose collection" disabled={state.busy} onClick={()=>{void chooseCollection().catch(e=>setError(e.message))}}>Collection…</button>
+        <Search
+          api={api}
+          workspace={workspace}
+          session={state.session}
+          reveal={reveal}
+        />
+        <button
+          className="collection-button"
+          aria-label="Choose collection"
+          disabled={state.busy}
+          onClick={() => {
+            void chooseCollection().catch((e) => setError(e.message));
+          }}
+        >
+          Collection…
+        </button>
       </header>
       <div className="app-body">
         <aside
@@ -256,7 +313,12 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
           </div>
         </aside>
         <main>
-          <DocumentPane workspace={workspace} coordinator={coordinator} hidden={state.searchActive}/>
+          <DocumentPane
+            workspace={workspace}
+            coordinator={coordinator}
+            copyDraft={host.copyDraft}
+            hidden={state.searchActive}
+          />
           {(error || state.problem) && (
             <div className="app-error" role="alert">
               {error || state.problem?.message}
