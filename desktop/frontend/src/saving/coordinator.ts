@@ -9,6 +9,7 @@ export class SaveCoordinator {
  private pending:Promise<void>|null=null;private notice:unknown;private timer:unknown;
  constructor(private api:Pick<DesktopAPI,'saveBody'>,private clock:Clock=browserClock){}
  snapshot=()=>this.state;
+ document=()=>this.doc;
  subscribe=(listener:(s:SaveSnapshot)=>void)=>{this.listeners.add(listener);return ()=>{this.listeners.delete(listener)}};
  private update(patch:Partial<SaveSnapshot>){this.state={...this.state,...patch};for(const listener of this.listeners)listener(this.state)}
  private clearTimers(){this.clock.clearTimeout(this.notice);this.clock.clearTimeout(this.timer)}
@@ -18,7 +19,7 @@ export class SaveCoordinator {
  setComposing(active:boolean){this.composing=active;this.clearTimers();if(!active&&this.state.generation!==this.acknowledged&&this.state.status!=='conflict'&&this.state.status!=='error')this.schedule()}
  private save():Promise<void>{
   if(this.state.status==='error'||this.state.status==='conflict')return Promise.reject(new Error(this.state.problem?.message??'Save failed'));
-  if(this.pending)return this.pending;
+  if(this.pending){const epoch=this.epoch;return this.pending.then(()=>epoch===this.epoch?this.save():undefined)}
   if(!this.doc||this.acknowledged===this.state.generation)return Promise.resolve();
   const epoch=this.epoch,generation=this.state.generation;
   const input={session:this.session,id:this.doc.id,expectedRevision:this.doc.revision,body:this.state.body,generation};

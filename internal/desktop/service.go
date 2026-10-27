@@ -29,6 +29,7 @@ type Preferences interface {
 	SaveRoot(string) error
 }
 type Service struct {
+	lifecycle   sync.Mutex
 	mu          sync.RWMutex
 	open        func(context.Context, config.Config) (Application, error)
 	preferences Preferences
@@ -37,6 +38,10 @@ type Service struct {
 	session     string
 	ctx         context.Context
 	cancel      context.CancelFunc
+	initialRoot string
+	sinkMu      sync.RWMutex
+	sink        func(string, any)
+	workers     sync.WaitGroup
 }
 
 func NewService(open func(context.Context, config.Config) (Application, error), preferences Preferences) *Service {
@@ -57,8 +62,12 @@ func (s *Service) check(session string) *Problem {
 	return nil
 }
 func (s *Service) OpenCollection(root string) CollectionReply {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
+	explicit := root != ""
+	if root == "" {
+		root = s.initialRoot
+	}
 	if root == "" && s.preferences != nil {
 		var err error
 		root, err = s.preferences.LoadRoot()
@@ -76,9 +85,8 @@ func (s *Service) OpenCollection(root string) CollectionReply {
 		cancel()
 		return CollectionReply{Root: cfg.Root, Problem: problem(err)}
 	}
-	if s.cancel != nil {
-		s.cancel()
-	}
+	s.stopWorkers()
+	s.mu.Lock()
 	if s.application != nil {
 		s.application.Close()
 	}
@@ -89,9 +97,19 @@ func (s *Service) OpenCollection(root string) CollectionReply {
 	s.application = a
 	s.ctx = ctx
 	s.cancel = cancel
+	s.mu.Unlock()
+	s.startWorkers(ctx, a, cfg, s.session)
+	if explicit && s.preferences != nil {
+		if err := s.preferences.SaveRoot(cfg.Root); err != nil {
+			return CollectionReply{Session: s.session, Root: cfg.Root, Problem: problem(err)}
+		}
+	}
 	return CollectionReply{Session: s.session, Root: cfg.Root}
 }
 func (s *Service) Close() error {
+	s.lifecycle.Lock()
+	defer s.lifecycle.Unlock()
+	s.stopWorkers()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cancel != nil {
@@ -104,4 +122,9 @@ func (s *Service) Close() error {
 	err := s.application.Close()
 	s.application = nil
 	return err
+}
+func (s *Service) SetInitialRoot(root string) {
+	s.lifecycle.Lock()
+	s.initialRoot = root
+	s.lifecycle.Unlock()
 }

@@ -15,10 +15,13 @@ type quitRequest struct {
 type Host struct {
 	mu             sync.Mutex
 	ready, allowed bool
+	completing     bool
 	token          string
 	emit           func(string, any)
 	quit           func()
 	browse         func(string)
+	choose         func() (string, error)
+	close          func() error
 }
 
 func newHost(emit func(string, any), quit func(), browse func(string)) *Host {
@@ -53,10 +56,39 @@ func (h *Host) CompleteQuit(token string) dto.OperationReply {
 		h.mu.Unlock()
 		return dto.OperationReply{Problem: &dto.Problem{Code: "invalid_argument", Message: "Invalid quit request"}}
 	}
+	if h.completing {
+		h.mu.Unlock()
+		return dto.OperationReply{}
+	}
+	h.completing = true
+	h.mu.Unlock()
+	if h.close != nil {
+		if err := h.close(); err != nil {
+			h.mu.Lock()
+			h.completing = false
+			h.mu.Unlock()
+			return dto.OperationReply{Problem: &dto.Problem{Code: "internal", Message: "Could not close the collection"}}
+		}
+	}
+	h.mu.Lock()
 	h.allowed = true
 	h.mu.Unlock()
 	h.quit()
 	return dto.OperationReply{}
+}
+func (h *Host) CancelQuit(token string) dto.OperationReply {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if token == h.token && !h.allowed && !h.completing {
+		h.token = ""
+	}
+	return dto.OperationReply{}
+}
+func (h *Host) ChooseCollection() (string, error) {
+	if h.choose == nil {
+		return "", nil
+	}
+	return h.choose()
 }
 func (h *Host) OpenExternal(raw string) dto.OperationReply {
 	u, err := url.Parse(raw)

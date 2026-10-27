@@ -13,6 +13,7 @@ export interface DesktopAPI {
  create(input:CreateInput):Promise<CreateReply>;
  delete(input:DeleteInput):Promise<OperationReply>;
  search(input:SearchInput):Promise<SearchReply>;
+ refresh(session:string):Promise<TreeReply>;
 }
 export interface SearchInput {session:string;query:string;mode:string;limit:number}
 export interface SearchHit {id:string;path:string;title:string;snippet:string;kind:string;state:string}
@@ -23,4 +24,4 @@ export interface TreeReply {tree:TreeSnapshot|null;problem:Problem|null}
 export interface CreateInput {session:string;kind:string;parent:string;name:string}
 export interface CreateReply {entry:TreeEntry|null;document:DocumentView|null;problem:Problem|null;indexingWarning?:Problem|null}
 export interface DeleteInput {session:string;id:string;path:string;expectedRevision:string;recursive:boolean}
-export interface HostAPI {ready():Promise<void>;completeQuit(token:string):Promise<OperationReply>;openExternal(url:string):Promise<OperationReply>;on(name:string,callback:(payload:any)=>void):()=>void}
+export interface HostAPI {ready():Promise<void>;completeQuit(token:string):Promise<OperationReply>;cancelQuit?(token:string):Promise<OperationReply>;chooseCollection?():Promise<string>;openExternal(url:string):Promise<OperationReply>;on(name:string,callback:(payload:any)=>void):()=>void}

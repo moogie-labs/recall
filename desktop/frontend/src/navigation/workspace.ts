@@ -27,4 +27,13 @@ export class Workspace {
  clearDocument(){this.request++;this.coordinator.clear();this.update({document:null,treeSelection:null,searchActive:false,problem:null})}
  clearSelection(){this.update({treeSelection:null})}
  updateCleanDocument(doc:DocumentView){if(this.coordinator.snapshot().status==='saved'&&!this.coordinator.snapshot().busy){this.coordinator.open(this.state.session,doc);this.update({document:doc})}}
+ async refreshDocument(){
+  const doc=this.state.document,session=this.state.session;if(!doc||this.coordinator.snapshot().busy||this.state.busy)return;
+  const generation=this.coordinator.snapshot().generation,baseline=this.coordinator.document()?.revision;
+  const r=await this.api.openDocument(session,doc.id);
+  if(this.state.session!==session||this.state.document?.id!==doc.id||generation!==this.coordinator.snapshot().generation||this.coordinator.snapshot().busy||baseline!==this.coordinator.document()?.revision)return;
+  if(r.problem||!r.document){this.coordinator.markConflict(r.problem??{code:'not_found',message:'Source unavailable; copy your draft before leaving',path:doc.path});return}
+  if(r.document.revision===baseline&&r.document.path===this.coordinator.document()?.path)return;
+  if(this.coordinator.snapshot().status==='saved')this.updateCleanDocument(r.document);else this.coordinator.markConflict({code:'conflict',message:'The source changed outside this editor. Copy the draft or reload.',path:r.document.path});
+ }
 }

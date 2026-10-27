@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -26,12 +27,31 @@ func main() {
 		os.Exit(code)
 	}
 	var appctx context.Context
-	service := dto.NewService(func(ctx context.Context, cfg config.Config) (dto.Application, error) { return app.Open(ctx, cfg) }, nil)
+	flags := flag.NewFlagSet("Recall", flag.ContinueOnError)
+	root := flags.String("root", "", "Collection root")
+	if err := flags.Parse(os.Args[1:]); err != nil {
+		return
+	}
+	preferences, err := dto.DefaultPreferences()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return
+	}
+	service := dto.NewService(func(ctx context.Context, cfg config.Config) (dto.Application, error) { return app.Open(ctx, cfg) }, preferences)
+	service.SetInitialRoot(*root)
 	defer service.Close()
 	host := newHost(func(name string, payload any) { runtime.EventsEmit(appctx, name, payload) }, func() { runtime.Quit(appctx) }, func(url string) { runtime.BrowserOpenURL(appctx, url) })
-	err := wails.Run(&options.App{Title: "Recall", Width: 1140, Height: 760, MinWidth: 760, MinHeight: 500,
+	host.close = service.Close
+	host.choose = func() (string, error) {
+		return runtime.OpenDirectoryDialog(appctx, runtime.OpenDialogOptions{Title: "Choose Recall collection", CanCreateDirectories: false})
+	}
+	err = wails.Run(&options.App{Title: "Recall", Width: 1140, Height: 760, MinWidth: 760, MinHeight: 500,
 		AssetServer: &assetserver.Options{Assets: assets},
-		OnStartup:   func(ctx context.Context) { appctx = ctx }, OnBeforeClose: host.BeforeClose, Bind: []interface{}{host, service},
+		OnDomReady:  verifyDOMReady,
+		OnStartup: func(ctx context.Context) {
+			appctx = ctx
+			service.SetEventSink(func(name string, payload any) { runtime.EventsEmit(ctx, name, payload) })
+		}, OnBeforeClose: host.BeforeClose, Bind: []interface{}{host, dto.Bindings(service)},
 	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

@@ -29,3 +29,6 @@ it('does not let an old document completion mark a different document saved',asy
 it('composition postpones automatic saving until composition end',async()=>{
  const writes:SaveBodyInput[]=[];const c=new SaveCoordinator({saveBody:async i=>{writes.push(i);return saved(i)}});c.open('s',doc);c.setComposing(true);c.edit('自');await vi.advanceTimersByTimeAsync(5000);expect(writes).toHaveLength(0);c.edit('自由');c.setComposing(false);await vi.advanceTimersByTimeAsync(2999);expect(writes).toHaveLength(0);await vi.advanceTimersByTimeAsync(1);expect(writes[0].body).toBe('自由');c.dispose();
 });
+it('queues a due autosave when an older disk write is still in flight',async()=>{
+ const response=deferred<SaveBodyReply>();const writes:SaveBodyInput[]=[];const c=new SaveCoordinator({saveBody:async input=>{writes.push(input);return writes.length===1?response.promise:saved(input)}});c.open('s',doc);c.edit('first');await vi.advanceTimersByTimeAsync(3000);c.edit('second');await vi.advanceTimersByTimeAsync(3000);expect(writes).toHaveLength(1);response.resolve(saved(writes[0]));await vi.advanceTimersByTimeAsync(0);expect(writes.map(w=>w.body)).toEqual(['first','second']);expect(c.snapshot().status).toBe('saved');c.dispose();
+});
