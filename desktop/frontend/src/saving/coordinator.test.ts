@@ -213,3 +213,30 @@ it("queues a due autosave when an older disk write is still in flight", async ()
   expect(c.snapshot().status).toBe("saved");
   c.dispose();
 });
+it("cancels a queued automatic continuation when composition begins", async () => {
+  const response = deferred<SaveBodyReply>();
+  const writes: SaveBodyInput[] = [];
+  const c = new SaveCoordinator({
+    saveBody: async (input) => {
+      writes.push(input);
+      return writes.length === 1 ? response.promise : saved(input);
+    },
+  });
+  c.open("s", doc);
+  c.edit("first");
+  await vi.advanceTimersByTimeAsync(3000);
+  c.edit("second");
+  await vi.advanceTimersByTimeAsync(3000);
+  c.setComposing(true);
+  c.edit("second自");
+  response.resolve(saved(writes[0]));
+  await vi.advanceTimersByTimeAsync(0);
+  expect(writes).toHaveLength(1);
+  c.edit("second自由");
+  c.setComposing(false);
+  await vi.advanceTimersByTimeAsync(2999);
+  expect(writes).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(1);
+  expect(writes.map((w) => w.body)).toEqual(["first", "second自由"]);
+  c.dispose();
+});

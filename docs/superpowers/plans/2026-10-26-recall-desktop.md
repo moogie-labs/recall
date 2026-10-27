@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-26-recall-desktop-design.md` (approved; read it with this plan).
 
+**Execution result (2026-10-27):** All nine tasks completed via user-selected native execution, followed by one independent whole-branch review and one regression-tested safety-fix pass. Direct desktop installation commands are included in `README.md`. See `docs/desktop.md` for current verification evidence; the original step checkboxes below describe the execution recipe rather than current status.
+
 ## Global Constraints
 
 - macOS-only desktop application, built with Wails and the existing Go backend.

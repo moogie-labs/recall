@@ -588,3 +588,16 @@ dialog input {
 .collection-button:hover {
   background: #eeede8;
 }
+.root-selection {
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  color: inherit;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+.root-selection:hover {
+  text-decoration: underline;
+}

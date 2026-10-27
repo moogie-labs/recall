@@ -22,6 +22,7 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
     );
   const state = useSyncExternalStore(workspace.subscribe, workspace.snapshot);
   const [tree, setTree] = useState<TreeSnapshot | null>(null),
+    [initializing, setInitializing] = useState(true),
     [sidebar, setSidebar] = useState(true),
     [expanded, setExpanded] = useState(new Set<string>()),
     [menu, setMenu] = useState(false),
@@ -110,6 +111,9 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
       })
       .catch((e) => {
         if (active) setError(e.message);
+      })
+      .finally(() => {
+        if (active) setInitializing(false);
       });
     return () => {
       active = false;
@@ -140,10 +144,17 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
       : "";
   async function create(name: string) {
     await workspace.flushBefore(async () => {
+      const current = workspace.snapshot(),
+        selected = current.treeSelection;
+      const targetParent = selected
+        ? selected.kind === "folder"
+          ? selected.path
+          : parentPath(selected.path)
+        : "";
       const r = await api.create({
-        session: state.session,
+        session: current.session,
         kind: creating!,
-        parent,
+        parent: targetParent,
         name,
       });
       if (r.problem || !r.entry)
@@ -225,7 +236,7 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
         <button
           className="collection-button"
           aria-label="Choose collection"
-          disabled={state.busy}
+          disabled={state.busy || initializing}
           onClick={() => {
             void chooseCollection().catch((e) => setError(e.message));
           }}
@@ -242,7 +253,16 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
         >
           <div className="sidebar-inner">
             <div className="sidebar-heading">
-              <h2>Recall</h2>
+              <h2>
+                <button
+                  className="root-selection"
+                  aria-label="Select collection root"
+                  disabled={state.busy}
+                  onClick={() => workspace.clearSelection()}
+                >
+                  Recall
+                </button>
+              </h2>
               <div className="sidebar-actions">
                 <button
                   className="icon"

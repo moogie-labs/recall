@@ -47,7 +47,12 @@ with tempfile.TemporaryDirectory(prefix="recall-native-", dir=base) as temporary
     source.write_text('---\nid: native-smoke\ntype: note\ntitle: Native smoke\ncustom: preserve-me\n---\n# Native smoke\n')
     environment = dict(os.environ, HOME=str(home), RECALL_HOME=str(root), RECALL_DESKTOP_VERIFY=mode)
     try:
-        process = subprocess.run([str(binary), "--root", str(root)], env=environment, capture_output=True, text=True, timeout=45 if mode == "real" else 25)
+        try:
+            process = subprocess.run([str(binary), "--root", str(root)], env=environment, capture_output=True, text=True, timeout=45 if mode == "real" else 25)
+        except subprocess.TimeoutExpired as error:
+            print(error.stdout.decode() if isinstance(error.stdout, bytes) else error.stdout or "")
+            print(error.stderr.decode() if isinstance(error.stderr, bytes) else error.stderr or "", file=sys.stderr)
+            raise
         print(process.stdout)
         print(process.stderr, file=sys.stderr)
         marker = "NATIVE_CONFLICT_PASS" if mode == "conflict" else "NATIVE_SMOKE_PASS"

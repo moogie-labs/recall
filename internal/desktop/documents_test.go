@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
@@ -147,5 +148,39 @@ func TestOpenDoesNotInitializeOrLoadModel(t *testing.T) {
 	}
 	if _, err := os.Stat(root); !os.IsNotExist(err) {
 		t.Fatal("implicit initialization")
+	}
+}
+func TestPersistentPostWriteIndexFailureAcknowledgesSourceAndRevision(t *testing.T) {
+	s, a, cfg, session := fixture(t)
+	d, err := a.Create(t.Context(), app.CreateInput{Kind: model.Note, Name: "persist", Body: "old"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", filepath.Join(cfg.Root, "index.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	_, err = db.Exec(`CREATE TRIGGER desktop_fail_projection BEFORE INSERT ON documents WHEN NEW.body = 'written despite index failure' BEGIN SELECT RAISE(FAIL, 'desktop injected projection failure'); END`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := s.SaveBody(SaveBodyInput{Session: session, ID: d.ID, ExpectedRevision: d.Revision, Body: "written despite index failure", Generation: 1})
+	disk, err := os.ReadFile(filepath.Join(cfg.Content, d.Path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(string(disk), "written despite index failure") {
+		t.Fatal("test did not reach the source commit")
+	}
+	if !r.Saved || r.Document == nil || r.Problem != nil || r.IndexingWarning == nil || r.Document.Revision == d.Revision {
+		t.Fatalf("committed source was stranded as unsaved: %+v", r)
+	}
+	if _, err = db.Exec(`DROP TRIGGER desktop_fail_projection`); err != nil {
+		t.Fatal(err)
+	}
+	retry := s.SaveBody(SaveBodyInput{Session: session, ID: d.ID, ExpectedRevision: r.Document.Revision, Body: "next edit", Generation: 2})
+	if !retry.Saved || retry.Problem != nil {
+		t.Fatalf("repair produced a false conflict: %+v", retry)
 	}
 }

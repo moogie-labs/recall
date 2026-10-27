@@ -56,7 +56,7 @@ func (s *Service) SaveBody(in SaveBodyInput) SaveBodyReply {
 	}
 	d, err := s.application.Update(s.ctx, model.Ref{ID: in.ID}, in.ExpectedRevision, string(raw))
 	if err != nil {
-		actual, readErr := s.application.Read(s.ctx, model.Ref{ID: in.ID})
+		actual, readErr := s.application.ReadSource(s.ctx, current.Path)
 		if readErr != nil || actual.Raw != string(raw) {
 			r.Problem = problem(err)
 			return r

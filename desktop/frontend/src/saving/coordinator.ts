@@ -10,6 +10,8 @@ export interface SaveSnapshot {
   busy: boolean;
   problem: Problem | null;
   indexingWarning: Problem | null;
+  composing: boolean;
+  interaction: number;
 }
 const browserClock: Clock = {
   setTimeout: (cb, ms) => setTimeout(cb, ms),
@@ -24,22 +26,34 @@ export class SaveCoordinator {
     busy: false,
     problem: null,
     indexingWarning: null,
+    composing: false,
+    interaction: 0,
   };
   private listeners = new Set<(s: SaveSnapshot) => void>();
   private session = "";
   private doc: DocumentView | null = null;
   private epoch = 0;
   private acknowledged = 0;
-  private composing = false;
   private pending: Promise<void> | null = null;
   private notice: unknown;
   private timer: unknown;
+  private scheduleVersion = 0;
   constructor(
     private api: Pick<DesktopAPI, "saveBody">,
     private clock: Clock = browserClock,
   ) {}
   snapshot = () => this.state;
   document = () => this.doc;
+  pause() {
+    this.clearTimers();
+  }
+  async settle() {
+    try {
+      await this.pending;
+    } catch {
+      /* The retained draft still carries the save error. */
+    }
+  }
   subscribe = (listener: (s: SaveSnapshot) => void) => {
     this.listeners.add(listener);
     return () => {
@@ -51,6 +65,7 @@ export class SaveCoordinator {
     for (const listener of this.listeners) listener(this.state);
   }
   private clearTimers() {
+    this.scheduleVersion++;
     this.clock.clearTimeout(this.notice);
     this.clock.clearTimeout(this.timer);
   }
@@ -61,7 +76,6 @@ export class SaveCoordinator {
     this.doc = { ...doc };
     this.acknowledged = 0;
     this.pending = null;
-    this.composing = false;
     this.update({
       status: "saved",
       body: doc.body,
@@ -69,6 +83,8 @@ export class SaveCoordinator {
       busy: false,
       problem: null,
       indexingWarning: null,
+      composing: false,
+      interaction: this.state.interaction + 1,
     });
   }
   edit(body: string) {
@@ -78,22 +94,24 @@ export class SaveCoordinator {
     this.update({
       body,
       generation: this.state.generation + 1,
+      interaction: this.state.interaction + 1,
       status: conflict ? "conflict" : "dirty",
       problem: conflict ? this.state.problem : null,
     });
-    if (!conflict && !this.composing) this.schedule();
+    if (!conflict && !this.state.composing) this.schedule();
   }
   private schedule() {
+    const version = this.scheduleVersion;
     this.notice = this.clock.setTimeout(() => {
       this.update({ status: "autosaving" });
     }, 1000);
     this.timer = this.clock.setTimeout(() => {
-      void this.save().catch(() => {});
+      void this.save(version).catch(() => {});
     }, 3000);
   }
   setComposing(active: boolean) {
-    this.composing = active;
     this.clearTimers();
+    this.update({ composing: active, interaction: this.state.interaction + 1 });
     if (
       !active &&
       this.state.generation !== this.acknowledged &&
@@ -102,7 +120,14 @@ export class SaveCoordinator {
     )
       this.schedule();
   }
-  private save(): Promise<void> {
+  private save(automaticVersion?: number): Promise<void> {
+    if (
+      automaticVersion !== undefined &&
+      (automaticVersion !== this.scheduleVersion || this.state.composing)
+    )
+      return Promise.resolve();
+    if (this.state.composing)
+      return Promise.reject(new Error("Finish text composition before saving"));
     if (this.state.status === "error" || this.state.status === "conflict")
       return Promise.reject(
         new Error(this.state.problem?.message ?? "Save failed"),
@@ -110,7 +135,7 @@ export class SaveCoordinator {
     if (this.pending) {
       const epoch = this.epoch;
       return this.pending.then(() =>
-        epoch === this.epoch ? this.save() : undefined,
+        epoch === this.epoch ? this.save(automaticVersion) : undefined,
       );
     }
     if (!this.doc || this.acknowledged === this.state.generation)
@@ -171,7 +196,7 @@ export class SaveCoordinator {
   }
   async flush() {
     this.clearTimers();
-    if (this.composing)
+    if (this.state.composing)
       throw new Error("Finish text composition before leaving the document");
     do {
       await this.save();
@@ -200,6 +225,8 @@ export class SaveCoordinator {
       busy: false,
       problem: null,
       indexingWarning: null,
+      composing: false,
+      interaction: this.state.interaction + 1,
     });
   }
   dispose() {

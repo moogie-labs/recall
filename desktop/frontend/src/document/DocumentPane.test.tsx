@@ -22,9 +22,76 @@ async function setup() {
   const w = new Workspace(api, c);
   w.setCollection("test-session");
   await w.openDocument("a");
-  return { c, w };
+  return { c, w, api };
 }
 afterEach(() => vi.useRealTimers());
+it("requires explicit confirmation to close a draft whose source no longer exists", async () => {
+  const { c, w } = await setup();
+  c.edit("do not lose without confirmation");
+  c.markConflict({
+    code: "not_found",
+    message: "Source deleted",
+    path: doc.path,
+  });
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  const { unmount } = render(<DocumentPane workspace={w} coordinator={c} />);
+  fireEvent.click(screen.getByRole("button", { name: "Close draft…" }));
+  expect(c.snapshot().body).toBe("do not lose without confirmation");
+  confirm.mockReturnValue(true);
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Close draft…" }));
+  });
+  expect(w.snapshot().document).toBeNull();
+  expect(c.snapshot().body).toBe("");
+  confirm.mockRestore();
+  unmount();
+  c.dispose();
+});
+it("blocks undo after a flush while destination navigation is still pending", async () => {
+  const { c, w, api } = await setup();
+  const { container, unmount } = render(
+    <DocumentPane workspace={w} coordinator={c} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  const view = EditorView.findFromDOM(
+    container.querySelector(".cm-editor") as HTMLElement,
+  )!;
+  act(() =>
+    view.dispatch({
+      changes: { from: view.state.doc.length, insert: " draft" },
+    }),
+  );
+  let resolve!: (reply: any) => void, begin!: () => void;
+  const started = new Promise<void>((r) => {
+    begin = r;
+  });
+  api.openDocument = () =>
+    new Promise((r) => {
+      resolve = r;
+      begin();
+    });
+  let navigation!: Promise<void>;
+  await act(async () => {
+    navigation = w.openDocument("b");
+    await started;
+  });
+  let changed = false;
+  act(() => {
+    changed = undo(view);
+  });
+  const retained = c.snapshot().body;
+  await act(async () => {
+    resolve({
+      document: { ...doc, id: "b", path: "b.note.md", body: "# Next" },
+      problem: null,
+    });
+    await navigation;
+  });
+  expect(changed).toBe(false);
+  expect(retained).toBe("# Original draft");
+  unmount();
+  c.dispose();
+});
 it("preserves the live draft and undo across preview toggles", async () => {
   const { c, w } = await setup();
   const { container, unmount } = render(

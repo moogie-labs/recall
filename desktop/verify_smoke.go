@@ -40,18 +40,22 @@ func verifyDOMReady(ctx context.Context) {
  const wait=async(fn,label)=>{for(let i=0;i<300;i++){const result=fn();if(result)return result;await sleep(40)}throw Error('Timeout: '+label)};
  const button=name=>[...document.querySelectorAll('button')].find(el=>el.textContent.trim()===name);
  const status=()=>document.querySelector('.document-footer [role=status]')?.textContent.trim();
- const insert=async text=>{const editor=await wait(()=>document.querySelector('.cm-content'),'editor');editor.focus();const sel=window.getSelection();sel.selectAllChildren(editor);sel.collapseToEnd();document.execCommand('insertText',false,text);await wait(()=>status()==='Unsaved changes','dirty state')};
+ const insert=async text=>{const editor=await wait(()=>{const el=document.querySelector('.cm-content[contenteditable=true]');return el&&!el.closest('[hidden]')?el:null},'editable document');editor.focus();const sel=window.getSelection();sel.selectAllChildren(editor);sel.collapseToEnd();if(!document.execCommand('insertText',false,text))throw Error('Native insertion was refused');await wait(()=>status()==='Unsaved changes','dirty state')};
  try{
+  await window.go.main.Host.VerifyMarker('NATIVE_STAGE opening');
   const row=await wait(()=>document.querySelector('[role=treeitem][data-path="smoke.note.md"]'),'tree');row.click();
   await wait(()=>button('Edit'),'document');button('Edit').click();await insert('\nAutosaved 自由');
   await wait(()=>status()==='Autosaving','one-second message');await wait(()=>status()==='Saved','three-second source save');
+  await window.go.main.Host.VerifyMarker('NATIVE_STAGE saved');
   const input=document.querySelector('input[aria-label=Search]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(input,'Autosaved');input.dispatchEvent(new Event('input',{bubbles:true}));
   const result=await wait(()=>{const retry=button('Search keywords instead');if(retry){if(window.__recallVerifyReal)throw Error('Real-model hybrid search failed');retry.click()}return document.querySelector('.search-hit')},'search result');result.click();
   await wait(()=>!document.querySelector('.search-results'),'result navigation');
+  await window.go.main.Host.VerifyMarker('NATIVE_STAGE tree CRUD');
   const create=async(kind,name,path)=>{document.querySelector('button[aria-label=Create]').click();const choice=await wait(()=>button('New '+kind),'create menu');choice.click();const field=await wait(()=>document.querySelector('dialog input'),'create dialog');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(field,name);field.dispatchEvent(new Event('input',{bubbles:true}));await sleep(0);button('Create item').click();await wait(()=>document.querySelector('[role=treeitem][data-path="'+path+'"]'),'created '+kind);await wait(()=>!document.querySelector('dialog'),'closed create dialog')};
   await create('folder','Temporary','Temporary');await create('note','Outline','Temporary/Outline.note.md');await create('task','Checklist','Temporary/Checklist.task.md');
   document.querySelector('[role=treeitem][data-path=Temporary]').click();await wait(()=>document.querySelector('[role=treeitem][data-path=Temporary]')?.getAttribute('aria-selected')==='true','folder selection');document.querySelector('button[aria-label="Delete selection"]').click();await wait(()=>button('Delete permanently'),'recursive delete confirmation');button('Delete permanently').click();await wait(()=>!document.querySelector('[role=treeitem][data-path=Temporary]'),'deleted folder');
   document.querySelector('[role=treeitem][data-path="smoke.note.md"]').click();await wait(()=>button('Edit'),'reopen note');button('Edit').click();await insert('\nQuit flush 😀');
+  await window.go.main.Host.VerifyMarker('NATIVE_STAGE quitting');
   if(window.__recallVerifyConflict){
    await window.go.main.Host.VerifyExternalChange();window.runtime.Quit();await wait(()=>status()==='Save failed','blocked conflicting Quit');await sleep(500);window.runtime.Quit();await sleep(500);if(status()!=='Save failed')throw Error('Conflicting quit lost draft');await window.go.main.Host.VerifyMarker('NATIVE_CONFLICT_PASS');window.confirm=()=>true;button('Reload file…').click();await wait(()=>status()==='Saved','explicit discard/reload');window.runtime.Quit();
   }else{await window.go.main.Host.VerifyMarker('NATIVE_SMOKE_PASS');window.runtime.Quit()}

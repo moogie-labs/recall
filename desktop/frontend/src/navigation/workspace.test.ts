@@ -126,3 +126,204 @@ it("reloads clean external moves but preserves dirty drafts on changes or deleti
   expect(c.snapshot().status).toBe("conflict");
   c.dispose();
 });
+it("confirmed reload never replaces edits made after its discard decision", async () => {
+  const api = fakeBridge([a]);
+  const c = new SaveCoordinator(api),
+    w = new Workspace(api, c);
+  w.setCollection("test-session");
+  await w.openDocument("a");
+  c.edit("discard candidate");
+  c.markConflict({
+    code: "conflict",
+    message: "Changed externally",
+    path: a.path,
+  });
+  let resolve!: (reply: DocumentReply) => void, begin!: () => void;
+  const started = new Promise<void>((r) => {
+    begin = r;
+  });
+  api.openDocument = () =>
+    new Promise((r) => {
+      resolve = r;
+      begin();
+    });
+  const reload = w.reloadCurrentAfterConfirmedDiscard();
+  await started;
+  c.edit("newer input");
+  resolve({
+    document: { ...a, body: "external", revision: "external" },
+    problem: null,
+  });
+  await reload;
+  expect(c.snapshot().body).toBe("newer input");
+  expect(c.snapshot().status).toBe("conflict");
+  expect(w.snapshot().busy).toBe(false);
+  c.dispose();
+});
+it("confirmed reload ignores responses from a previous collection", async () => {
+  const api = fakeBridge([a]);
+  const c = new SaveCoordinator(api),
+    w = new Workspace(api, c);
+  w.setCollection("old");
+  await w.openDocument("a");
+  let resolve!: (reply: DocumentReply) => void, begin!: () => void;
+  const started = new Promise<void>((r) => {
+    begin = r;
+  });
+  api.openDocument = () =>
+    new Promise((r) => {
+      resolve = r;
+      begin();
+    });
+  const reload = w.reloadCurrentAfterConfirmedDiscard();
+  await started;
+  w.setCollection("new");
+  resolve({ document: a, problem: null });
+  await reload;
+  expect(w.snapshot().session).toBe("new");
+  expect(w.snapshot().document).toBeNull();
+  expect(c.snapshot().body).toBe("");
+  c.dispose();
+});
+it("defers external refresh through composition startup and detects conflict afterward", async () => {
+  const api = fakeBridge([a]);
+  const c = new SaveCoordinator(api),
+    w = new Workspace(api, c);
+  w.setCollection("test-session");
+  await w.openDocument("a");
+  api.openDocument = async () => ({
+    document: { ...a, revision: "external", body: "external body" },
+    problem: null,
+  });
+  c.setComposing(true);
+  await w.refreshDocument();
+  expect(c.document()?.revision).toBe("r0");
+  expect(c.snapshot().body).toBe("old");
+  c.edit("old自");
+  c.setComposing(false);
+  await vi.waitFor(() => expect(c.snapshot().status).toBe("conflict"));
+  expect(c.snapshot().body).toBe("old自");
+  expect(c.document()?.revision).toBe("r0");
+  c.dispose();
+});
+it("ignores a refresh response if composition began while its read was pending", async () => {
+  const api = fakeBridge([a]);
+  const c = new SaveCoordinator(api),
+    w = new Workspace(api, c);
+  w.setCollection("test-session");
+  await w.openDocument("a");
+  let resolve!: (reply: DocumentReply) => void;
+  api.openDocument = () =>
+    new Promise((r) => {
+      resolve = r;
+    });
+  const refresh = w.refreshDocument();
+  c.setComposing(true);
+  resolve({
+    document: { ...a, revision: "external", body: "external" },
+    problem: null,
+  });
+  await refresh;
+  expect(c.document()?.revision).toBe("r0");
+  expect(c.snapshot().body).toBe("old");
+  c.dispose();
+});
+it("external deletion of a clean source does not trap navigation or quitting", async () => {
+  const api = fakeBridge([a, b]);
+  const c = new SaveCoordinator(api),
+    w = new Workspace(api, c);
+  w.setCollection("test-session");
+  await w.openDocument("a");
+  const read = api.openDocument;
+  api.openDocument = async (session, id) =>
+    id === "a"
+      ? {
+          document: null,
+          problem: {
+            code: "not_found",
+            message: "Deleted externally",
+            path: a.path,
+          },
+        }
+      : read(session, id);
+  await w.refreshDocument();
+  expect(w.snapshot().document).toBeNull();
+  await expect(c.flush()).resolves.toBeUndefined();
+  await w.openDocument("b");
+  expect(w.snapshot().document?.id).toBe("b");
+  c.dispose();
+});
+it("a deleted dirty source can be closed only through explicit discard without any write", async () => {
+  const api = fakeBridge([a]);
+  let writes = 0;
+  const save = api.saveBody;
+  api.saveBody = async (input) => {
+    writes++;
+    return save(input);
+  };
+  const c = new SaveCoordinator(api),
+    w = new Workspace(api, c);
+  w.setCollection("test-session");
+  await w.openDocument("a");
+  c.edit("keep until confirmed");
+  api.openDocument = async () => ({
+    document: null,
+    problem: { code: "not_found", message: "Deleted externally", path: a.path },
+  });
+  await w.refreshDocument();
+  expect(c.snapshot().body).toBe("keep until confirmed");
+  await expect(w.flushBefore(async () => {})).rejects.toThrow();
+  await w.closeCurrentAfterConfirmedDiscard();
+  expect(w.snapshot().document).toBeNull();
+  expect(c.snapshot().body).toBe("");
+  expect(writes).toBe(0);
+  await expect(c.flush()).resolves.toBeUndefined();
+  c.dispose();
+});
+it("follows moved document selections without replacing an unrelated selected folder", async () => {
+  const api = fakeBridge([a]);
+  const c = new SaveCoordinator(api),
+    w = new Workspace(api, c);
+  w.setCollection("test-session");
+  await w.openDocument("a");
+  api.openDocument = async () => ({
+    document: { ...a, path: "Other/a.note.md", revision: "moved" },
+    problem: null,
+  });
+  await w.refreshDocument();
+  expect(w.snapshot().treeSelection?.path).toBe("Other/a.note.md");
+  await w.selectTree({
+    id: "folder:Work",
+    path: "Work",
+    name: "Work",
+    kind: "folder",
+  });
+  api.openDocument = async () => ({
+    document: { ...a, path: "Another/a.note.md", revision: "moved-again" },
+    problem: null,
+  });
+  await w.refreshDocument();
+  expect(w.snapshot().document?.path).toBe("Another/a.note.md");
+  expect(w.snapshot().treeSelection?.path).toBe("Work");
+  c.dispose();
+});
+it("adopts moved IDs returned by a successful save before later creation", async () => {
+  const api = fakeBridge([a]);
+  const save = api.saveBody;
+  api.saveBody = async (input) => {
+    const r = await save(input);
+    return {
+      ...r,
+      document: r.document ? { ...r.document, path: "Moved/a.note.md" } : null,
+    };
+  };
+  const c = new SaveCoordinator(api),
+    w = new Workspace(api, c);
+  w.setCollection("test-session");
+  await w.openDocument("a");
+  c.edit("changed");
+  await c.flush();
+  expect(w.snapshot().document?.path).toBe("Moved/a.note.md");
+  expect(w.snapshot().treeSelection?.path).toBe("Moved/a.note.md");
+  c.dispose();
+});

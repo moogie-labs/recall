@@ -1,6 +1,6 @@
 # Recall desktop for macOS
 
-Status: approved and implemented; final whole-branch review pending.
+Status: implemented; independent whole-branch review completed and blocking findings fixed with failing-then-passing regressions. Verification and remaining manual checks are recorded in `docs/desktop.md`.
 
 ## Intent
 

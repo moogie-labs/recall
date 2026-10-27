@@ -48,6 +48,9 @@ quits the desktop app, rather than hiding it in the background.
 - The plus dropdown creates Folder, Note, or Task inside a selected folder,
   alongside a selected document, or at root with no selection. New tasks start
   Planned; new documents open in Edit, existing documents in Preview.
+  Click the sidebar's **Recall** heading to select root without closing the
+  current document or discarding its draft. Moved document IDs keep their
+  selection/creation target synchronized with the current path.
 - ⌘F focuses global **Search**, replacing local editor find. Search is hybrid;
   semantic errors offer an explicit keyword-only retry. Escape clears search
   and restores the open draft. Selecting a result reveals its folder ancestors.
@@ -82,6 +85,18 @@ copy the draft, then **Reload file…** only when willing to discard local chang
 There is no force-overwrite or automatic merge. Externally deleted/malformed
 sources are not automatically recreated. No unsaved-draft guarantee covers
 Force Quit, a crash, or power loss.
+
+A clean externally deleted document can close without trapping navigation or
+Quit. A dirty missing source retains its draft; **Close draft…** requires an
+explicit discard confirmation and does not require rereading/recreating that
+missing file. Confirmed reloads are guarded against newer edits, selections,
+and collection changes. IME composition is protected from automatic refresh and
+queued saves, and final-transition editing commands are read-only.
+
+If an indexing failure occurs after a source commit, the desktop verifies that
+known source directly through the confined store, independently of SQLite. A
+matching committed body adopts its real revision and shows a separate indexing
+warning, avoiding a false conflict on the next edit after repair.
 
 The existing Darwin watcher polls metadata; large collections retain its
 [documented idle-CPU limitation](operations.md). There is no new low-idle-CPU SLA.
@@ -142,7 +157,7 @@ separate checks; a browser screenshot is not a native visual inspection.
 ### Recorded checks (2026-10-27)
 
 - Root `go test ./...` and desktop facade race tests passed.
-- Frontend typecheck/build, 29 unit/component tests, and 4 Chromium acceptance
+- Frontend typecheck/build, 42 unit/component tests, and 4 Chromium acceptance
   tests passed; npm audit reported zero vulnerabilities.
 - Production bundle inspection and relocated headless worker dispatch passed.
 - Native WKWebView fixtures passed actual 1s/3s autosave, Markdown modes, source
@@ -153,3 +168,9 @@ separate checks; a browser screenshot is not a native visual inspection.
   observed released after the existing idle timeout.
 - The existing CLI archive verifier passed checksum/relocation/runtime checks;
   its long offline/scale benchmarks were not rerun for this desktop change.
+- One independent whole-branch review identified reload/IME/transition-lock and
+  source-recovery edge cases. Each blocking finding was reproduced with a
+  failing regression and fixed; the complete Go/race, frontend, browser and
+  native fixtures passed afterward. No second review was substituted for those
+  regressions. A minor retained workspace-error banner currently clears on
+  selecting another document rather than through its dismiss button.

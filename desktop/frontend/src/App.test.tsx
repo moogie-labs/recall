@@ -6,6 +6,7 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { expect, it } from "vitest";
+import { EditorView } from "@codemirror/view";
 import { App } from "./App";
 import { fakeBridge } from "./api/fakeBridge";
 import type { HostAPI } from "./api/types";
@@ -25,6 +26,73 @@ const doc = {
   kind: "note",
   state: "",
 };
+it("does not allow collection picking to race initial collection loading", async () => {
+  const api = fakeBridge([doc], ["Work"]);
+  let resolve!: (reply: any) => void;
+  api.openCollection = () =>
+    new Promise((r) => {
+      resolve = r;
+    });
+  render(<App api={api} host={host} />);
+  expect(
+    screen.getByRole("button", { name: "Choose collection" }),
+  ).toBeDisabled();
+  await act(async () => {
+    resolve({
+      session: "test-session",
+      root: "/test-collection",
+      problem: null,
+    });
+  });
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", { name: "Choose collection" }),
+    ).not.toBeDisabled(),
+  );
+});
+it("selects collection root after browsing without discarding the open draft", async () => {
+  const api = fakeBridge([doc], ["Work"]);
+  const { container } = render(<App api={api} host={host} />);
+  fireEvent.click(await screen.findByRole("treeitem", { name: "Work" }));
+  fireEvent.click(screen.getByRole("treeitem", { name: "a" }));
+  await screen.findByRole("heading", { name: "A" });
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  const view = EditorView.findFromDOM(
+    container.querySelector(".cm-editor") as HTMLElement,
+  )!;
+  act(() =>
+    view.dispatch({
+      changes: {
+        from: 0,
+        to: view.state.doc.length,
+        insert: "# Pending draft",
+      },
+    }),
+  );
+  fireEvent.click(
+    screen.getByRole("button", { name: "Select collection root" }),
+  );
+  expect(view.state.doc.toString()).toBe("# Pending draft");
+  expect(
+    screen.getByRole("button", { name: "Delete selection" }),
+  ).toBeDisabled();
+  expect((await api.openDocument("test-session", doc.id)).document?.body).toBe(
+    "# A",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Create" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "New folder" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+    target: { value: "Top level" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Create item" }));
+  await screen.findByRole("treeitem", { name: "Top level" });
+  expect(
+    (await api.tree("test-session")).tree!.entries.find(
+      (e) => e.name === "Top level",
+    )?.path,
+  ).toBe("Top level");
+  expect(view.state.doc.toString()).toBe("# Pending draft");
+});
 it("creates beside a selected file and inside a selected folder then opens new documents in Edit", async () => {
   const api = fakeBridge([doc], ["Work"]);
   render(<App api={api} host={host} />);

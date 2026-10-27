@@ -13,6 +13,7 @@ import (
 
 type Application interface {
 	Read(context.Context, model.Ref) (model.Document, error)
+	ReadSource(context.Context, string) (model.Document, error)
 	Update(context.Context, model.Ref, string, string) (model.Document, error)
 	Create(context.Context, app.CreateInput) (model.Document, error)
 	CreateFolder(context.Context, string) error

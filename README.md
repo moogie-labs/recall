@@ -90,6 +90,9 @@ Edits autosave after **3 seconds without typing**; “Autosaving” appears afte
 1 second. Switching documents or quitting saves pending edits immediately.
 A green **Saved** indicator confirms the file write. Save failures/conflicts
 keep the draft and block switching or quitting; use retry, copy, or explicit reload.
+If a dirty source was deleted externally, **Close draft…** lets you explicitly
+discard that draft without recreating the file. Click the sidebar's **Recall**
+heading to select the collection root for new top-level items.
 
 Builds are ad-hoc signed, **not Developer ID signed or notarized**. Use macOS's
 normal approval flow for software you trust; do not disable Gatekeeper. macOS

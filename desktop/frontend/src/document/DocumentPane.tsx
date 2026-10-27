@@ -40,9 +40,10 @@ export function DocumentPane({
           markdown(),
           keymap.of([...defaultKeymap, ...historyKeymap]),
           EditorView.lineWrapping,
-          editable.current.of(
+          editable.current.of([
             EditorView.editable.of(!workspace.snapshot().busy),
-          ),
+            EditorState.readOnly.of(workspace.snapshot().busy),
+          ]),
           EditorView.contentAttributes.of({ "aria-label": "Markdown editor" }),
           EditorView.updateListener.of((update) => {
             if (update.docChanged)
@@ -67,9 +68,10 @@ export function DocumentPane({
   }, [save.body]);
   useEffect(() => {
     editor.current?.dispatch({
-      effects: editable.current.reconfigure(
+      effects: editable.current.reconfigure([
         EditorView.editable.of(!state.busy),
-      ),
+        EditorState.readOnly.of(state.busy),
+      ]),
     });
   }, [state.busy]);
   const failed = save.status === "error" || save.status === "conflict";
@@ -157,6 +159,20 @@ export function DocumentPane({
               }}
             >
               Reload file…
+            </button>
+            <button
+              onClick={() => {
+                if (
+                  window.confirm(
+                    "Discard this draft and close the document? Unsaved changes will be lost.",
+                  )
+                )
+                  void workspace
+                    .closeCurrentAfterConfirmedDiscard()
+                    .catch((error) => setRecoveryNotice(error.message));
+              }}
+            >
+              Close draft…
             </button>
           </div>
         </div>
