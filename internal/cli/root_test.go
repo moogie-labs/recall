@@ -184,6 +184,13 @@ func TestInitRetriesAndRequiresValidInference(t *testing.T) {
 func TestAssetsAreExecutableRelativeOrAbsoluteOverride(t *testing.T) {
 	root := t.TempDir()
 	bin := filepath.Join(t.TempDir(), "recall")
+	if err := os.WriteFile(bin, nil, 0700); err != nil {
+		t.Fatal(err)
+	}
+	bin, err := filepath.EvalSymlinks(bin)
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Chdir(t.TempDir())
 	t.Setenv("RECALL_ASSETS_DIR", "")
 	r := Runner{executable: func() (string, error) { return bin, nil }, initialize: func(_ context.Context, _ config.Config, assets string, _ func(int64, int64)) (bootstrap.Readiness, error) {
@@ -200,6 +207,35 @@ func TestAssetsAreExecutableRelativeOrAbsoluteOverride(t *testing.T) {
 	out.Reset()
 	if code := r.Run(t.Context(), []string{"--root", root, "init", "--json"}, nil, &out, &logs); code != 2 {
 		t.Fatalf("%d %s", code, &out)
+	}
+}
+
+func TestInitFindsAssetsBesideSymlinkTarget(t *testing.T) {
+	t.Setenv("RECALL_ASSETS_DIR", "")
+	realBin := filepath.Join(t.TempDir(), "recall")
+	if err := os.WriteFile(realBin, nil, 0700); err != nil {
+		t.Fatal(err)
+	}
+	realBin, err := filepath.EvalSymlinks(realBin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "recall")
+	if err := os.Symlink(realBin, link); err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(filepath.Dir(realBin), "assets")
+	called := false
+	r := Runner{executable: func() (string, error) { return link, nil }, initialize: func(_ context.Context, _ config.Config, assets string, _ func(int64, int64)) (bootstrap.Readiness, error) {
+		called = true
+		if assets != want {
+			t.Fatalf("symlink CLI looked for assets at %s; want %s", assets, want)
+		}
+		return bootstrap.Readiness{}, &model.Error{Code: "asset_invalid", Message: "fixture"}
+	}}
+	var out, logs bytes.Buffer
+	if code := r.Run(t.Context(), []string{"--root", t.TempDir(), "init"}, nil, &out, &logs); code != 1 || !called {
+		t.Fatalf("%d called=%v %s", code, called, &logs)
 	}
 }
 
