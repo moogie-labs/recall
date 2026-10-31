@@ -106,6 +106,39 @@ class ReleaseTests(unittest.TestCase):
         self.assertNotIn("private-password", str(error.exception))
         self.assertIn("7", str(error.exception))
 
+    @unittest.skipUnless(platform.system() == "Darwin", "native codesign diagnostic")
+    def test_codesign_failure_reports_target_and_actual_diagnostic(self):
+        with self.assertRaises(RuntimeError) as error:
+            self.release.run(["codesign", "--verify", self.root / "missing-native-runtime"])
+        self.assertIn("missing-native-runtime", str(error.exception))
+        self.assertIn("No such file or directory", str(error.exception))
+
+    def test_codesign_diagnostic_redacts_secrets_and_escapes_controls(self):
+        result = subprocess.CompletedProcess([], 1, stdout="", stderr="unable to build chain: certificate-password\n\x1b[31m")
+        with patch.dict(os.environ, {"APPLICATION_P12_PASSWORD": "certificate-password"}), patch.object(subprocess, "run", return_value=result):
+            with self.assertRaises(RuntimeError) as error:
+                self.release.run(["codesign", "--sign", "public identity", "runtime.dylib"])
+        self.assertIn("unable to build chain", str(error.exception))
+        self.assertNotIn("certificate-password", str(error.exception))
+        self.assertNotIn("\x1b", str(error.exception))
+
+    def test_codesign_diagnostic_redacts_password_after_environment_is_cleared(self):
+        env = {"TEAM_ID": "ABCDE12345", "APPLICATION_P12_BASE64": "Zml4dHVyZQ==", "INSTALLER_P12_BASE64": "Zml4dHVyZQ==",
+               "APPLICATION_P12_PASSWORD": "secret-application", "INSTALLER_P12_PASSWORD": "secret-installer", "NOTARY_APPLE_ID": "fixture@example.test", "NOTARY_PASSWORD": "secret-notary"}
+        def external(args, **kwargs):
+            if args[0] == "codesign":
+                return subprocess.CompletedProcess(args, 1, stdout="", stderr="could not sign: secret-application secret-notary fixture@example.test ABCDE12345")
+            stdout = '1) HASH "Developer ID Application: Fixture (ABCDE12345)"\n2) HASH "Developer ID Installer: Fixture (ABCDE12345)"\n' if args[1] == "find-identity" else ""
+            return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
+        with patch.dict(os.environ, env), patch.object(subprocess, "run", side_effect=external):
+            with self.release.signing_credentials(self.root):
+                self.assertNotIn("APPLICATION_P12_PASSWORD", os.environ)
+                with self.assertRaises(RuntimeError) as error:
+                    self.release.run(["codesign", "--sign", "public identity", "runtime.dylib"])
+                self.assertIn("could not sign", str(error.exception))
+                for value in ["secret-application", "secret-notary", "fixture@example.test", "ABCDE12345"]:
+                    self.assertNotIn(value, str(error.exception))
+
     def test_build_subprocesses_do_not_inherit_apple_credentials(self):
         with patch.dict(os.environ, {"APPLICATION_P12_BASE64": "private-certificate", "NOTARY_PASSWORD": "private-password"}):
             output = self.release.run([sys.executable, "-c", "import os; print(os.getenv('APPLICATION_P12_BASE64', 'absent')); print(os.getenv('NOTARY_PASSWORD', 'absent'))"])

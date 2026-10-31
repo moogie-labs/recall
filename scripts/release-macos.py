@@ -24,6 +24,7 @@ import distribution as dist
 REPO = Path(__file__).resolve().parent.parent
 PRIVATE_ENV = {"APPLICATION_P12_BASE64", "INSTALLER_P12_BASE64", "APPLICATION_P12_PASSWORD",
                "INSTALLER_P12_PASSWORD", "NOTARY_APPLE_ID", "NOTARY_PASSWORD"}
+_diagnostic_redactions = set()
 
 
 def run(args, **kwargs):
@@ -33,6 +34,16 @@ def run(args, **kwargs):
     result = subprocess.run([str(a) for a in args], stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True, env=env, **kwargs)
     if result.returncode:
+        if Path(args[0]).name == "codesign":
+            # codesign receives identity/keychain names, never passwords. Expose
+            # only its target and diagnostic, not command arguments, and retain
+            # redaction even after credentials have been removed from the env.
+            operation = "verification" if "--verify" in args else "signing"
+            detail = f"{Path(args[-1]).name}: {result.stderr.strip() or result.stdout.strip()}"
+            sensitive = _diagnostic_redactions | {os.environ.get(k, "") for k in PRIVATE_ENV | {"TEAM_ID"}}
+            for value in sorted(filter(None, sensitive), key=len, reverse=True):
+                detail = detail.replace(value, "[REDACTED]")
+            raise RuntimeError(f"codesign {operation} failed (exit {result.returncode}): " + json.dumps(detail[:8192], ensure_ascii=True))
         raise RuntimeError(f"{Path(args[0]).name} failed (exit {result.returncode}); command arguments/output withheld")
     return result.stdout
 
@@ -150,6 +161,9 @@ def signing_credentials(work):
     dist.require(re.fullmatch(r"[A-Z0-9]{10}", team), "missing/invalid Apple Team ID")
     keychain = work / "release.keychain-db"
     password = secrets.token_urlsafe(32)
+    previous_redactions = _diagnostic_redactions.copy()
+    _diagnostic_redactions.update(os.environ.get(k, "") for k in PRIVATE_ENV | {"TEAM_ID"})
+    _diagnostic_redactions.add(password)
     created = False
     try:
         run(["security", "create-keychain", "-p", password, keychain])
@@ -182,8 +196,12 @@ def signing_credentials(work):
         yield keychain, selected
     finally:
         os.environ.pop("SIGNING_KEYCHAIN", None)
-        if created:
-            run(["security", "delete-keychain", keychain])
+        try:
+            if created:
+                run(["security", "delete-keychain", keychain])
+        finally:
+            _diagnostic_redactions.clear()
+            _diagnostic_redactions.update(previous_redactions)
 
 
 def source_snapshot(dest):
@@ -240,6 +258,7 @@ def build_release(tag):
             def verify(path):
                 run(["codesign", "--verify", "--strict", "-R", requirement, path])
             def sign(path):
+                print("Signing native code:", json.dumps(path.name), flush=True)
                 run(["codesign", "--force", "--options", "runtime", "--timestamp", "--keychain", keychain,
                      "--sign", identities["Application"], path])
                 verify(path)
