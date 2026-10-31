@@ -12,6 +12,7 @@ import platform
 import plistlib
 import re
 import secrets
+import shlex
 import shutil
 import subprocess
 import sys
@@ -165,7 +166,10 @@ def signing_credentials(work):
     _diagnostic_redactions.update(os.environ.get(k, "") for k in PRIVATE_ENV | {"TEAM_ID"})
     _diagnostic_redactions.add(password)
     created = False
+    search_list_changed = False
+    original_search_list = []
     try:
+        original_search_list = shlex.split(run(["security", "list-keychains", "-d", "user"]))
         run(["security", "create-keychain", "-p", password, keychain])
         created = True
         run(["security", "set-keychain-settings", "-lut", "21600", keychain])
@@ -180,12 +184,18 @@ def signing_credentials(work):
                  "-T", "/usr/bin/codesign", "-T", "/usr/bin/productbuild"])
             certificate.unlink()
         run(["security", "set-key-partition-list", "-S", "apple-tool:,apple:,codesign:", "-s", "-k", password, keychain])
+        # --keychain narrows identity lookup but does not add this file to the
+        # search list used by codesign to construct the certificate chain.
+        search_list_changed = True
+        run(["security", "list-keychains", "-d", "user", "-s", keychain, *original_search_list])
         identities = run(["security", "find-identity", "-v", keychain])
         selected = {}
         for kind in ("Application", "Installer"):
-            matches = re.findall(r'"(Developer ID ' + kind + r': [^"\n]+ \(' + team + r'\))"', identities)
+            matches = re.findall(r'\b([0-9A-Fa-f]{40})\s+"(Developer ID ' + kind + r': [^"\n]+ \(' + team + r'\))"', identities)
             dist.require(len(matches) == 1, "expected exactly one valid Developer ID " + kind + " identity for requested team")
-            selected[kind] = matches[0]
+            # codesign explicitly supports the certificate SHA-1 as an exact
+            # identity selector; productbuild documents the certificate CN.
+            selected[kind] = matches[0][0 if kind == "Application" else 1]
         run(["xcrun", "notarytool", "store-credentials", "recall-release", "--keychain", keychain,
              "--apple-id", os.environ["NOTARY_APPLE_ID"], "--team-id", team,
              "--password", os.environ["NOTARY_PASSWORD"]])
@@ -197,8 +207,12 @@ def signing_credentials(work):
     finally:
         os.environ.pop("SIGNING_KEYCHAIN", None)
         try:
-            if created:
-                run(["security", "delete-keychain", keychain])
+            try:
+                if search_list_changed:
+                    run(["security", "list-keychains", "-d", "user", "-s", *original_search_list])
+            finally:
+                if created:
+                    run(["security", "delete-keychain", keychain])
         finally:
             _diagnostic_redactions.clear()
             _diagnostic_redactions.update(previous_redactions)

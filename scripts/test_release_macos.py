@@ -128,7 +128,7 @@ class ReleaseTests(unittest.TestCase):
         def external(args, **kwargs):
             if args[0] == "codesign":
                 return subprocess.CompletedProcess(args, 1, stdout="", stderr="could not sign: secret-application secret-notary fixture@example.test ABCDE12345")
-            stdout = '1) HASH "Developer ID Application: Fixture (ABCDE12345)"\n2) HASH "Developer ID Installer: Fixture (ABCDE12345)"\n' if args[1] == "find-identity" else ""
+            stdout = '1) AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA "Developer ID Application: Fixture (ABCDE12345)"\n2) BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB "Developer ID Installer: Fixture (ABCDE12345)"\n' if args[1] == "find-identity" else ""
             return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
         with patch.dict(os.environ, env), patch.object(subprocess, "run", side_effect=external):
             with self.release.signing_credentials(self.root):
@@ -210,7 +210,7 @@ class ReleaseTests(unittest.TestCase):
         def external(args, **kwargs):
             commands.append(args)
             if args[1] == "find-identity":
-                return '1) HASH "Developer ID Application: Fixture (ABCDE12345)"\n2) HASH "Developer ID Installer: Fixture (ABCDE12345)"\n'
+                return '1) AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA "Developer ID Application: Fixture (ABCDE12345)"\n2) BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB "Developer ID Installer: Fixture (ABCDE12345)"\n'
             return ""
         with patch.dict(os.environ, env), patch.object(self.release, "run", side_effect=external):
             with self.assertRaisesRegex(RuntimeError, "build fixture failed"):
@@ -228,6 +228,42 @@ class ReleaseTests(unittest.TestCase):
                 with self.release.signing_credentials(self.root):
                     self.fail("invalid certificate accepted")
         self.assertEqual(commands[-1][:2], ["security", "delete-keychain"])
+
+    def test_signing_lookup_registers_keychain_and_restores_existing_search_list(self):
+        env = {"TEAM_ID": "ABCDE12345", "APPLICATION_P12_BASE64": "Zml4dHVyZQ==", "INSTALLER_P12_BASE64": "Zml4dHVyZQ==",
+               "APPLICATION_P12_PASSWORD": "fixture", "INSTALLER_P12_PASSWORD": "fixture", "NOTARY_APPLE_ID": "fixture@example.test", "NOTARY_PASSWORD": "fixture"}
+        original = ["/Users/runner/Library/Keychains/login.keychain-db", "/path with spaces/other.keychain-db"]
+        for fail_signing in [False, True]:
+            with self.subTest(fail_signing=fail_signing):
+                search_list = original.copy()
+                deleted = []
+                def external(args, **kwargs):
+                    if args[:4] == ["security", "list-keychains", "-d", "user"]:
+                        if len(args) == 4:
+                            return "\n".join(json.dumps(path) for path in search_list)
+                        self.assertEqual(args[4], "-s")
+                        search_list[:] = [str(path) for path in args[5:]]
+                    elif args[0] == "codesign":
+                        self.assertIn(str(self.root / "release.keychain-db"), search_list)
+                        self.assertEqual(args[args.index("--sign") + 1], "A" * 40)
+                        if fail_signing:
+                            raise RuntimeError("fixture signing failure")
+                    elif args[1] == "find-identity":
+                        return '1) AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA "Developer ID Application: Fixture (ABCDE12345)"\n2) BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB "Developer ID Installer: Fixture (ABCDE12345)"\n'
+                    elif args[1] == "delete-keychain":
+                        deleted.append(str(args[-1]))
+                    return ""
+                with patch.dict(os.environ, env), patch.object(self.release, "run", side_effect=external):
+                    try:
+                        with self.release.signing_credentials(self.root) as (keychain, identities):
+                            self.assertEqual(search_list, [str(keychain), *original])
+                            self.assertEqual(identities["Installer"], "Developer ID Installer: Fixture (ABCDE12345)")
+                            self.release.run(["codesign", "--keychain", keychain, "--sign", identities["Application"], "fixture"])
+                    except RuntimeError as error:
+                        self.assertTrue(fail_signing)
+                        self.assertEqual(str(error), "fixture signing failure")
+                self.assertEqual(search_list, original)
+                self.assertEqual(deleted, [str(self.root / "release.keychain-db")])
 
     def test_notary_status_must_be_accepted_even_with_exit_zero(self):
         with patch.dict(os.environ, {"SIGNING_KEYCHAIN": "fixture"}), patch.object(self.release, "run", return_value='{"status":"Invalid","id":"fixture"}'):
