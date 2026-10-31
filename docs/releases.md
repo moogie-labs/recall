@@ -118,10 +118,13 @@ tag's publish job, if no version was actually published.
 python3 -m unittest discover -s scripts -p 'test_release_macos.py'
 go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/release.yml
 go test ./...
-(cd desktop && go test ./...)
 sh scripts/build-desktop.sh
+(cd desktop && go test ./...)
 python3 scripts/verify-desktop.py build/Recall.app
 ```
+
+Build the desktop before running its Go tests: its Go package embeds the generated
+`desktop/frontend/dist`, which is intentionally absent in a clean checkout.
 
 Run release contract tests on macOS; they use Python's standard library and the
 macOS-provided Ruby YAML parser and tools. They build and expand an **unsigned fixture installer**

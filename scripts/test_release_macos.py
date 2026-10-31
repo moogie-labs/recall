@@ -209,6 +209,31 @@ class ReleaseTests(unittest.TestCase):
         result = subprocess.run(step["run"], shell=True, cwd=REPO, env=dict(os.environ, RELEASE_TAG="v1.2.3"), capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_clean_checkout_builds_frontend_before_desktop_go_tests(self):
+        workflow = REPO / ".github/workflows/release.yml"
+        data = json.loads(subprocess.check_output(["ruby", "-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV[0]))", str(workflow)], text=True))
+        step = next(s for s in data["jobs"]["installer"]["steps"] if s.get("name") == "Credential-free verification")
+        checkout = self.root / "checkout"
+        desktop = checkout / "desktop"
+        desktop.mkdir(parents=True)
+        (checkout / "go.mod").write_text("module fixture\n\ngo 1.27.0\n")
+        (checkout / "fixture.go").write_text("package fixture\n")
+        (desktop / "go.mod").write_text("module fixture/desktop\n\ngo 1.27.0\n")
+        (desktop / "assets.go").write_bytes((REPO / "desktop/assets.go").read_bytes())
+        tools = self.root / "tools"
+        tools.mkdir()
+        # Double only the expensive Wails/frontend build and unrelated Python
+        # checks. The real Go compiler enforces the actual go:embed dependency.
+        build = tools / "sh"
+        build.write_text(f"#!{sys.executable}\nimport pathlib,sys\nassert sys.argv[1:] == ['scripts/build-desktop.sh']\np=pathlib.Path('desktop/frontend/dist');p.mkdir(parents=True)\n(p/'index.html').write_text('built frontend')\n")
+        build.chmod(0o755)
+        python = tools / "python3"
+        python.write_text("#!/bin/sh\nexit 0\n")
+        python.chmod(0o755)
+        env = dict(os.environ, PATH=str(tools) + os.pathsep + os.environ["PATH"], GOWORK="off")
+        result = subprocess.run(["/bin/bash", "-e", "-c", step["run"]], cwd=checkout, env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_workflow_only_exposes_apple_secrets_on_release_tags(self):
         path = REPO / ".github/workflows/release.yml"
         self.assertTrue(path.is_file(), "release workflow is missing")
