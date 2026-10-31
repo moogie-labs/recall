@@ -32,7 +32,7 @@ type Config struct {
 	Editor         []string `json:"editor"`
 }
 
-// Resolve applies --root > absolute RECALL_HOME > $HOME/.local/share/recall.
+// Resolve applies --root > absolute RECALL_HOME > $HOME/Documents/recall.
 // Relative explicit roots are made absolute once; defaults never depend on cwd.
 // Existing root symlinks are canonicalized, but content entries are not followed.
 func Resolve(explicit string) (Config, error) {
@@ -51,7 +51,7 @@ func Resolve(explicit string) (Config, error) {
 		if !filepath.IsAbs(home) {
 			return Config{}, invalid("HOME must be absolute")
 		}
-		root = filepath.Join(home, ".local", "share", "recall")
+		root = filepath.Join(home, "Documents", "recall")
 	}
 	root, err := canonical(root)
 	if err != nil {

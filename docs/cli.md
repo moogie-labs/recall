@@ -11,7 +11,10 @@ the opt-in external-editor command `recall document edit`.
 ## Collection and sources
 
 Root precedence: `--root` > absolute `RECALL_HOME` >
-`$HOME/.local/share/recall`. Relative `--root` is resolved once against cwd.
+`$HOME/Documents/recall`. Relative `--root` is resolved once against cwd.
+The default changed from `$HOME/.local/share/recall`; existing collections are
+not moved or deleted. Use an explicit root/environment override to keep using
+one at its old location.
 Layout: `config.json`, `content/`, `index.sqlite`, `models/`, `runtime/`, `run/`.
 Only `content/` holds user folders and documents.
 

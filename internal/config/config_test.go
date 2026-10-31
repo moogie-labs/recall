@@ -34,11 +34,35 @@ func TestResolveIgnoresWorkingDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if a.Root != filepath.Join(wantHome, ".local", "share", "recall") {
+	if a.Root != filepath.Join(wantHome, "Documents", "recall") {
 		t.Fatalf("root=%q", a.Root)
 	}
 	if _, err := os.Stat(a.Root); !os.IsNotExist(err) {
 		t.Fatalf("Resolve created root: %v", err)
+	}
+}
+
+func TestNewDefaultLeavesLegacyCollectionUntouched(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("RECALL_HOME", "")
+	legacy := filepath.Join(home, ".local", "share", "recall")
+	if err := os.MkdirAll(legacy, 0700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(legacy, "config.json")
+	if err := os.WriteFile(path, []byte("legacy collection sentinel"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Resolve("")
+	if err != nil || filepath.Base(filepath.Dir(cfg.Root)) != "Documents" {
+		t.Fatalf("new default: %+v %v", cfg, err)
+	}
+	if data, err := os.ReadFile(path); err != nil || string(data) != "legacy collection sentinel" {
+		t.Fatalf("legacy collection changed: %s %v", data, err)
+	}
+	if _, err := os.Stat(cfg.Root); !os.IsNotExist(err) {
+		t.Fatalf("resolution created new default: %v", err)
 	}
 }
 

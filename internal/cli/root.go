@@ -124,7 +124,7 @@ func (i *invocation) rootCommand() *cobra.Command {
 	c.SetIn(i.stdin)
 	c.SetOut(i.stdout)
 	c.SetErr(i.stderr)
-	c.PersistentFlags().StringVar(&i.root, "root", "", "Collection root (default: RECALL_HOME or ~/.local/share/recall)")
+	c.PersistentFlags().StringVar(&i.root, "root", "", "Collection root (default: RECALL_HOME or ~/Documents/recall)")
 	c.PersistentFlags().BoolVar(&i.json, "json", false, "Emit one structured JSON result")
 	c.SetFlagErrorFunc(func(*cobra.Command, error) error { return invalid("invalid flags; use --help") })
 	defaultHelp := c.HelpFunc()
