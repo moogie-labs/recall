@@ -12,12 +12,13 @@ import (
 )
 
 type Manifest struct {
-	ID       string `json:"id"`
-	URL      string `json:"url"`
-	SHA256   string `json:"sha256"`
-	Filename string `json:"filename"`
-	License  string `json:"license"`
-	Size     int64  `json:"size"`
+	ID             string `json:"id"`
+	URL            string `json:"url"`
+	SHA256         string `json:"sha256"`
+	Filename       string `json:"filename"`
+	License        string `json:"license"`
+	Size           int64  `json:"size"`
+	InstallationID string `json:"installation_id,omitempty"`
 }
 
 func pinnedManifests() (modelManifest, runtimeManifest Manifest, err error) {
@@ -43,6 +44,11 @@ func validateManifest(m Manifest) error {
 	digest, err := hex.DecodeString(m.SHA256)
 	if err != nil || len(digest) != 32 || m.Size <= 0 || m.Size == int64(^uint64(0)>>1) {
 		return invalidAsset("asset requires a positive size and SHA-256 checksum")
+	}
+	if m.InstallationID != "" {
+		if _, err := assets.RuntimeInstallationDirectory(m.ID, m.SHA256, m.InstallationID); err != nil {
+			return invalidAsset(err.Error())
+		}
 	}
 	return nil
 }

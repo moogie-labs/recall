@@ -93,6 +93,7 @@ class ReleaseTests(unittest.TestCase):
         shipped = assets / "runtime/darwin-arm64" / lock["filename"]
         self.assertEqual(manifest["sha256"], self.release.dist.digest(shipped))
         self.assertEqual(manifest["size"], shipped.stat().st_size)
+        self.assertEqual(manifest["installation_id"], "b11669-" + manifest["sha256"])
         self.assertNotEqual(manifest["sha256"], lock["sha256"])
         self.assertEqual(json.loads((assets / "runtime.lock.json").read_text()), manifest)
         self.assertEqual(len(notarized), 1)

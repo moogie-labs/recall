@@ -34,6 +34,8 @@ open /Applications/Recall.app
 
 Initialization downloads and verifies the model once (about 274 MB), then tests
 real inference. The installer does not initialize or alter your existing collection.
+Run `recall init` again after upgrading: it installs the new release's runtime
+alongside older copies without replacing your configuration or authored files.
 If `/usr/local/bin` is not on your PATH, use `/usr/local/bin/recall` directly.
 Release automation and maintainer setup are described in [releases](docs/releases.md).
 

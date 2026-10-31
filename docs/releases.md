@@ -56,6 +56,13 @@ The pipeline validates the upstream runtime archive pin, signs its Mach-O files,
 and notarizes that runtime in a supported ZIP container. Re-signing changes bytes:
 a new runtime archive checksum/size is generated in disposable source staging and
 embedded in **both** binaries; the repository's upstream pin remains unchanged.
+The release-local lock also selects `runtime/b11669-<archive-sha256>` inside the
+collection. `recall init` installs this immutable release-specific copy alongside
+any previous runtime; it does not overwrite/remove old copies or rewrite the
+collection's logical `runtime_id`, configuration or authored sources. Repeating
+initialization with the same installer is idempotent; a different signed release
+gets a separate directory. Unknown changes inside a matching directory still fail
+closed. Legacy development locks continue to use `runtime/b11669`.
 The model pin stays unchanged. The app is signed, notarized and stapled separately;
 the final Developer ID Installer-signed package is notarized and stapled too.
 Each notarization submission waits up to 20 minutes; a timeout fails the release.
@@ -80,7 +87,10 @@ Accepted tags are `vMAJOR.MINOR.PATCH`, optionally with a SemVer prerelease suff
 for example `v0.1.0-rc.1`. Leading-zero numeric identifiers and build-metadata
 suffixes are not accepted. Prerelease tags create GitHub prereleases. The numeric
 version is used in macOS package/app metadata; the full version names the assets.
-Quit Recall before installing/upgrading. The installer always targets
+Quit Recall before installing/upgrading, then run `recall init` as your user after
+each upgrade to verify/install that release's runtime. Existing workers may finish
+their current lifetime using their previous runtime; they normally exit after two
+idle minutes. No running worker's executable files are replaced. The installer always targets
 `/Applications/Recall.app`, rather than relocating to another copy of the app.
 It never edits user collections; initialize or retry initialization as your user.
 

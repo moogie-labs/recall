@@ -84,6 +84,7 @@ def prepare_runtime(archive, lock, assets, sign, submit):
         with tarfile.open(target, "w:gz") as tf:
             tf.add(native, arcname="llama-b11669")
     signed = dict(lock, sha256=dist.digest(target), size=target.stat().st_size)
+    signed["installation_id"] = signed["id"] + "-" + signed["sha256"]
     (assets / "runtime.lock.json").write_text(json.dumps(signed, indent=2) + "\n")
     dist.pinned(target, signed)
     return signed

@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"strings"
 
+	"recall/assets"
 	"recall/internal/config"
 	"recall/internal/model"
 )
@@ -45,6 +46,10 @@ func installRuntime(ctx context.Context, cfg config.Config, archivePath string, 
 	}
 	if !singleName(m.ID) || (cfg.RuntimeID != "" && cfg.RuntimeID != m.ID) {
 		return invalidAsset("configured runtime differs from bundled runtime identity")
+	}
+	directory, err := assets.RuntimeInstallationDirectory(m.ID, m.SHA256, m.InstallationID)
+	if err != nil {
+		return invalidAsset(err.Error())
 	}
 	r, err := assetRoot(cfg, "runtime")
 	if err != nil {
@@ -96,11 +101,11 @@ func installRuntime(ctx context.Context, cfg config.Config, archivePath string, 
 	if info.Mode()&0111 == 0 {
 		return invalidAsset("llama-server is not executable")
 	}
-	if info, err := r.Lstat(m.ID); err == nil {
+	if info, err := r.Lstat(directory); err == nil {
 		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			return invalidAsset("installed runtime must be a real directory")
 		}
-		installed, err := openCheckedRoot(r, m.ID, info)
+		installed, err := openCheckedRoot(r, directory, info)
 		if err != nil {
 			return err
 		}
@@ -123,7 +128,7 @@ func installRuntime(ctx context.Context, cfg config.Config, archivePath string, 
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := r.Rename(stage, m.ID); err != nil {
+	if err := r.Rename(stage, directory); err != nil {
 		return err
 	}
 	return syncDir(r, ".")
