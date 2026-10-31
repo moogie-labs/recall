@@ -48,6 +48,13 @@ tag can run code with the signing credentials. Normal CI must remain credential-
 The installer job has read-only repository permission. It runs tests and a
 production desktop build before importing credentials. Certificates and the
 notarization profile live in a temporary keychain; cleanup runs on failure too.
+The temporary keychain is added to the runner's user search list for certificate
+chain lookup, preserving all existing entries; the original list is restored on
+success or failure before deleting the temporary keychain. `codesign --keychain`
+alone does not make that keychain available for certificate-chain construction.
+Application signing selects the imported certificate's exact SHA-1 fingerprint
+(only as an identity selector, not an asset-integrity algorithm); installer signing
+uses its validated certificate common name as required by `productbuild`.
 Build subprocesses do not inherit certificate/password environment variables.
 An unconditional workflow cleanup also covers interrupted Python execution.
 GitHub-hosted runners are disposable; a force-terminated VM is discarded.
