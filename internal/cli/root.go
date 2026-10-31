@@ -21,15 +21,14 @@ import (
 	"recall/internal/embedding"
 	"recall/internal/mcpserver"
 	"recall/internal/model"
-	"recall/internal/tui"
 )
 
 // Adapter owns its streaming interface and application lifecycle. Runner allows
-// overriding the default MCP and TUI adapters independently.
+// overriding the default MCP adapter.
 type Adapter func(context.Context, config.Config, io.Reader, io.Writer, io.Writer) error
 
 type Runner struct {
-	TUI, MCP Adapter
+	MCP Adapter
 
 	open       func(context.Context, config.Config) (*app.App, error)
 	initialize func(context.Context, config.Config, string, func(int64, int64)) (bootstrap.Readiness, error)
@@ -52,19 +51,6 @@ func (r Runner) Run(ctx context.Context, args []string, stdin io.Reader, stdout,
 	}
 	if r.open == nil {
 		r.open = app.Open
-	}
-	if r.TUI == nil {
-		r.TUI = func(ctx context.Context, cfg config.Config, input io.Reader, output, stderr io.Writer) error {
-			if !tui.IsTerminal(input, output) {
-				return &model.Error{Code: "runtime_unavailable", Message: "TUI requires terminal input and output; use a CLI subcommand or --help"}
-			}
-			application, err := r.open(ctx, cfg)
-			if err != nil {
-				return err
-			}
-			err = tui.RunIO(ctx, application, cfg, input, output, stderr)
-			return errors.Join(err, application.Close())
-		}
 	}
 	if r.MCP == nil {
 		r.MCP = func(ctx context.Context, cfg config.Config, input io.Reader, output, _ io.Writer) error {
@@ -132,9 +118,7 @@ type invocation struct {
 }
 
 func (i *invocation) rootCommand() *cobra.Command {
-	c := i.command("recall", "Local notes, tasks, and offline search", noArgs, func(_ *cobra.Command, _ []string) (any, error) {
-		return nil, i.adapter("TUI", i.runner.TUI)
-	})
+	c := i.group("recall", "Local notes, tasks, and offline search")
 	c.SilenceErrors, c.SilenceUsage = true, true
 	c.CompletionOptions.DisableDefaultCmd = true
 	c.SetIn(i.stdin)

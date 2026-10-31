@@ -16,15 +16,16 @@ shasum -a 256 -c recall-darwin-arm64.tar.gz.sha256
 tar -xzf recall-darwin-arm64.tar.gz
 cd recall-darwin-arm64
 ./bin/recall init
-./bin/recall
+./bin/recall # Show CLI help
 ```
 
 Keep `bin/assets/` beside `bin/recall` when moving the package. `init` extracts
 the bundled llama.cpp runtime, downloads the pinned 274,290,560-byte Nomic FP16
 model once, verifies both, and performs real inference. Internet is required
 for that initial download, not normal indexing/search. Initialization is
-retryable. End users need no Go, Python, CMake, compiler, or Ollama. Interactive
-editing needs an existing `nvim` (or a configured editor); CLI/MCP CRUD does not.
+retryable. End users need no Go, Python, CMake, compiler, or Ollama. The optional
+`document edit` command needs an existing `nvim` (or a configured editor);
+non-interactive CLI/MCP CRUD does not.
 
 The central collection defaults to `~/.local/share/recall`, regardless of the
 project you run from. Override with absolute `RECALL_HOME` or `--root PATH`
@@ -39,9 +40,10 @@ printf 'Reset credentials in account settings.\n' |
 ./bin/recall search 'forgot my password'
 ```
 
-In the TUI: Tab changes pane; Enter opens the selected real source in the
-editor; `t` opens tasks; `/` opens search; `?` shows contextual keys; `q` backs
-out/quits. Destructive TUI actions require confirmation; CLI/MCP do not.
+Running `recall` without a subcommand prints CLI help and exits; it does not
+open an interactive terminal interface or require an initialized collection.
+Use the [desktop app](#desktop-app-macos) for interactive browsing/editing.
+CLI/MCP deletion remains explicit and non-interactive, without confirmation.
 
 ## Install to `/usr/local/bin`
 

@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -43,27 +44,37 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-func TestHelpAndNonterminalRootDoNotOpenCollection(t *testing.T) {
+func TestHelpAndRootDoNotOpenCollection(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("RECALL_HOME", "relative-invalid-collection")
 	r := Runner{open: func(context.Context, config.Config) (*app.App, error) {
-		t.Fatal("opened app for help/placeholder")
+		t.Fatal("opened app for help")
 		return nil, nil
 	}}
-	for _, args := range [][]string{{"--help"}, {"document", "--help"}, {"--json", "search", "--help"}, {"mcp", "--help"}, {}} {
+	missing := filepath.Join(t.TempDir(), "not-initialized")
+	for _, args := range [][]string{nil, {}, {"--root", missing}, {"--help"}, {"document", "--help"}, {"--json", "search", "--help"}, {"mcp", "--help"}, {"--json"}, {"--json", "--root", missing}} {
 		var out, logs bytes.Buffer
-		code := r.Run(t.Context(), args, strings.NewReader(""), &out, &logs)
-		if len(args) == 0 {
-			if code != 1 || !strings.Contains(logs.String(), "terminal") {
-				t.Fatalf("%v: %d %s", args, code, logs.String())
-			}
-		} else if code != 0 || !strings.Contains(out.String(), "Usage:") {
+		input := strings.NewReader("leave stdin untouched")
+		code := r.Run(t.Context(), args, input, &out, &logs)
+		if code != 0 || logs.Len() != 0 || !strings.Contains(out.String(), "Usage:") || input.Len() != len("leave stdin untouched") {
 			t.Fatalf("%v: %d %s %s", args, code, out.String(), logs.String())
 		}
+		if len(args) > 0 && args[0] == "--json" {
+			result := decodeResult(t, &out)
+			var help string
+			if result.Error != nil || json.Unmarshal(result.Data, &help) != nil || !strings.Contains(help, "Usage:") {
+				t.Fatalf("help is not a successful JSON result: %+v", result)
+			}
+		}
+	}
+	if _, err := os.Stat(missing); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("help initialized a collection")
 	}
 }
 
-func TestRootAdapterIsInjectable(t *testing.T) {
+func TestMCPAdapterIsInjectable(t *testing.T) {
 	cfg := prepared(t)
-	r := Runner{TUI: func(ctx context.Context, got config.Config, in io.Reader, out, logs io.Writer) error {
+	r := Runner{MCP: func(ctx context.Context, got config.Config, in io.Reader, out, logs io.Writer) error {
 		if got.Root != cfg.Root {
 			t.Fatalf("root %s", got.Root)
 		}
@@ -71,7 +82,7 @@ func TestRootAdapterIsInjectable(t *testing.T) {
 		return err
 	}}
 	var out, logs bytes.Buffer
-	if code := r.Run(t.Context(), []string{"--root", cfg.Root}, strings.NewReader(""), &out, &logs); code != 0 || out.String() != "adapter ran\n" {
+	if code := r.Run(t.Context(), []string{"--root", cfg.Root, "mcp"}, strings.NewReader(""), &out, &logs); code != 0 || out.String() != "adapter ran\n" {
 		t.Fatalf("%d %s %s", code, &out, &logs)
 	}
 }
@@ -80,14 +91,13 @@ func TestNilArgsDoNotReadTheHostProcessArguments(t *testing.T) {
 	original := os.Args
 	os.Args = []string{original[0], "host-process-argument"}
 	t.Cleanup(func() { os.Args = original })
-	cfg := prepared(t)
-	t.Setenv("RECALL_HOME", cfg.Root)
-	r := Runner{TUI: func(_ context.Context, _ config.Config, _ io.Reader, out, _ io.Writer) error {
-		_, err := io.WriteString(out, "root adapter\n")
-		return err
+	t.Setenv("RECALL_HOME", "relative-invalid-collection")
+	r := Runner{open: func(context.Context, config.Config) (*app.App, error) {
+		t.Fatal("nil args opened collection")
+		return nil, nil
 	}}
 	var out, logs bytes.Buffer
-	if code := r.Run(t.Context(), nil, nil, &out, &logs); code != 0 || out.String() != "root adapter\n" {
+	if code := r.Run(t.Context(), nil, nil, &out, &logs); code != 0 || !strings.Contains(out.String(), "Usage:") || strings.Contains(out.String(), "host-process-argument") || logs.Len() != 0 {
 		t.Fatalf("%d %s %s", code, &out, &logs)
 	}
 }

@@ -2,27 +2,13 @@ package cli
 
 import (
 	"bytes"
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"recall/internal/app"
 	"recall/internal/config"
 )
-
-func TestDefaultTUIRejectsNonterminalBeforeOpeningApp(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	r := Runner{open: func(context.Context, config.Config) (*app.App, error) {
-		t.Fatal("nonterminal TUI opened app")
-		return nil, nil
-	}}
-	var out, logs bytes.Buffer
-	if code := r.Run(t.Context(), nil, strings.NewReader("q"), &out, &logs); code != 1 || out.Len() != 0 || !strings.Contains(logs.String(), "terminal") {
-		t.Fatalf("%d stdout=%s stderr=%s", code, &out, &logs)
-	}
-}
 
 func TestCLIEditCanRepairMalformedTypedFile(t *testing.T) {
 	cfg := prepared(t)

@@ -6,7 +6,6 @@ from pathlib import Path
 import pty
 import select
 import shutil
-import signal
 import struct
 import subprocess
 import sys
@@ -118,44 +117,26 @@ def main():
             return p.read_text().splitlines()
 
         try:
-            s = session([])
-            s.until(lambda: b"Recall" in s.output)
-            s.drain(.5)
-            s.send(b"\t\r")
-            s.until(lambda: b"original note" in s.output)
-            actual = proof(s, "note-path")[0]
-            assert actual == str(root / "content" / note["path"]), actual
-            path = root / "content" / note["path"]
-            inode = path.stat().st_ino
-            s.ex("set backupcopy=no writebackup nobackup")
-            s.send(b"Goatomic note save\x1b")
-            s.ex("w")
-            s.until(lambda: "atomic note save" in path.read_text())
-            assert inode != path.stat().st_ino, "Neovim note save was not atomic replacement"
-            s.ex("q")
-            s.drain(.5)
-            s.send(b"t")
-            s.drain(.5)  # tasks refresh is asynchronous; Enter must follow loaded rows
-            s.send(b"\r")
-            s.until(lambda: b"original task" in s.output)
-            assert proof(s, "task-path")[0] == str(root / "content" / task["path"])
-            path = root / "content" / task["path"]
-            inode = path.stat().st_ino
-            s.ex("set backupcopy=no writebackup nobackup")
-            s.ex("%s/^state: planned$/state: in_progress/")
-            s.send(b"Goatomic task save\x1b")
-            s.ex("w")
-            s.until(lambda: "atomic task save" in path.read_text())
-            assert inode != path.stat().st_ino, "Neovim task save was not atomic replacement"
-            s.ex("q")
-            s.drain(.5)
-            s.send(b"q")
-            s.send(b"q")
-            s.close()
+            for doc in [note, task]:
+                s = session(["document", "edit", "--id", doc["id"]])
+                s.until(lambda: ("original " + doc["kind"]).encode() in s.output)
+                path = root / "content" / doc["path"]
+                assert proof(s, doc["kind"] + "-path")[0] == str(path)
+                inode = path.stat().st_ino
+                s.ex("set backupcopy=no writebackup nobackup")
+                if doc["kind"] == "task":
+                    s.ex("%s/^state: planned$/state: in_progress/")
+                marker = "atomic " + doc["kind"] + " save"
+                s.send(b"Go" + marker.encode() + b"\x1b")
+                s.ex("w")
+                s.until(lambda: marker in path.read_text())
+                assert inode != path.stat().st_ino, "Neovim save was not atomic replacement"
+                s.ex("q")
+                s.close()
             got = cli("document", "get", "--id", task["id"])
             assert got["state"] == "in_progress" and len(got["history"]) == 2, got
             assert "atomic note save" in cli("document", "get", "--id", note["id"])["body"]
-            print("PASS TUI -> installed Neovim: note/task actual paths, atomic inode replacement, saved content, source history, clean quit and terminal restoration")
+            print("PASS explicit CLI edit -> installed Neovim: note/task actual paths, atomic inode replacement, saved content, source history, clean quit and terminal restoration")
 
             for doc in [note, task]:
                 s = session(["document", "edit", "--id", doc["id"]])
@@ -195,20 +176,6 @@ def main():
                 assert "EXTERNAL TWO" in cli("document", "get", "--id", doc["id"])["body"]
                 print("PASS CLI -> installed Neovim:", doc["kind"], "dirty external-change W12; native OK/cancel preserves dirty buffer+disk; native Load reloads; terminal restored")
 
-            s = session([])
-            s.until(lambda: b"Recall" in s.output)
-            s.drain(.5)
-            s.send(b"\t\r")
-            s.until(lambda: b"EXTERNAL TWO" in s.output)
-            s.process.send_signal(signal.SIGTERM)
-            s.until(lambda: s.process.poll() is not None)
-            s.drain()
-            actual = termios.tcgetattr(s.slave)
-            expected = list(s.initial)
-            actual[3] &= ~termios.PENDIN
-            expected[3] &= ~termios.PENDIN
-            assert actual == expected, ("cancellation did not restore terminal", expected, actual)
-            print("PASS TUI cancellation while real Neovim active: owned CLI terminates, terminal restored")
         finally:
             for s in sessions:
                 s.cleanup()

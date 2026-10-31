@@ -32,8 +32,8 @@ func Command(argv []string, absolutePath string) (*exec.Cmd, error) {
 	return exec.Command(args[0], args[1:]...), nil
 }
 
-// Complete is called after Run/Wait or a TUI's external-process completion
-// callback. A failing editor can still have saved content, so always reconcile,
+// Complete is called after the explicit CLI editor process finishes.
+// A failing editor can still have saved content, so always reconcile,
 // preserving both errors. The callback should wrap App.Sync, not replay an old
 // document snapshot. Cancellation is passed through; a canceled sync leaves the
 // saved source for startup/periodic recovery rather than overwriting it.
