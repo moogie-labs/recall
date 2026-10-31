@@ -102,7 +102,12 @@ The published assets are:
 Watch **Actions → Release macOS installer**. The first authorized tag run is needed
 to prove organization-secret access, certificate validity and Apple notarization;
 local credential-free tests cannot establish those facts. Signing errors fail
-closed and intentionally omit password-bearing command arguments/output.
+closed. Password-bearing command arguments/output from credential-management tools
+remain withheld. `codesign` failures report whether signing or verification failed,
+the target basename and a bounded, credential-redacted diagnostic; terminal controls
+are escaped. Redaction remains active after credentials are removed from the build
+environment. Use that diagnostic to distinguish certificate-chain, key-access and
+payload problems before changing certificates or secrets.
 For notarization rejection, the log reports the submission ID; a maintainer can
 retrieve Apple's log using `xcrun notarytool log` with their own credentials.
 
