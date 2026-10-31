@@ -37,7 +37,11 @@ type workerOptions struct {
 func defaultWorkerOptions() workerOptions {
 	return workerOptions{idle: 120 * time.Second, startup: 120 * time.Second, command: workerCommand, verify: verifyAssets,
 		nativeCommand: func(cfg config.Config, socket string) *exec.Cmd {
-			c := exec.Command(filepath.Join(cfg.RuntimeDir, "b11669", "llama-server"), nativeArgs(cfg, socket)...)
+			directory, err := assets.RuntimeDirectory()
+			if err != nil {
+				return &exec.Cmd{Err: err}
+			}
+			c := exec.Command(filepath.Join(cfg.RuntimeDir, directory, "llama-server"), nativeArgs(cfg, socket)...)
 			// Environment-based llama options must not enable tools, networking,
 			// prompt logging or override the explicit, pinned launch configuration.
 			for _, v := range os.Environ() {
@@ -468,12 +472,16 @@ func verifyAssets(ctx context.Context, cfg config.Config) error {
 	if cfg.ModelID != m.ID || cfg.ModelSHA256 != m.SHA256 || cfg.ModelSignature != "sha256:"+m.SHA256 || cfg.RuntimeID != rt.ID || saved.ModelSignature != cfg.ModelSignature || saved.ModelID != cfg.ModelID || saved.ModelSHA256 != cfg.ModelSHA256 || saved.RuntimeID != cfg.RuntimeID {
 		return assetInvalid("configured embedding assets differ from pinned identities")
 	}
+	directory, err := assets.RuntimeDirectory()
+	if err != nil {
+		return assetInvalid("invalid embedded runtime installation identity")
+	}
 	r, err := os.OpenRoot(cfg.Root)
 	if err != nil {
 		return unavailable("collection is not initialized")
 	}
 	defer r.Close()
-	for _, dir := range []string{"models", "runtime", "runtime/" + rt.ID} {
+	for _, dir := range []string{"models", "runtime", "runtime/" + directory} {
 		s, err := r.Lstat(dir)
 		if err != nil || !s.IsDir() || s.Mode()&os.ModeSymlink != 0 {
 			return assetInvalid("embedding asset directory is unavailable")
@@ -506,7 +514,7 @@ func verifyAssets(ctx context.Context, cfg config.Config) error {
 	if hex.EncodeToString(hash.Sum(nil)) != m.SHA256 {
 		return assetInvalid("model checksum differs from pinned identity")
 	}
-	s, err = r.Lstat("runtime/" + rt.ID + "/llama-server")
+	s, err = r.Lstat("runtime/" + directory + "/llama-server")
 	if err != nil || !s.Mode().IsRegular() || s.Mode().Perm()&0111 == 0 {
 		return unavailable("verified native executable is unavailable")
 	}

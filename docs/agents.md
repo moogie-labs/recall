@@ -1,7 +1,8 @@
 # Agents and MCP
 
 Recall provides stdio MCP via `recall mcp`. It shares the same central collection,
-locking, source revisions, filters and permanent deletion semantics as CLI/TUI.
+locking, source revisions, filters and permanent deletion semantics as the CLI
+and desktop app. Bare `recall` shows CLI help; it does not launch a terminal UI.
 No cloud account, API key or network service is required.
 
 ## OpenCode V2 (documentation checked 2026-10-21)

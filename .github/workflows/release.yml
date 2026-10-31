@@ -1,0 +1,93 @@
+name: Release macOS installer
+
+"on":
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  installer:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-15
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5.0.2
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+      - name: Validate version tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 -c 'import runpy,os,sys; sys.path.insert(0,"scripts"); runpy.run_path("scripts/release-macos.py")["version"](os.environ["RELEASE_TAG"])'
+      - name: Credential-free verification
+        run: |
+          go test ./...
+          (cd desktop && go test ./...)
+          python3 -m unittest discover -s scripts -p 'test_release_macos.py'
+          sh scripts/build-desktop.sh
+          python3 scripts/verify-desktop.py build/Recall.app
+      # This is the ONLY step in ANY workflow that references Apple secrets.
+      - name: Sign, notarize and verify installer
+        env:
+          APPLICATION_P12_BASE64: ${{ secrets.APPLE_APPLICATION_CERTIFICATE_P12_BASE64 }}
+          INSTALLER_P12_BASE64: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_P12_BASE64 }}
+          APPLICATION_P12_PASSWORD: ${{ secrets.APPLE_APPLICATION_CERTIFICATE_PASSWORD }}
+          INSTALLER_P12_PASSWORD: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_PASSWORD }}
+          NOTARY_APPLE_ID: ${{ secrets.APPLE_ID }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: python3 scripts/release-macos.py "$GITHUB_REF_NAME"
+      - name: Always remove signing material
+        if: always()
+        shell: bash
+        run: |
+          keychain="$GITHUB_WORKSPACE/build/release-private/release.keychain-db"
+          if [ -f "$keychain" ]; then security delete-keychain "$keychain"; fi
+          python3 -c 'from pathlib import Path; import shutil; p=Path("build/release-private"); shutil.rmtree(p) if p.exists() else None'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: notarized-installer
+          path: build/release/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: installer
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: notarized-installer
+          path: release
+      - name: Publish verified assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="$GITHUB_REF_NAME"
+          version="${tag#v}"
+          cd release
+          shasum -a 256 -c "Recall-${version}-darwin-arm64.pkg.sha256"
+          extra=()
+          if [[ "$version" == *-* ]]; then extra+=(--prerelease); fi
+          gh release create "$tag" --verify-tag --draft --title "Recall $version" --generate-notes "${extra[@]}"
+          gh release upload "$tag" "Recall-${version}-darwin-arm64.pkg" "Recall-${version}-darwin-arm64.pkg.sha256"
+          gh release edit "$tag" --draft=false

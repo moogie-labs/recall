@@ -2,8 +2,9 @@
 
 ## Installation and first use
 
-See the README's [desktop installation instructions](../README.md#desktop-app-macos)
-for the complete build, install, and launch commands. The CLI and desktop app
+See the README's [release installer instructions](../README.md#install-from-a-github-release-recommended)
+to install the CLI and app together, or its [source build instructions](../README.md#desktop-app-macos).
+The CLI and desktop app
 can be installed independently. Keep the CLI's packaged assets together for
 `recall init`; the desktop app uses the already initialized collection's verified
 model/runtime and embeds its own frontend assets.
@@ -15,17 +16,26 @@ Build prerequisites may need network access; normal app use does not.
 
 The executable and Info.plist target macOS 13.0. Native tests ran on macOS 26.6.2
 arm64 with Go 1.27.3 and Node 26.12.1. Earlier macOS versions have not been
-individually verified. This build is ad-hoc signed, not Developer ID signed or
-notarized. No signing credentials, publication, launch agent, or automatic updater
-are configured. Use macOS's approval flow without disabling Gatekeeper.
+individually verified. Local source builds are ad-hoc signed, not Developer ID signed or
+notarized. Combined [release installers](releases.md) use a separate Developer ID
+signing/notarization workflow; its Apple secrets are referenced only on version-tag
+releases. Local builds use no signing credentials. No launch agent or automatic updater
+is configured. Use macOS's approval flow without disabling Gatekeeper.
 
 ## Collection and runtime
 
-With no explicit choice, the collection is `~/.local/share/recall` (or absolute
+With no explicit choice, the collection is `~/Documents/recall` (or absolute
 `RECALL_HOME`). The **Collection…** button picks an existing collection root and
 remembers it in `~/Library/Application Support/recall/desktop.json`. Finder
-launches may not inherit your shell environment. An explicit executable
-`--root /absolute/path` takes precedence at startup:
+launches may not inherit your shell environment.
+
+Previously created collections at `~/.local/share/recall` are not migrated or
+deleted. A remembered selection still opens that collection; choose it explicitly
+to continue using it, or initialize `~/Documents/recall` with the CLI for a new
+collection. If Documents is cloud-synced, follow the same precautions as any
+externally modified collection; do not treat sync as a consistent live database backup.
+
+An explicit executable `--root /absolute/path` takes precedence at startup:
 
 ```sh
 "$HOME/Applications/Recall.app/Contents/MacOS/Recall" --root /absolute/collection

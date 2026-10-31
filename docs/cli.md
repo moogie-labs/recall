@@ -3,11 +3,18 @@
 All examples assume the package's `bin/` is on your **session** PATH, or replace
 `recall` with the full executable path. No global installation is necessary.
 `recall --help` and `recall COMMAND --help` are authoritative for flags.
+Bare `recall` also prints help and exits successfully, without reading stdin,
+opening a collection, or entering a terminal UI. Use the desktop app for the
+interactive interface. Existing explicit subcommands remain available, including
+the opt-in external-editor command `recall document edit`.
 
 ## Collection and sources
 
 Root precedence: `--root` > absolute `RECALL_HOME` >
-`$HOME/.local/share/recall`. Relative `--root` is resolved once against cwd.
+`$HOME/Documents/recall`. Relative `--root` is resolved once against cwd.
+The default changed from `$HOME/.local/share/recall`; existing collections are
+not moved or deleted. Use an explicit root/environment override to keep using
+one at its old location.
 Layout: `config.json`, `content/`, `index.sqlite`, `models/`, `runtime/`, `run/`.
 Only `content/` holds user folders and documents.
 
@@ -122,7 +129,8 @@ to discovery budgets.
 `--json` emits one `{"data":...,"error":null}` or
 `{"data":null,"error":{"code":"...","message":"..."}}` object.
 Diagnostics/progress go to stderr; full content is returned only by explicit
-document operations. TUI and MCP streaming commands reject `--json`.
+document operations. The MCP streaming command rejects `--json`; bare
+`recall --json` returns the help text in the normal successful JSON envelope.
 
 Exit 0: success; 2: invalid input/document/type/path; 3: not initialized or not
 found; 4: conflict/already exists/duplicate ID/nonempty folder; 1: other failure.

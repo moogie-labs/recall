@@ -200,6 +200,11 @@ idle waits, owned-manager cancellation and network denial, passed in **269.24 s*
 
 ## 10,000 synthetic chunks and actual TUI idle scale
 
+**Historical TUI evidence:** the no-argument terminal interface and its
+`verify-scale.py` idle-observation harness were removed on 2026-10-30. The
+measurements and original command below are retained as history, not current
+desktop measurements. The exact-search Go benchmark remains available.
+
 ```sh
 RECALL_SCALE_TEST=1 go test ./internal/search -run TestExactSearchTenThousand -v -count=1
 python3 scripts/verify-scale.py build/recall
@@ -229,6 +234,10 @@ scanning also has a measured ~150 ms cost at 10k chunks; consider these costs
 when selecting a collection scale, rather than assuming a performance SLA.
 
 ## Actual installed Neovim evidence
+
+The evidence below includes historical terminal-UI checks. The current
+`verify-neovim.py` harness tests only explicit `recall document edit` sessions;
+it no longer launches a no-argument TUI or tests terminal-UI cancellation.
 
 ```sh
 python3 scripts/verify-neovim.py build/recall

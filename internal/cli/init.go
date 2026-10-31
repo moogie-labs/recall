@@ -30,6 +30,10 @@ func (i *invocation) initCommand() *cobra.Command {
 			if err != nil {
 				return nil, err
 			}
+			executable, err = filepath.EvalSymlinks(executable)
+			if err != nil {
+				return nil, err
+			}
 			assets = filepath.Join(filepath.Dir(executable), "assets")
 		}
 		last := -10

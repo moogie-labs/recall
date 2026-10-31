@@ -6,7 +6,42 @@ No accounts, cloud API, Ollama, launch agent, or generated answers.
 
 To build from source with Go 1.27+, run `go build -o ./build/recall ./cmd/recall` from the repository root; see [developer packaging](docs/operations.md#developer-packaging) for a complete distributable package.
 
+## Install from a GitHub release (recommended)
+
+On **Apple Silicon, macOS 13 or later**, download the `.pkg` installer and matching
+`.pkg.sha256` from [GitHub Releases](https://github.com/moogie-labs/recall/releases).
+For example, after downloading the `0.1.0` artifacts, run in their directory:
+
+```sh
+shasum -a 256 -c Recall-0.1.0-darwin-arm64.pkg.sha256
+open Recall-0.1.0-darwin-arm64.pkg
+```
+
+Follow Installer's prompts (administrator authorization is required). Release
+installers are Developer ID signed and notarized; do not bypass Gatekeeper if
+verification fails. Quit any running Recall app before installing an update.
+The installer adds **`/Applications/Recall.app`** and **`/usr/local/bin/recall`**.
+The CLI is a symlink to `/usr/local/lib/recall/recall`, with its bundled assets and
+notices alongside it; no `RECALL_ASSETS_DIR` setting is needed.
+
+Then initialize **without sudo** and launch the app:
+
+```sh
+recall init
+recall --help
+open /Applications/Recall.app
+```
+
+Initialization downloads and verifies the model once (about 274 MB), then tests
+real inference. The installer does not initialize or alter your existing collection.
+Run `recall init` again after upgrading: it installs the new release's runtime
+alongside older copies without replacing your configuration or authored files.
+If `/usr/local/bin` is not on your PATH, use `/usr/local/bin/recall` directly.
+Release automation and maintainer setup are described in [releases](docs/releases.md).
+
 ## First use
+
+For a developer/legacy CLI archive instead of the combined installer:
 
 Obtain the `recall-darwin-arm64.tar.gz` archive and its `.sha256` from a trusted
 distributor. In their containing directory:
@@ -16,20 +51,25 @@ shasum -a 256 -c recall-darwin-arm64.tar.gz.sha256
 tar -xzf recall-darwin-arm64.tar.gz
 cd recall-darwin-arm64
 ./bin/recall init
-./bin/recall
+./bin/recall # Show CLI help
 ```
 
 Keep `bin/assets/` beside `bin/recall` when moving the package. `init` extracts
 the bundled llama.cpp runtime, downloads the pinned 274,290,560-byte Nomic FP16
 model once, verifies both, and performs real inference. Internet is required
 for that initial download, not normal indexing/search. Initialization is
-retryable. End users need no Go, Python, CMake, compiler, or Ollama. Interactive
-editing needs an existing `nvim` (or a configured editor); CLI/MCP CRUD does not.
+retryable. End users need no Go, Python, CMake, compiler, or Ollama. The optional
+`document edit` command needs an existing `nvim` (or a configured editor);
+non-interactive CLI/MCP CRUD does not.
 
-The central collection defaults to `~/.local/share/recall`, regardless of the
+The central collection defaults to `~/Documents/recall`, regardless of the
 project you run from. Override with absolute `RECALL_HOME` or `--root PATH`
 (highest precedence). Use the same root for initialization and subsequent use.
 Normal commands never implicitly initialize a collection.
+Existing collections are not moved automatically. To keep using the former
+default, pass `--root "$HOME/.local/share/recall"`, set an absolute `RECALL_HOME`,
+or select that collection in the desktop app. A remembered desktop selection
+continues to take precedence over the new default.
 
 ```sh
 printf 'Reset credentials in account settings.\n' |
@@ -39,9 +79,10 @@ printf 'Reset credentials in account settings.\n' |
 ./bin/recall search 'forgot my password'
 ```
 
-In the TUI: Tab changes pane; Enter opens the selected real source in the
-editor; `t` opens tasks; `/` opens search; `?` shows contextual keys; `q` backs
-out/quits. Destructive TUI actions require confirmation; CLI/MCP do not.
+Running `recall` without a subcommand prints CLI help and exits; it does not
+open an interactive terminal interface or require an initialized collection.
+Use the [desktop app](#desktop-app-macos) for interactive browsing/editing.
+CLI/MCP deletion remains explicit and non-interactive, without confirmation.
 
 ## Install to `/usr/local/bin`
 
@@ -82,7 +123,7 @@ open "$HOME/Applications/Recall.app"
 ```
 
 The build script installs pinned frontend/build dependencies; no separate Wails
-installation is required. The app defaults to `~/.local/share/recall`. Use
+installation is required. The app defaults to `~/Documents/recall`. Use
 **Collection…** to select an existing custom collection root (not its `content/`
 subfolder); this choice is remembered for Finder launches.
 
@@ -94,7 +135,8 @@ If a dirty source was deleted externally, **Close draft…** lets you explicitly
 discard that draft without recreating the file. Click the sidebar's **Recall**
 heading to select the collection root for new top-level items.
 
-Builds are ad-hoc signed, **not Developer ID signed or notarized**. Use macOS's
+Local source builds are ad-hoc signed, **not Developer ID signed or notarized**.
+The combined release installers use the signing/notarization pipeline above. Use macOS's
 normal approval flow for software you trust; do not disable Gatekeeper. macOS
 13 is the deployment target; native verification was performed on macOS 26.6.2,
 not every earlier supported OS. See [desktop details](docs/desktop.md) for
@@ -108,7 +150,7 @@ verification commands and limitations.
 - [Operations, backups, deletion, developer packaging](docs/operations.md)
 - [Measured verification and release limitations](docs/verification.md)
 
-This build is not Developer ID signed or notarized. No credentials were used.
+Local development builds and legacy archives are not Developer ID signed or notarized.
 Use macOS's normal approval flow for software you trust; these instructions do
 not disable Gatekeeper or remove quarantine. A checksum proves integrity, not
 publisher identity. Third-party notices ship in `notices/`; they do not assign

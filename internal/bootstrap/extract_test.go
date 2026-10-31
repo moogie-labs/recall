@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -329,6 +330,46 @@ func TestRuntimeChecksumFailureRetryAndExistingPayloadPreservation(t *testing.T)
 	}
 	assertFile(t, userFile, []byte("preserve unknown"))
 	assertFile(t, filepath.Join(cfg.RuntimeDir, "b11669", "llama-server"), []byte("server"))
+}
+
+func TestRuntimeReleaseVariantsInstallAlongsideExistingCollection(t *testing.T) {
+	cfg := preparedConfig(t)
+	cfg.RuntimeID = "b11669"
+	if err := config.Prepare(cfg); err != nil {
+		t.Fatal(err)
+	}
+	configuration, err := os.ReadFile(filepath.Join(cfg.Root, "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	note := filepath.Join(cfg.Content, "keep.note.md")
+	writeFile(t, note, []byte("user source unchanged"))
+	for _, body := range []string{"upstream", "first signature", "second signature"} {
+		raw, manifest := runtimeArchive(t, tarEntry{name: "llama-b11669/llama-server", body: body})
+		directory := manifest.ID
+		if body != "upstream" {
+			directory += "-" + manifest.SHA256
+			encoded, _ := json.Marshal(manifest)
+			var fields map[string]any
+			json.Unmarshal(encoded, &fields)
+			fields["installation_id"] = directory
+			encoded, _ = json.Marshal(fields)
+			if err := json.Unmarshal(encoded, &manifest); err != nil {
+				t.Fatal(err)
+			}
+		}
+		archive := filepath.Join(t.TempDir(), manifest.Filename)
+		writeFile(t, archive, raw)
+		for range 2 {
+			if err := installRuntime(t.Context(), cfg, archive, manifest); err != nil {
+				t.Fatalf("install/retry %s with existing runtime: %v", body, err)
+			}
+		}
+		assertFile(t, filepath.Join(cfg.RuntimeDir, directory, "llama-server"), []byte(body))
+		assertFile(t, filepath.Join(cfg.RuntimeDir, "b11669", "llama-server"), []byte("upstream"))
+		assertFile(t, filepath.Join(cfg.Root, "config.json"), configuration)
+		assertFile(t, note, []byte("user source unchanged"))
+	}
 }
 
 func TestRuntimeVerifiesBytesConsumedByExtraction(t *testing.T) {

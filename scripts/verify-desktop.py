@@ -23,5 +23,6 @@ with tempfile.TemporaryDirectory(prefix="recall-bundle-") as temporary:
     subprocess.run(["ditto", str(bundle), str(relocated)], check=True)
     result = subprocess.run([str(relocated / "Contents/MacOS/Recall"), "_embedding-worker", "--invalid"], env=dict(os.environ, HOME=str(home)), capture_output=True, text=True, timeout=10)
     assert result.returncode == 2 and "private worker requires" in result.stderr, result
-    assert not (home / ".local/share/recall").exists(), "Dispatch initialized an unexpected collection"
+    assert not (home / "Documents/recall").exists(), "Dispatch initialized an unexpected collection"
+    assert not (home / ".local/share/recall").exists(), "Dispatch initialized a legacy collection"
 print("Production bundle identity, architecture, no fixture bindings/weights, relocation and headless worker dispatch PASS")
