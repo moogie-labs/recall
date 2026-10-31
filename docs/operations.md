@@ -113,9 +113,10 @@ The verifier checks checksum, paths, modes, links, manifests, notices, absence
 of weights, `otool -L` dependency relocation and runtime startup from a clean
 directory containing spaces. Native `--version` is not model inference; use
 the real-model acceptance gate too. The checksum is not a signature.
-Publishing, tags, Developer ID signing/notarization and owner licensing are
-separate owner decisions; none are performed here. Never disable Gatekeeper
-to make a packaging test pass.
+These developer archive commands do not publish, tag, or use signing credentials.
+The separate [release workflow](releases.md) signs and notarizes the combined
+desktop/CLI installer only on version-tag pushes. Owner licensing remains a
+separate decision. Never disable Gatekeeper to make a packaging test pass.
 
 At 10,000 source files, a historical measurement of the Darwin watcher in the
 former TUI consumed about 50% of one core while idle. The terminal UI has since
