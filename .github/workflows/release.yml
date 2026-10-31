@@ -36,9 +36,9 @@ jobs:
       - name: Credential-free verification
         run: |
           go test ./...
+          sh scripts/build-desktop.sh
           (cd desktop && go test ./...)
           python3 -m unittest discover -s scripts -p 'test_release_macos.py'
-          sh scripts/build-desktop.sh
           python3 scripts/verify-desktop.py build/Recall.app
       # This is the ONLY step in ANY workflow that references Apple secrets.
       - name: Sign, notarize and verify installer
