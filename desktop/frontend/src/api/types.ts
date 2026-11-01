@@ -49,6 +49,15 @@ export interface DesktopAPI {
   delete(input: DeleteInput): Promise<OperationReply>;
   search(input: SearchInput): Promise<SearchReply>;
   refresh(session: string): Promise<TreeReply>;
+  setupStatus(session: string): Promise<SetupStatus>;
+  retrySetup(session: string): Promise<OperationReply>;
+}
+export interface SetupStatus {
+  session: string;
+  state: "preparing" | "downloading" | "ready" | "failed";
+  done: number;
+  total: number;
+  problem: Problem | null;
 }
 export interface SearchInput {
   session: string;

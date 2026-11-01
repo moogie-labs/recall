@@ -24,18 +24,21 @@ The installer adds **`/Applications/Recall.app`** and **`/usr/local/bin/recall`*
 The CLI is a symlink to `/usr/local/lib/recall/recall`, with its bundled assets and
 notices alongside it; no `RECALL_ASSETS_DIR` setting is needed.
 
-Then initialize **without sudo** and launch the app:
+Then launch the app:
 
 ```sh
-recall init
-recall --help
 open /Applications/Recall.app
 ```
 
-Initialization downloads and verifies the model once (about 274 MB), then tests
-real inference. The installer does not initialize or alter your existing collection.
-Run `recall init` again after upgrading: it installs the new release's runtime
-alongside older copies without replacing your configuration or authored files.
+On first launch the app creates `~/Documents/recall` (if that folder is missing or
+empty) and sets up semantic search in the background: it installs the bundled
+runtime and downloads and verifies the model once (about 274 MB). Notes, tasks and
+keyword search work immediately; the sidebar shows progress and offers **Retry**
+if the download fails. Opening a collection after an upgrade installs that
+release's runtime the same way. To initialize from the terminal instead (or for
+another collection), run `recall init` **without sudo**; it also tests real
+inference. The installer itself does not initialize or alter your collections, and
+setup never replaces your configuration or authored files.
 If `/usr/local/bin` is not on your PATH, use `/usr/local/bin/recall` directly.
 Release automation and maintainer setup are described in [releases](docs/releases.md).
 
@@ -108,8 +111,11 @@ Recall also has a Wails desktop app with a collapsible file tree, Markdown
 preview/edit modes, and global search (⌘F). It uses the **same collection** as
 the CLI and MCP, without installing an always-on service.
 
-First initialize your collection using the CLI [first-use steps](#first-use)
-above. The desktop app does not initialize collections or download models.
+On first launch the app creates `~/Documents/recall` and sets up semantic search
+in the background (see [install](#install-from-a-github-release-recommended)). It
+never creates a collection you chose or remembered, a non-empty folder, or a new
+one while a former-default collection exists at `~/.local/share/recall`. Source
+builds bundle the runtime only if `scripts/package.sh` has cached it.
 
 To build and install from this repository, use an Apple Silicon Mac with
 macOS 13 or later, Go 1.27+, Node.js 22.12+ with npm, and Xcode command-line

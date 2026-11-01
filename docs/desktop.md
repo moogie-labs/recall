@@ -6,8 +6,9 @@ See the README's [release installer instructions](../README.md#install-from-a-gi
 to install the CLI and app together, or its [source build instructions](../README.md#desktop-app-macos).
 The CLI and desktop app
 can be installed independently. Keep the CLI's packaged assets together for
-`recall init`; the desktop app uses the already initialized collection's verified
-model/runtime and embeds its own frontend assets.
+`recall init`. The desktop app bundles the same pinned runtime archive in
+`Recall.app/Contents/Resources/assets` (or uses an absolute `RECALL_ASSETS_DIR`)
+and embeds its own frontend assets.
 
 The desktop build requires Apple Silicon macOS, Go 1.27+, Node.js 22.12+ with
 npm, and Xcode command-line tools. `sh scripts/build-desktop.sh` produces
@@ -31,8 +32,9 @@ launches may not inherit your shell environment.
 
 Previously created collections at `~/.local/share/recall` are not migrated or
 deleted. A remembered selection still opens that collection; choose it explicitly
-to continue using it, or initialize `~/Documents/recall` with the CLI for a new
-collection. If Documents is cloud-synced, follow the same precautions as any
+to continue using it. While that collection exists, first launch does not create
+a new `~/Documents/recall` (which would hide your notes); it points you to
+**Collection…** instead. If Documents is cloud-synced, follow the same precautions as any
 externally modified collection; do not treat sync as a consistent live database backup.
 
 An explicit executable `--root /absolute/path` takes precedence at startup:
@@ -41,9 +43,21 @@ An explicit executable `--root /absolute/path` takes precedence at startup:
 "$HOME/Applications/Recall.app/Contents/MacOS/Recall" --root /absolute/collection
 ```
 
-The app never implicitly initializes or downloads assets. For a missing
-collection, use the matching CLI `recall --root /absolute/collection init`, then
-choose/reopen that collection. Do not select its `content/` subdirectory.
+### First launch and semantic-search setup
+
+Only the **default** collection is created automatically, and only when
+`~/Documents/recall` is missing or an empty folder and no legacy collection exists.
+A chosen, remembered or `--root` collection that is missing is reported instead;
+initialize it with `recall --root /absolute/collection init`, then choose/reopen
+it. Do not select its `content/` subdirectory.
+
+After any collection opens, the app checks whether this release's runtime and the
+model are installed. If not, it installs them in the background, the same steps as
+`recall init` (verified against pins compiled into the app; existing configuration
+and files are never replaced). The sidebar shows progress, and **Retry setup** after
+a failure such as no network. Until setup finishes, hybrid search explains that it
+is unavailable and offers keyword search; editing and keyword search are unaffected.
+Quitting or switching collections cancels setup safely; it resumes on next open.
 
 The existing lazy, per-collection embedding worker is shared with CLI/MCP clients.
 Its private worker invocation never opens another GUI window; it can outlive the

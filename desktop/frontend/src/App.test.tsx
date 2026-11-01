@@ -166,3 +166,78 @@ it("collapses the sidebar without losing tree expansion and uses the exact headi
     screen.getByRole("heading", { name: "Recall", level: 2 }),
   ).toBeInTheDocument();
 });
+it("shows background setup progress and lets a failed setup be retried", async () => {
+  const api = fakeBridge([doc], ["Work"]);
+  const handlers = new Map<string, (payload: any) => void>();
+  const eventHost: HostAPI = {
+    ...host,
+    on: (name, callback) => {
+      handlers.set(name, callback);
+      return () => handlers.delete(name);
+    },
+  };
+  let status: any = {
+    session: "test-session",
+    state: "downloading",
+    done: 137_000_000,
+    total: 274_000_000,
+    problem: null,
+  };
+  let retried = 0;
+  api.setupStatus = async () => status;
+  api.retrySetup = async () => {
+    retried++;
+    status = { ...status, state: "preparing", problem: null };
+    return { problem: null };
+  };
+  render(<App api={api} host={eventHost} />);
+  expect(
+    await screen.findByText("Downloading search model… 50% (137 of 274 MB)"),
+  ).toBeInTheDocument();
+  // Notes stay usable while the model downloads.
+  expect(
+    await screen.findByRole("treeitem", { name: "Work" }),
+  ).toBeInTheDocument();
+  act(() =>
+    handlers.get("desktop:setup")!({
+      session: "other-session",
+      state: "failed",
+      done: 0,
+      total: 0,
+      problem: { code: "x", message: "stale session", path: "" },
+    }),
+  );
+  expect(screen.queryByText(/stale session/)).not.toBeInTheDocument();
+  act(() =>
+    handlers.get("desktop:setup")!({
+      session: "test-session",
+      state: "failed",
+      done: 0,
+      total: 0,
+      problem: {
+        code: "runtime_unavailable",
+        message: "asset download failed",
+        path: "",
+      },
+    }),
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "Retry setup" }));
+  expect(
+    await screen.findByText("Setting up semantic search…"),
+  ).toBeInTheDocument();
+  expect(retried).toBe(1);
+  act(() =>
+    handlers.get("desktop:setup")!({
+      session: "test-session",
+      state: "ready",
+      done: 0,
+      total: 0,
+      problem: null,
+    }),
+  );
+  await waitFor(() =>
+    expect(
+      screen.queryByRole("progressbar", { name: "Semantic search setup" }),
+    ).not.toBeInTheDocument(),
+  );
+});

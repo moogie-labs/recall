@@ -429,6 +429,32 @@ a:focus-visible {
   color: #999b91;
   padding: 22px 10px;
 }
+.setup-status {
+  margin: 14px 8px 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: #f1f2ec;
+  font-size: 11px;
+  color: #5d6356;
+}
+.setup-status p {
+  margin: 0 0 6px;
+}
+.setup-status progress {
+  width: 100%;
+  height: 6px;
+}
+.setup-status .setup-note {
+  margin: 4px 0 0;
+  color: #999b91;
+}
+.setup-status.failed {
+  background: #fff1e8;
+  color: #884c36;
+}
+.setup-status.failed button {
+  font-size: 11px;
+}
 .diagnostic {
   font-size: 11px;
   color: #9b6742;

@@ -17,6 +17,7 @@ import (
 	"recall/assets"
 	"recall/internal/app"
 	"recall/internal/config"
+	"recall/internal/fsstore"
 	"recall/internal/model"
 )
 
@@ -398,5 +399,80 @@ func TestInitializeUnsupportedPlatformDoesNotFetchAssets(t *testing.T) {
 	cancel()
 	if _, err := Initialize(ctx, cfg, t.TempDir(), nil); err == nil {
 		t.Fatal("canceled initialization succeeded")
+	}
+}
+
+func TestPrepareMetadataCreatesUsableCollectionWithoutAssets(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "fresh collection")
+	cfg, err := config.Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if AssetsPresent(cfg) {
+		t.Fatal("missing collection reported assets present")
+	}
+	resolved, err := PrepareMetadata(t.Context(), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, rt, err := pinnedManifests()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.ModelID != m.ID || resolved.ModelSignature != "sha256:"+m.SHA256 || resolved.RuntimeID != rt.ID {
+		t.Fatalf("identities not pinned: %+v", resolved)
+	}
+	store, err := fsstore.Open(resolved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+	if AssetsPresent(resolved) {
+		t.Fatal("metadata-only collection reported assets present")
+	}
+	// Retrying reloads the published configuration rather than replacing it.
+	again, err := PrepareMetadata(t.Context(), resolved)
+	if err != nil || again.ModelID != resolved.ModelID {
+		t.Fatal(again, err)
+	}
+	if _, err := PrepareMetadata(t.Context(), config.Config{Root: "relative"}); model.ErrorCode(err) != "invalid_argument" {
+		t.Fatal(err)
+	}
+}
+
+func TestAssetsPresentRequiresPinnedModelSizeAndRuntimeExecutable(t *testing.T) {
+	cfg, err := PrepareMetadata(t.Context(), config.Config{Root: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, rt, _ := pinnedManifests()
+	directory, err := assets.RuntimeInstallationDirectory(rt.ID, rt.SHA256, rt.InstallationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := filepath.Join(cfg.RuntimeDir, directory, "llama-server")
+	if err := os.MkdirAll(filepath.Dir(server), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(server, []byte("fixture"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	weights := filepath.Join(cfg.ModelsDir, m.Filename)
+	if err := os.WriteFile(weights, []byte("partial"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if AssetsPresent(cfg) {
+		t.Fatal("partial model reported present")
+	}
+	if err := os.Truncate(weights, m.Size); err != nil {
+		t.Fatal(err)
+	}
+	if !AssetsPresent(cfg) {
+		t.Fatal("installed assets not reported present")
+	}
+	other := cfg
+	other.RuntimeID = "other-runtime"
+	if AssetsPresent(other) {
+		t.Fatal("conflicting identity reported present")
 	}
 }

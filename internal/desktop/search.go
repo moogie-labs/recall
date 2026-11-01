@@ -23,6 +23,12 @@ func (s *Service) Search(in SearchInput) SearchReply {
 	if strings.TrimSpace(in.Query) == "" {
 		return r
 	}
+	if in.Mode == "hybrid" {
+		if p := s.semanticUnavailable(in.Session); p != nil {
+			r.Problem = p
+			return r
+		}
+	}
 	if in.Limit <= 0 {
 		in.Limit = 20
 	}

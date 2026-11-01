@@ -62,10 +62,11 @@ present. A compromised dependency can therefore still affect what it builds (whi
 is then signed and published by this run, visibly), but cannot use the Developer
 ID keys or notarization profile to sign anything else, or steal them.
 
-The `sign` job independently checks the handed-off payload: only regular files and
-directories with normal permissions, the expected app identity/version, the model
-pin from its own checkout, and runtime bytes identical to the `runtime` job's
-signed artifact.
+The desktop app carries the same signed runtime assets in `Contents/Resources/assets`
+for first-launch setup. The `sign` job independently checks the handed-off payload:
+only regular files and directories with normal permissions, the expected app
+identity/version, the model pin from its own checkout, and runtime bytes (the CLI's
+and the app's bundled copy) identical to the `runtime` job's signed artifact.
 
 Configure a GitHub tag ruleset restricting `v*` tag creation, updates and deletion
 to trusted release maintainers, and protect changes to release scripts/workflows.
