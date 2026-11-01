@@ -103,6 +103,33 @@ class ReleaseTests(unittest.TestCase):
         with tarfile.open(shipped) as tf:
             self.assertEqual(tf.extractfile("llama-b11669/llama-server").read(), b"\xcf\xfa\xed\xfeunsigned-signed")
 
+    def test_stapler_retries_transient_ticket_failures(self):
+        attempts = []
+        def flaky(args, **kwargs):
+            attempts.append(args)
+            if len(attempts) < 3:
+                raise RuntimeError("stapler staple failed (exit 68)")
+            return ""
+        with patch.object(self.release, "run", side_effect=flaky), patch.object(self.release.time, "sleep") as sleep:
+            self.release.stapler("staple", self.root / "Recall.pkg")
+        self.assertEqual([a[:3] for a in attempts], [["xcrun", "stapler", "staple"]] * 3)
+        self.assertEqual(sleep.call_count, 2)
+
+    def test_stapler_failure_reports_action_target_and_diagnostic(self):
+        result = subprocess.CompletedProcess([], 68, stdout="", stderr="CloudKit query for Recall.pkg failed: secret-notary\n\x1b[31m")
+        with patch.dict(os.environ, {"NOTARY_PASSWORD": "secret-notary"}), patch.object(subprocess, "run", return_value=result):
+            with self.assertRaises(RuntimeError) as error:
+                self.release.run(["xcrun", "stapler", "staple", self.root / "Recall.pkg"])
+        message = str(error.exception)
+        self.assertIn("stapler staple failed (exit 68)", message)
+        self.assertIn("Recall.pkg: CloudKit query", message)
+        self.assertNotIn("secret-notary", message)
+        self.assertNotIn("\x1b", message)
+        with patch.object(subprocess, "run", return_value=subprocess.CompletedProcess([], 1, stdout="private", stderr="private")):
+            with self.assertRaises(RuntimeError) as error:
+                self.release.run(["xcrun", "notarytool", "store-credentials", "--password", "private"])
+        self.assertNotIn("private", str(error.exception), "notarytool output must stay withheld")
+
     def test_failed_command_does_not_leak_credentials_in_exception(self):
         with self.assertRaises(RuntimeError) as error:
             self.release.run([sys.executable, "-c", "import sys;sys.exit(7)", "private-password"])
@@ -321,9 +348,10 @@ class ReleaseTests(unittest.TestCase):
         pkg = self.root / "candidate.pkg"
         pkg.write_bytes(b"candidate")
         output = self.root / "release"
-        with patch.object(self.release, "run", side_effect=RuntimeError("stapling failed")):
+        with patch.object(self.release, "run", side_effect=RuntimeError("stapling failed")), patch.object(self.release.time, "sleep") as sleep:
             with self.assertRaises(RuntimeError):
                 self.release.finish_package(pkg, output, "1.2.3")
+        self.assertEqual(sleep.call_count, 4, "persistent stapler failure must be retried a bounded number of times")
         self.assertFalse(output.exists())
 
     def test_verified_package_gets_checksum_only_after_all_gates(self):

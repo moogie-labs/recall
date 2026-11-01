@@ -28,6 +28,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 from xml.sax.saxutils import escape
 
 import distribution as dist
@@ -52,16 +53,21 @@ def run(args, **kwargs):
     result = subprocess.run([str(a) for a in args], stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE, text=True, env=env, **kwargs)
     if result.returncode:
-        if tool == "codesign":
-            # codesign receives identity/keychain names, never passwords. Expose
-            # only its target and diagnostic, not command arguments, and retain
-            # redaction even after credentials have been removed from the env.
-            operation = "verification" if "--verify" in args else "signing"
+        is_stapler = tool == "xcrun" and len(args) > 2 and str(args[1]) == "stapler"
+        if tool == "codesign" or is_stapler:
+            # codesign and stapler receive identity/keychain names and file
+            # paths, never passwords. Expose only the target and diagnostic,
+            # not command arguments, and retain redaction even after
+            # credentials have been removed from the env.
+            if is_stapler:
+                tool, operation = "stapler", str(args[2])
+            else:
+                operation = "verification" if "--verify" in args else "signing"
             detail = f"{Path(args[-1]).name}: {result.stderr.strip() or result.stdout.strip()}"
             sensitive = _diagnostic_redactions | {os.environ.get(k, "") for k in PRIVATE_ENV | {"TEAM_ID"}}
             for value in sorted(filter(None, sensitive), key=len, reverse=True):
                 detail = detail.replace(value, "[REDACTED]")
-            raise RuntimeError(f"codesign {operation} failed (exit {result.returncode}): " + json.dumps(detail[:8192], ensure_ascii=True))
+            raise RuntimeError(f"{tool} {operation} failed (exit {result.returncode}): " + json.dumps(detail[:8192], ensure_ascii=True))
         raise RuntimeError(f"{tool} failed (exit {result.returncode}); command arguments/output withheld")
     return result.stdout
 
@@ -117,6 +123,21 @@ def notarize(path):
     if result.get("status") != "Accepted":
         raise RuntimeError("Apple notarization was not Accepted; submission " + str(result.get("id", "unknown")))
     print("Apple notarization Accepted:", result["id"], flush=True)
+
+
+def stapler(action, path, attempts=5, delay=30):
+    """Apple's ticket service can briefly fail to serve a just-notarized ticket
+    (stapler exit 65/68). Retry a bounded number of times, reporting each
+    diagnostic; a persistent failure still fails the release."""
+    for attempt in range(1, attempts + 1):
+        try:
+            run(["xcrun", "stapler", action, path])
+            return
+        except RuntimeError as error:
+            if attempt == attempts:
+                raise
+            print(f"{error} (attempt {attempt}/{attempts}; retrying in {delay}s)", flush=True)
+            time.sleep(delay)
 
 
 def verifier(team):
@@ -246,7 +267,7 @@ def distribution_xml(release):
 def finish_package(pkg, output, release):
     # Runs after credentials are removed; the package is already notarized/stapled.
     dist.require(not output.exists(), "release output already exists; refusing stale artifacts")
-    run(["xcrun", "stapler", "validate", pkg])
+    stapler("validate", pkg)
     run(["pkgutil", "--check-signature", pkg])
     run(["spctl", "--assess", "--type", "install", "--verbose=2", pkg])
     output.mkdir(parents=True)
@@ -410,7 +431,7 @@ def sign_and_notarize(work, staged, release, keychain, identities, verify):
     app_zip = work / "Recall.zip"
     run(["ditto", "-c", "-k", "--keepParent", app, app_zip])
     notarize(app_zip)
-    run(["xcrun", "stapler", "staple", app])
+    stapler("staple", app)
     payload = work / "payload"
     make_payload(payload, cli, app, staged / "assets", staged / "notices")
     build_component(payload, work, release)
@@ -420,7 +441,7 @@ def sign_and_notarize(work, staged, release, keychain, identities, verify):
     run(["productbuild", "--distribution", xml, "--package-path", work, "--keychain", keychain,
          "--sign", identities["Installer"], pkg])
     notarize(pkg)
-    run(["xcrun", "stapler", "staple", pkg])
+    stapler("staple", pkg)
     return pkg
 
 
@@ -429,7 +450,7 @@ def verify_signed(work, pkg, staged, runtime_lock, verify):
     cli, app, assets = staged / "recall", staged / "Recall.app", staged / "assets"
     verify(cli)
     verify(app)
-    run(["xcrun", "stapler", "validate", app])
+    stapler("validate", app)
     run(["spctl", "--assess", "--type", "execute", "--verbose=2", app])
     run([sys.executable, "scripts/verify-desktop.py", app], cwd=REPO)
     verify_runtime(assets / "runtime/darwin-arm64" / runtime_lock["filename"], verify)
