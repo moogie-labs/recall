@@ -117,10 +117,7 @@ func TestBodyAndRawFilesEmptyCreationAndEditorReconciliation(t *testing.T) {
 	if err := os.WriteFile(trap, []byte("#!/bin/sh\ntouch '"+marker+"'\nexit 9\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	cfg.Editor = []string{trap}
-	if err := config.Prepare(cfg); err != nil {
-		t.Fatal(err)
-	}
+	setUserEditor(t, trap)
 	file := filepath.Join(t.TempDir(), "body.txt")
 	if err := os.WriteFile(file, []byte("from body file\n"), 0600); err != nil {
 		t.Fatal(err)
@@ -145,10 +142,7 @@ func TestBodyAndRawFilesEmptyCreationAndEditorReconciliation(t *testing.T) {
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '\\neditor saved\\n' >> \"$1\"\nprintf 'editor stdout\\n'\nexit 7\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	cfg.Editor = []string{script}
-	if err := config.Prepare(cfg); err != nil {
-		t.Fatal(err)
-	}
+	setUserEditor(t, script)
 	var out, logs bytes.Buffer
 	if code := Run(t.Context(), []string{"--root", cfg.Root, "document", "edit", "--id", note.ID, "--json"}, strings.NewReader(""), &out, &logs); code != 1 {
 		t.Fatalf("%d %s %s", code, &out, &logs)

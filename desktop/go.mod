@@ -2,6 +2,8 @@ module recall/desktop
 
 go 1.27.0
 
+toolchain go1.27.3
+
 require (
 	github.com/wailsapp/wails/v2 v2.17.0
 	recall v0.0.0

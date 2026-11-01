@@ -11,9 +11,51 @@ concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
+# Credential boundary: the jobs that receive Apple secrets (runtime, sign) set up
+# no Go/Node toolchain and run only Apple tools plus this repository's Python on
+# artifacts. All third-party build code (Go modules, npm packages, Wails) runs in
+# the secret-free build job on a separate, disposable runner, so it can never
+# reach the signing keychain or notarization profile.
 jobs:
-  installer:
+  runtime:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: macos-15
+    timeout-minutes: 60
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Validate version tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 -c 'import runpy,os,sys; sys.path.insert(0,"scripts"); runpy.run_path("scripts/release-macos.py")["version"](os.environ["RELEASE_TAG"])'
+      - name: Sign and notarize pinned runtime
+        env:
+          APPLICATION_P12_BASE64: ${{ secrets.APPLE_APPLICATION_CERTIFICATE_P12_BASE64 }}
+          APPLICATION_P12_PASSWORD: ${{ secrets.APPLE_APPLICATION_CERTIFICATE_PASSWORD }}
+          NOTARY_APPLE_ID: ${{ secrets.APPLE_ID }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          NOTARY_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: python3 scripts/release-macos.py runtime "$GITHUB_REF_NAME" build/release-runtime
+      - name: Always remove signing material
+        if: always()
+        shell: bash
+        run: |
+          keychain="$GITHUB_WORKSPACE/build/release-private/release.keychain-db"
+          if [ -f "$keychain" ]; then security delete-keychain "$keychain"; fi
+          python3 -c 'from pathlib import Path; import shutil; p=Path("build/release-private"); shutil.rmtree(p) if p.exists() else None'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: signed-runtime
+          path: build/release-runtime/
+          if-no-files-found: error
+          retention-days: 1
+
+  build:
+    needs: runtime
     runs-on: macos-15
     timeout-minutes: 120
     permissions:
@@ -33,6 +75,10 @@ jobs:
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: python3 -c 'import runpy,os,sys; sys.path.insert(0,"scripts"); runpy.run_path("scripts/release-macos.py")["version"](os.environ["RELEASE_TAG"])'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: signed-runtime
+          path: build/release-runtime
       - name: Credential-free verification
         run: |
           go test ./...
@@ -40,7 +86,38 @@ jobs:
           (cd desktop && go test ./...)
           python3 -m unittest discover -s scripts -p 'test_release_macos.py'
           python3 scripts/verify-desktop.py build/Recall.app
-      # This is the ONLY step in ANY workflow that references Apple secrets.
+      - name: Build unsigned release payload
+        run: python3 scripts/release-macos.py build "$GITHUB_REF_NAME" build/release-runtime build/release-payload/payload.tar
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: unsigned-payload
+          path: build/release-payload/payload.tar
+          if-no-files-found: error
+          retention-days: 1
+
+  sign:
+    needs: [runtime, build]
+    runs-on: macos-15
+    timeout-minutes: 90
+    environment: release
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Validate version tag
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: python3 -c 'import runpy,os,sys; sys.path.insert(0,"scripts"); runpy.run_path("scripts/release-macos.py")["version"](os.environ["RELEASE_TAG"])'
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: signed-runtime
+          path: build/release-runtime
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: unsigned-payload
+          path: build/release-payload
       - name: Sign, notarize and verify installer
         env:
           APPLICATION_P12_BASE64: ${{ secrets.APPLE_APPLICATION_CERTIFICATE_P12_BASE64 }}
@@ -50,7 +127,7 @@ jobs:
           NOTARY_APPLE_ID: ${{ secrets.APPLE_ID }}
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           NOTARY_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-        run: python3 scripts/release-macos.py "$GITHUB_REF_NAME"
+        run: python3 scripts/release-macos.py sign "$GITHUB_REF_NAME" build/release-payload/payload.tar build/release-runtime build/release
       - name: Always remove signing material
         if: always()
         shell: bash
@@ -66,7 +143,7 @@ jobs:
           retention-days: 7
 
   publish:
-    needs: installer
+    needs: sign
     runs-on: ubuntu-latest
     permissions:
       contents: write

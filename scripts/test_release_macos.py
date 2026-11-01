@@ -1,10 +1,12 @@
 """Credential-free release contract tests; run with Python's unittest discovery."""
 import importlib.util
+import io
 import json
 import os
 from pathlib import Path
 import plistlib
 import platform
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -96,6 +98,7 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(manifest["installation_id"], "b11669-" + manifest["sha256"])
         self.assertNotEqual(manifest["sha256"], lock["sha256"])
         self.assertEqual(json.loads((assets / "runtime.lock.json").read_text()), manifest)
+        self.assertNotIn("tree_sha256", manifest, "upstream payload digest must not describe re-signed bytes")
         self.assertEqual(len(notarized), 1)
         with tarfile.open(shipped) as tf:
             self.assertEqual(tf.extractfile("llama-b11669/llama-server").read(), b"\xcf\xfa\xed\xfeunsigned-signed")
@@ -170,13 +173,149 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual((installed / "usr/local/bin/recall").read_bytes(), b"fixture")
         self.assertTrue((installed / "Applications/Recall.app/Contents/Info.plist").is_file())
 
-    def test_notarization_rejection_prevents_output_publication(self):
-        pkg = self.root / "candidate.pkg"
-        pkg.write_bytes(b"candidate")
-        output = self.root / "release"
-        with self.assertRaises(RuntimeError):
-            self.release.finish_package(pkg, output, "1.2.3", lambda _: (_ for _ in ()).throw(RuntimeError("Rejected")))
-        self.assertFalse(output.exists())
+    def staged_payload(self, version="1.2.3"):
+        staged = self.root / "staged"
+        (staged / "Recall.app/Contents/MacOS").mkdir(parents=True)
+        (staged / "Recall.app/Contents/MacOS/Recall").write_bytes(b"\xcf\xfa\xed\xfeapp")
+        (staged / "Recall.app/Contents/MacOS/Recall").chmod(0o755)
+        (staged / "Recall.app/Contents/Info.plist").write_bytes(plistlib.dumps({"CFBundleIdentifier": "local.recall.desktop", "CFBundleShortVersionString": version, "CFBundleVersion": version}))
+        (staged / "recall").write_bytes(b"\xcf\xfa\xed\xfecli")
+        (staged / "recall").chmod(0o755)
+        archive = self.root / "signed-runtime.tar.gz"
+        archive.write_bytes(b"signed runtime fixture")
+        runtime_lock = {"id": "b11669", "filename": "llama.tar.gz", "sha256": self.release.dist.digest(archive), "size": archive.stat().st_size}
+        assets = staged / "assets"
+        (assets / "runtime/darwin-arm64").mkdir(parents=True)
+        (assets / "runtime/darwin-arm64/llama.tar.gz").write_bytes(archive.read_bytes())
+        (assets / "runtime.lock.json").write_text(json.dumps(dict(runtime_lock, tree_sha256="c" * 64)))
+        (assets / "model.lock.json").write_bytes((REPO / "assets/model.lock.json").read_bytes())
+        (staged / "notices").mkdir()
+        (staged / "notices/README.txt").write_text("notices")
+        return staged, runtime_lock, archive
+
+    def test_sign_stage_runs_only_apple_tools_while_credentials_are_loaded(self):
+        staged, _, _ = self.staged_payload()
+        commands, notarized = [], []
+        def external(args, **kwargs):
+            commands.append(Path(str(args[0])).name)
+            return ""
+        with patch.object(self.release, "run", side_effect=external), patch.object(self.release, "notarize", side_effect=lambda p: notarized.append(p.name)):
+            pkg = self.release.sign_and_notarize(self.root, staged, "1.2.3", self.root / "release.keychain-db", {"Application": "A" * 40, "Installer": "Developer ID Installer: Fixture (ABCDE12345)"}, lambda _: None)
+        self.assertEqual(pkg.name, "Recall.pkg")
+        self.assertTrue(commands)
+        self.assertLessEqual(set(commands), self.release.APPLE_TOOLS, commands)
+        self.assertEqual(notarized, ["Recall.zip", "Recall.pkg"])
+
+    def test_app_notarization_rejection_stops_before_installer_is_built(self):
+        staged, _, _ = self.staged_payload()
+        commands = []
+        def rejected(_):
+            raise RuntimeError("Apple notarization was not Accepted")
+        with patch.object(self.release, "run", side_effect=lambda args, **kw: commands.append(Path(str(args[0])).name) or ""), patch.object(self.release, "notarize", side_effect=rejected):
+            with self.assertRaises(RuntimeError):
+                self.release.sign_and_notarize(self.root, staged, "1.2.3", self.root / "k", {"Application": "A" * 40, "Installer": "I"}, lambda _: None)
+        self.assertNotIn("productbuild", commands)
+        self.assertNotIn("pkgbuild", commands)
+
+    def test_loaded_credentials_refuse_non_apple_executables(self):
+        self.release._credentials_live = True
+        self.addCleanup(setattr, self.release, "_credentials_live", False)
+        for tool in [sys.executable, "go", "npm", "sh", "/tmp/build/recall", "llama-server"]:
+            with self.subTest(tool=tool), self.assertRaisesRegex(RuntimeError, "while signing credentials are loaded"):
+                self.release.run([tool, "--version"])
+        ok = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        with patch.object(subprocess, "run", return_value=ok):
+            for tool in ["codesign", "/usr/bin/security", "xcrun", "ditto", "pkgbuild", "productbuild"]:
+                self.release.run([tool])
+
+    def test_credentials_are_released_after_the_signing_context(self):
+        env = {"TEAM_ID": "ABCDE12345", "APPLICATION_P12_BASE64": "Zml4dHVyZQ==", "APPLICATION_P12_PASSWORD": "fixture",
+               "NOTARY_APPLE_ID": "fixture@example.test", "NOTARY_PASSWORD": "fixture"}
+        imported = []
+        def external(args, **kwargs):
+            if args[1] == "import":
+                imported.append(Path(args[2]).name)
+            if args[1] == "find-identity":
+                return '1) AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA "Developer ID Application: Fixture (ABCDE12345)"\n'
+            return ""
+        with patch.dict(os.environ, env), patch.object(self.release, "run", side_effect=external):
+            # The runtime stage needs no installer certificate at all.
+            with self.release.signing_credentials(self.root, kinds=("Application",)) as (_, identities):
+                self.assertTrue(self.release._credentials_live)
+                self.assertEqual(identities, {"Application": "A" * 40})
+        self.assertFalse(self.release._credentials_live)
+        self.assertEqual(imported, ["application.p12"])
+
+    def test_build_stage_refuses_apple_credentials(self):
+        for name in ["APPLICATION_P12_BASE64", "NOTARY_PASSWORD", "SIGNING_KEYCHAIN"]:
+            with self.subTest(name=name), patch.dict(os.environ, {name: "present"}), self.assertRaisesRegex(ValueError, name):
+                self.release.require_no_credentials()
+
+    def test_release_modules_pin_the_same_patched_go_toolchain(self):
+        root = self.release.go_toolchain((REPO / "go.mod").read_text())
+        self.assertEqual(root, self.release.go_toolchain((REPO / "desktop/go.mod").read_text()))
+        self.assertRegex(root, r"^go1\.\d+\.\d+$")
+        with self.assertRaises(ValueError):
+            self.release.go_toolchain("module fixture\n\ngo 1.27.0\n")
+
+    def test_payload_handoff_round_trips_and_rejects_unexpected_entries(self):
+        staged, runtime_lock, archive = self.staged_payload()
+        tar = self.root / "payload.tar"
+        self.release.write_payload(staged, tar)
+        received = self.root / "received"
+        self.release.read_payload(tar, received)
+        self.assertTrue(os.access(received / "recall", os.X_OK))
+        self.release.check_payload(received, "1.2.3", runtime_lock, archive)
+        with self.assertRaisesRegex(ValueError, "version"):
+            self.release.check_payload(received, "1.2.4", runtime_lock, archive)
+        (received / "assets/runtime/darwin-arm64/llama.tar.gz").write_bytes(b"swapped runtime fixture")
+        with self.assertRaisesRegex(ValueError, "runtime"):
+            self.release.check_payload(received, "1.2.3", runtime_lock, archive)
+        for name, mutate in {
+            "symlink": lambda tf: tf.addfile(self.link_info("notices/link", "../../etc/passwd")),
+            "unexpected": lambda tf: tf.addfile(self.file_info("extra-tool", b"x"), io.BytesIO(b"x")),
+            "writable": lambda tf: tf.addfile(self.file_info("notices/w", b"x", 0o666), io.BytesIO(b"x")),
+        }.items():
+            with self.subTest(name=name):
+                bad = self.root / f"{name}.tar"
+                shutil.copy(tar, bad)
+                with tarfile.open(bad, "a") as tf:
+                    mutate(tf)
+                with self.assertRaises(ValueError):
+                    self.release.read_payload(bad, self.root / f"{name}-out")
+
+    @staticmethod
+    def file_info(name, data, mode=0o644):
+        info = tarfile.TarInfo(name)
+        info.size, info.mode = len(data), mode
+        return info
+
+    @staticmethod
+    def link_info(name, target):
+        info = tarfile.TarInfo(name)
+        info.type, info.linkname = tarfile.SYMTYPE, target
+        return info
+
+    def test_signed_runtime_artifact_must_match_upstream_pin(self):
+        native = self.root / "llama-b11669"
+        native.mkdir()
+        (native / "llama-server").write_bytes(b"\xcf\xfa\xed\xfesigned")
+        (native / "llama-server").chmod(0o755)
+        runtime_dir = self.root / "runtime"
+        archive = runtime_dir / "runtime/darwin-arm64" / self.release.dist.RUNTIME["filename"]
+        archive.parent.mkdir(parents=True)
+        with tarfile.open(archive, "w:gz") as tf:
+            tf.add(native, arcname="llama-b11669")
+        lock = {k: v for k, v in self.release.dist.RUNTIME.items() if k != "tree_sha256"}
+        lock.update(sha256=self.release.dist.digest(archive), size=archive.stat().st_size)
+        lock["installation_id"] = lock["id"] + "-" + lock["sha256"]
+        (runtime_dir / "runtime.lock.json").write_text(json.dumps(lock))
+        self.assertEqual(self.release.signed_runtime(runtime_dir), (lock, archive))
+        for change in [{"url": "https://evil.example/runtime.tar.gz"}, {"installation_id": "b11669-other"}, {"extra": True}]:
+            with self.subTest(change=change):
+                (runtime_dir / "runtime.lock.json").write_text(json.dumps(dict(lock, **change)))
+                with self.assertRaises(ValueError):
+                    self.release.signed_runtime(runtime_dir)
 
     def test_stapling_failure_prevents_output_publication(self):
         pkg = self.root / "candidate.pkg"
@@ -184,7 +323,7 @@ class ReleaseTests(unittest.TestCase):
         output = self.root / "release"
         with patch.object(self.release, "run", side_effect=RuntimeError("stapling failed")):
             with self.assertRaises(RuntimeError):
-                self.release.finish_package(pkg, output, "1.2.3", lambda _: None)
+                self.release.finish_package(pkg, output, "1.2.3")
         self.assertFalse(output.exists())
 
     def test_verified_package_gets_checksum_only_after_all_gates(self):
@@ -197,10 +336,10 @@ class ReleaseTests(unittest.TestCase):
             checked.append(args[0])
             return ""
         with patch.object(self.release, "run", side_effect=gate):
-            self.release.finish_package(pkg, output, "1.2.3", lambda _: self.assertFalse(output.exists()))
+            self.release.finish_package(pkg, output, "1.2.3")
         target = output / "Recall-1.2.3-darwin-arm64.pkg"
         self.assertEqual(target.read_bytes(), b"verified fixture")
-        self.assertEqual(checked, ["xcrun", "xcrun", "pkgutil", "spctl"])
+        self.assertEqual(checked, ["xcrun", "pkgutil", "spctl"])
         self.assertEqual(target.with_suffix(".pkg.sha256").read_text(), self.release.dist.digest(target) + "  Recall-1.2.3-darwin-arm64.pkg\n")
 
     def test_signing_credentials_cleanup_on_build_failure(self):
@@ -270,18 +409,23 @@ class ReleaseTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 self.release.notarize(self.root / "input.pkg")
 
+    def workflow(self):
+        path = REPO / ".github/workflows/release.yml"
+        self.assertTrue(path.is_file(), "release workflow is missing")
+        return json.loads(subprocess.check_output(["ruby", "-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV[0]))", str(path)], text=True))
+
     def test_workflow_version_validation_can_import_packager(self):
-        workflow = REPO / ".github/workflows/release.yml"
-        self.assertTrue(workflow.is_file())
-        data = json.loads(subprocess.check_output(["ruby", "-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV[0]))", str(workflow)], text=True))
-        step = next(s for s in data["jobs"]["installer"]["steps"] if s.get("name") == "Validate version tag")
-        result = subprocess.run(step["run"], shell=True, cwd=REPO, env=dict(os.environ, RELEASE_TAG="v1.2.3"), capture_output=True, text=True)
-        self.assertEqual(result.returncode, 0, result.stderr)
+        jobs = self.workflow()["jobs"]
+        for name in ["runtime", "build", "sign"]:
+            with self.subTest(job=name):
+                step = next(s for s in jobs[name]["steps"] if s.get("name") == "Validate version tag")
+                result = subprocess.run(step["run"], shell=True, cwd=REPO, env=dict(os.environ, RELEASE_TAG="v1.2.3"), capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_clean_checkout_builds_frontend_before_desktop_go_tests(self):
         workflow = REPO / ".github/workflows/release.yml"
         data = json.loads(subprocess.check_output(["ruby", "-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV[0]))", str(workflow)], text=True))
-        step = next(s for s in data["jobs"]["installer"]["steps"] if s.get("name") == "Credential-free verification")
+        step = next(s for s in data["jobs"]["build"]["steps"] if s.get("name") == "Credential-free verification")
         checkout = self.root / "checkout"
         desktop = checkout / "desktop"
         desktop.mkdir(parents=True)
@@ -304,29 +448,41 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_workflow_only_exposes_apple_secrets_on_release_tags(self):
-        path = REPO / ".github/workflows/release.yml"
-        self.assertTrue(path.is_file(), "release workflow is missing")
-        workflow = json.loads(subprocess.check_output(["ruby", "-ryaml", "-rjson", "-e", "puts JSON.generate(YAML.load_file(ARGV[0]))", str(path)], text=True))
+        workflow = self.workflow()
         self.assertEqual(workflow["on"], {"push": {"tags": ["v*"]}})
         self.assertEqual(workflow["permissions"], {"contents": "read"})
-        build = workflow["jobs"]["installer"]
-        self.assertIn("refs/tags/v", build["if"])
-        self.assertEqual(build["permissions"], {"contents": "read"})
-        secret_steps = [step for step in build["steps"] if "secrets.APPLE_" in json.dumps(step)]
-        self.assertEqual(len(secret_steps), 1)
-        self.assertEqual(set(secret_steps[0]["env"].values()), {
-            "${{ secrets.APPLE_APPLICATION_CERTIFICATE_P12_BASE64 }}", "${{ secrets.APPLE_INSTALLER_CERTIFICATE_P12_BASE64 }}",
-            "${{ secrets.APPLE_APPLICATION_CERTIFICATE_PASSWORD }}", "${{ secrets.APPLE_INSTALLER_CERTIFICATE_PASSWORD }}",
-            "${{ secrets.APPLE_ID }}", "${{ secrets.APPLE_TEAM_ID }}", "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}",
-        })
-        publish = workflow["jobs"]["publish"]
-        self.assertEqual(publish["needs"], "installer")
-        self.assertEqual(publish["permissions"], {"contents": "write"})
-        self.assertNotIn("secrets.APPLE_", json.dumps(publish))
+        jobs = workflow["jobs"]
+        self.assertEqual(set(jobs), {"runtime", "build", "sign", "publish"})
+        self.assertIn("refs/tags/v", jobs["runtime"]["if"])
+        self.assertEqual(jobs["build"]["needs"], "runtime")
+        self.assertEqual(jobs["sign"]["needs"], ["runtime", "build"])
+        self.assertEqual(jobs["publish"]["needs"], "sign")
+        application = {"${{ secrets.APPLE_APPLICATION_CERTIFICATE_P12_BASE64 }}", "${{ secrets.APPLE_APPLICATION_CERTIFICATE_PASSWORD }}",
+                       "${{ secrets.APPLE_ID }}", "${{ secrets.APPLE_TEAM_ID }}", "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}"}
+        installer = {"${{ secrets.APPLE_INSTALLER_CERTIFICATE_P12_BASE64 }}", "${{ secrets.APPLE_INSTALLER_CERTIFICATE_PASSWORD }}"}
+        for name, expected in {"runtime": application, "sign": application | installer}.items():
+            with self.subTest(job=name):
+                job = jobs[name]
+                self.assertEqual(job["permissions"], {"contents": "read"})
+                self.assertEqual(job["environment"], "release")
+                secret_steps = [step for step in job["steps"] if "secrets.APPLE_" in json.dumps(step)]
+                self.assertEqual(len(secret_steps), 1)
+                self.assertEqual(set(secret_steps[0]["env"].values()), expected)
+                # Credential jobs install no toolchain and run no third-party build.
+                uses = [step.get("uses", "") for step in job["steps"]]
+                self.assertFalse([u for u in uses if "setup-go" in u or "setup-node" in u], uses)
+                commands = " ".join(step.get("run", "") for step in job["steps"])
+                for forbidden in ["go ", "npm", "build-desktop", "wails", "unittest"]:
+                    self.assertNotIn(forbidden, commands)
+        for name in ["build", "publish"]:
+            with self.subTest(job=name):
+                self.assertNotIn("secrets.APPLE_", json.dumps(jobs[name]))
+                self.assertNotIn("environment", jobs[name])
+        self.assertEqual(jobs["build"]["permissions"], {"contents": "read"})
+        self.assertEqual(jobs["publish"]["permissions"], {"contents": "write"})
         for other in (REPO / ".github/workflows").glob("*.y*ml"):
-            if other != path:
+            if other.name != "release.yml":
                 self.assertNotIn("secrets.APPLE_", other.read_text())
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -21,6 +21,7 @@ import (
 	"recall/internal/bootstrap"
 	"recall/internal/config"
 	"recall/internal/model"
+	"recall/internal/runtimetree"
 )
 
 func TestEmbeddingPrefixes(t *testing.T) {
@@ -477,5 +478,58 @@ func TestPinnedNativeSmoke(t *testing.T) {
 			}
 			t.Log("native TCP socket check: none")
 		}
+	}
+}
+
+func TestVerifyRuntimeTreeRejectsSubstitutedNativePayload(t *testing.T) {
+	root := t.TempDir()
+	payload := filepath.Join(root, "runtime", "b11669")
+	if err := os.MkdirAll(payload, 0700); err != nil {
+		t.Fatal(err)
+	}
+	server := filepath.Join(payload, "llama-server")
+	if err := os.WriteFile(server, []byte("pinned native"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	pinned, err := os.OpenRoot(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := runtimetree.Digest(t.Context(), pinned)
+	pinned.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyRuntimeTree(t.Context(), r, "runtime/b11669", want); err != nil {
+		t.Fatal(err)
+	}
+	for _, missing := range []string{"", "not-hex"} {
+		if err := verifyRuntimeTree(t.Context(), r, "runtime/b11669", missing); model.ErrorCode(err) != "asset_invalid" {
+			t.Fatalf("unpinned runtime accepted with %q: %v", missing, err)
+		}
+	}
+	// A collection-supplied executable with the right name and mode is not enough.
+	if err := os.WriteFile(server, []byte("substituted native"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyRuntimeTree(t.Context(), r, "runtime/b11669", want); model.ErrorCode(err) != "asset_invalid" {
+		t.Fatalf("substituted executable accepted: %v", err)
+	}
+	if err := os.WriteFile(server, []byte("pinned native"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(payload, "libinjected.dylib"), []byte("extra"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := verifyRuntimeTree(t.Context(), r, "runtime/b11669", want); model.ErrorCode(err) != "asset_invalid" {
+		t.Fatalf("injected library accepted: %v", err)
+	}
+	if err := verifyRuntimeTree(t.Context(), r, "runtime/missing", want); model.ErrorCode(err) != "runtime_unavailable" {
+		t.Fatalf("missing runtime: %v", err)
 	}
 }

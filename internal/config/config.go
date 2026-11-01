@@ -18,18 +18,20 @@ import (
 )
 
 type Config struct {
-	Root           string   `json:"root"`
-	Content        string   `json:"content"`
-	Database       string   `json:"database"`
-	RunDir         string   `json:"run_dir"`
-	ModelsDir      string   `json:"models_dir"`
-	RuntimeDir     string   `json:"runtime_dir"`
-	ModelID        string   `json:"model_id"`
-	ModelSHA256    string   `json:"model_sha256"`
-	ModelSignature string   `json:"model_signature"`
-	RuntimeID      string   `json:"runtime_id"`
-	Timezone       string   `json:"timezone"`
-	Editor         []string `json:"editor"`
+	Root           string `json:"root"`
+	Content        string `json:"content"`
+	Database       string `json:"database"`
+	RunDir         string `json:"run_dir"`
+	ModelsDir      string `json:"models_dir"`
+	RuntimeDir     string `json:"runtime_dir"`
+	ModelID        string `json:"model_id"`
+	ModelSHA256    string `json:"model_sha256"`
+	ModelSignature string `json:"model_signature"`
+	RuntimeID      string `json:"runtime_id"`
+	Timezone       string `json:"timezone"`
+	// IgnoredEditor is a legacy collection `editor` setting. It is reported,
+	// never executed; see UserEditor for the per-user editor setting.
+	IgnoredEditor []string `json:"-"`
 }
 
 // Resolve applies --root > absolute RECALL_HOME > $HOME/Documents/recall.
@@ -58,7 +60,7 @@ func Resolve(explicit string) (Config, error) {
 		return Config{}, err
 	}
 	cfg := layout(root)
-	cfg.Timezone, cfg.Editor = "Local", []string{"nvim"}
+	cfg.Timezone = "Local"
 	r, err := os.OpenRoot(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return cfg, nil
@@ -86,7 +88,14 @@ func Resolve(explicit string) (Config, error) {
 		return Config{}, invalid("config.json must be a regular file")
 	}
 	// Paths in the on-disk file are never trusted: derive them from the root.
-	var saved Config
+	var saved struct {
+		ModelID        string   `json:"model_id"`
+		ModelSHA256    string   `json:"model_sha256"`
+		ModelSignature string   `json:"model_signature"`
+		RuntimeID      string   `json:"runtime_id"`
+		Timezone       string   `json:"timezone"`
+		Editor         []string `json:"editor"`
+	}
 	decoder := json.NewDecoder(f)
 	if err := decoder.Decode(&saved); err != nil {
 		return Config{}, invalid("invalid config.json")
@@ -99,9 +108,7 @@ func Resolve(explicit string) (Config, error) {
 	if saved.Timezone != "" {
 		cfg.Timezone = saved.Timezone
 	}
-	if saved.Editor != nil {
-		cfg.Editor = saved.Editor
-	}
+	cfg.IgnoredEditor = saved.Editor
 	return cfg, validate(cfg)
 }
 
@@ -136,9 +143,6 @@ func prepare(cfg Config, replace bool) error {
 	}
 	if cfg.Timezone == "" {
 		cfg.Timezone = "Local"
-	}
-	if cfg.Editor == nil {
-		cfg.Editor = []string{"nvim"}
 	}
 	if err := validate(cfg); err != nil {
 		return err
@@ -192,15 +196,15 @@ func prepare(cfg Config, replace bool) error {
 	if !info.Mode().IsRegular() {
 		return invalid("index.sqlite must be a regular file")
 	}
-	// Only settings are persisted. Relocation cannot redirect content or locks.
+	// Only settings are persisted. Relocation cannot redirect content or locks,
+	// and no executable choice (such as an editor) is stored in a collection.
 	saved := struct {
-		ModelID        string   `json:"model_id"`
-		ModelSHA256    string   `json:"model_sha256"`
-		ModelSignature string   `json:"model_signature"`
-		RuntimeID      string   `json:"runtime_id"`
-		Timezone       string   `json:"timezone"`
-		Editor         []string `json:"editor"`
-	}{cfg.ModelID, cfg.ModelSHA256, cfg.ModelSignature, cfg.RuntimeID, cfg.Timezone, cfg.Editor}
+		ModelID        string `json:"model_id"`
+		ModelSHA256    string `json:"model_sha256"`
+		ModelSignature string `json:"model_signature"`
+		RuntimeID      string `json:"runtime_id"`
+		Timezone       string `json:"timezone"`
+	}{cfg.ModelID, cfg.ModelSHA256, cfg.ModelSignature, cfg.RuntimeID, cfg.Timezone}
 	raw, err := json.MarshalIndent(saved, "", "  ")
 	if err != nil {
 		return err
@@ -250,9 +254,6 @@ func layout(root string) Config {
 func validate(cfg Config) error {
 	if _, err := time.LoadLocation(cfg.Timezone); err != nil {
 		return invalid("invalid timezone")
-	}
-	if len(cfg.Editor) == 0 || cfg.Editor[0] == "" {
-		return invalid("editor must be a nonempty argv array")
 	}
 	return nil
 }

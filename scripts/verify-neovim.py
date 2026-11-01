@@ -91,7 +91,11 @@ def main():
         root.mkdir()
         for name in ["content", "models", "runtime", "run"]:
             (root / name).mkdir()
-        (root / "config.json").write_text(json.dumps({"timezone": "UTC", "editor": [NVIM, "--clean", "-u", "NONE", "-i", "NONE", "-n"]}))
+        (root / "config.json").write_text(json.dumps({"timezone": "UTC"}))
+        # The editor is a per-user setting (beneath the isolated HOME), never a collection setting.
+        settings = home / "Library/Application Support/recall/config.json"
+        settings.parent.mkdir(parents=True)
+        settings.write_text(json.dumps({"editor": [NVIM, "--clean", "-u", "NONE", "-i", "NONE", "-n"]}))
         env = {k:v for k,v in os.environ.items() if not k.startswith(("RECALL_", "NVIM_", "VIM", "XDG_"))}
         env.update(HOME=str(home), RECALL_HOME=str(root), TERM="xterm-256color", XDG_CONFIG_HOME=str(home / "config"), XDG_DATA_HOME=str(home / "data"), XDG_STATE_HOME=str(home / "state"))
 
