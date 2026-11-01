@@ -19,6 +19,8 @@ type Manifest struct {
 	License        string `json:"license"`
 	Size           int64  `json:"size"`
 	InstallationID string `json:"installation_id,omitempty"`
+	// TreeSHA256 pins the extracted runtime payload (runtimetree.Digest).
+	TreeSHA256 string `json:"tree_sha256,omitempty"`
 }
 
 func pinnedManifests() (modelManifest, runtimeManifest Manifest, err error) {
@@ -37,6 +39,9 @@ func pinnedManifests() (modelManifest, runtimeManifest Manifest, err error) {
 			return
 		}
 	}
+	if runtimeManifest.TreeSHA256 == "" {
+		err = invalidAsset("embedded runtime lock must pin its extracted payload digest")
+	}
 	return
 }
 
@@ -44,6 +49,11 @@ func validateManifest(m Manifest) error {
 	digest, err := hex.DecodeString(m.SHA256)
 	if err != nil || len(digest) != 32 || m.Size <= 0 || m.Size == int64(^uint64(0)>>1) {
 		return invalidAsset("asset requires a positive size and SHA-256 checksum")
+	}
+	if m.TreeSHA256 != "" {
+		if tree, err := hex.DecodeString(m.TreeSHA256); err != nil || len(tree) != 32 {
+			return invalidAsset("runtime payload digest must be a SHA-256 checksum")
+		}
 	}
 	if m.InstallationID != "" {
 		if _, err := assets.RuntimeInstallationDirectory(m.ID, m.SHA256, m.InstallationID); err != nil {

@@ -2,6 +2,8 @@ module recall
 
 go 1.27.0
 
+toolchain go1.27.3
+
 require (
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/modelcontextprotocol/go-sdk v1.8.0

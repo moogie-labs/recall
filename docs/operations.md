@@ -53,7 +53,10 @@ package together: bootstrap locates `assets/` relative to `bin/recall`, notably
 `RECALL_ASSETS_DIR` is an optional absolute developer/admin override.
 Weights are not in the release archive. Interrupted downloads are retryable;
 checksum failures are rejected. Do not edit pinned identities to accept
-unverified files. Metadata CRUD and keyword search remain usable when semantic
+unverified files. Before every inference-worker launch, Recall rehashes the model
+and the complete installed runtime payload (`llama-server`, dylibs and links)
+against digests compiled into the binary (`tree_sha256` in the runtime lock); a
+modified or collection-supplied runtime is refused, never executed. Metadata CRUD and keyword search remain usable when semantic
 assets fail. Retry `init` after fixing asset availability, not on every command.
 
 Inference launches lazily, with a collection singleton manager, guardian and
@@ -67,8 +70,12 @@ installation/launch agent. Do not kill a PID guessed from a stale pidfile;
 wait for owned fixture workers to idle, or cancel a manager you actually own.
 The guardian reaps its native child if the owning manager exits.
 
-`config.json` accepts an editor argv array, e.g.
-`["nvim","--clean","-u","NONE","-i","NONE","-n"]`. Recall appends the actual
+The editor is a **per-user** setting in
+`~/Library/Application Support/recall/config.json` (default `["nvim"]`), e.g.
+`{"editor": ["nvim","--clean","-u","NONE","-i","NONE","-n"]}`. A collection's own
+`config.json` never selects the editor: a shared, synced or cloned collection must
+not choose a program for Recall to run. A legacy `editor` key there is ignored,
+with a warning from `document edit` when it differs. Recall appends the actual
 source path as an argument, never interpolates a shell string. It releases
 source locks during editing and reconciles afterward, including saved changes
 on editor error. Neovim dirty-buffer external-change choices belong to Neovim;

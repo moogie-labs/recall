@@ -6,8 +6,12 @@ bundle model weights, initialize collections, or install a background service.
 
 ## Credentials
 
-Configure these GitHub Actions organization secrets and grant **this repository**
-access. Private-repository access also depends on the organization's GitHub plan.
+Store these as secrets of the repository's **`release` GitHub environment**, which
+both signing jobs reference. Protect that environment with a deployment rule
+restricting it to `v*` tags (and, if wanted, a required reviewer; each release
+then asks for approval twice, once per signing job). Environment secrets are only
+released to jobs that pass those rules. Organization or repository secrets also
+work but are available to any workflow, on any branch, that references them.
 
 | Secret | Value |
 | --- | --- |
@@ -36,33 +40,63 @@ password secret if it is revoked. No personal GitHub token is necessary.
 secrets. It triggers only on `v*` **tag pushes**, never branch pushes, pull requests,
 manual dispatches or reusable-workflow calls. A job guard additionally checks the
 event and tag prefix, and strict version validation runs before credential access.
-The secrets are mapped into just one signing step, not workflow/job-wide env.
+Secrets are mapped into one step per signing job, not workflow/job-wide env.
 
-Organization secrets themselves are repository-scoped, not event-scoped: this
-boundary is enforced by the workflow, not by an organization-secret event filter.
-Protect changes to release scripts/workflows and configure a GitHub tag ruleset
-restricting `v*` tag creation, updates and deletion to trusted release maintainers.
+The release runs as four jobs on separate, disposable runners:
+
+| Job | Apple secrets | Runs |
+| --- | --- | --- |
+| `runtime` | Application certificate, notarization | Signs and notarizes the pinned upstream llama.cpp runtime |
+| `build` | **none** | Tests, Go modules, npm packages, Wails: compiles the CLI and app against the signed runtime |
+| `sign` | Application + Installer certificates, notarization | Signs, notarizes and packages the built payload, then verifies it |
+| `publish` | none (`contents: write`) | Checks the checksum and publishes the GitHub release |
+
+**Third-party build code never runs where signing credentials exist.** The two
+signing jobs install no Go/Node toolchain. While their temporary keychain exists,
+`scripts/release-macos.py` refuses to execute anything except Apple's
+`security`, `codesign`, `xcrun`, `ditto`, `pkgbuild` and `productbuild`, so even a
+regression in the script cannot run a build tool, the built app or the upstream
+runtime with keys loaded. Built code is executed for verification only after the
+keychain is deleted. The `build` job refuses to start if any credential variable is
+present. A compromised dependency can therefore still affect what it builds (which
+is then signed and published by this run, visibly), but cannot use the Developer
+ID keys or notarization profile to sign anything else, or steal them.
+
+The `sign` job independently checks the handed-off payload: only regular files and
+directories with normal permissions, the expected app identity/version, the model
+pin from its own checkout, and runtime bytes identical to the `runtime` job's
+signed artifact.
+
+Configure a GitHub tag ruleset restricting `v*` tag creation, updates and deletion
+to trusted release maintainers, and protect changes to release scripts/workflows.
 Only tag reviewed commits. Anyone able to change release code and push an eligible
 tag can run code with the signing credentials. Normal CI must remain credential-free.
 
-The installer job has read-only repository permission. It runs tests and a
-production desktop build before importing credentials. Certificates and the
-notarization profile live in a temporary keychain; cleanup runs on failure too.
-The temporary keychain is added to the runner's user search list for certificate
-chain lookup, preserving all existing entries; the original list is restored on
-success or failure before deleting the temporary keychain. `codesign --keychain`
-alone does not make that keychain available for certificate-chain construction.
-Application signing selects the imported certificate's exact SHA-1 fingerprint
-(only as an identity selector, not an asset-integrity algorithm); installer signing
-uses its validated certificate common name as required by `productbuild`.
-Build subprocesses do not inherit certificate/password environment variables.
-An unconditional workflow cleanup also covers interrupted Python execution.
-GitHub-hosted runners are disposable; a force-terminated VM is discarded.
+Certificates and the notarization profile live in a temporary keychain; cleanup
+runs on failure too. The temporary keychain is added to the runner's user search
+list for certificate chain lookup, preserving all existing entries; the original
+list is restored on success or failure before deleting the temporary keychain.
+`codesign --keychain` alone does not make that keychain available for
+certificate-chain construction. Application signing selects the imported
+certificate's exact SHA-1 fingerprint (only as an identity selector, not an
+asset-integrity algorithm); installer signing uses its validated certificate common
+name as required by `productbuild`. Subprocesses do not inherit certificate/password
+environment variables. An unconditional workflow cleanup also covers interrupted
+Python execution. GitHub-hosted runners are disposable; a force-terminated VM is
+discarded.
+
+Release builds use the Go toolchain pinned by the `toolchain` line in both `go.mod`
+files; the `build` job fails if `go env GOVERSION` differs, so shipped binaries
+cannot silently use an older, unpatched Go release. Bump that line for Go security
+releases. Third-party notice files are pinned by SHA-256 like the runtime.
 
 The pipeline validates the upstream runtime archive pin, signs its Mach-O files,
 and notarizes that runtime in a supported ZIP container. Re-signing changes bytes:
-a new runtime archive checksum/size is generated in disposable source staging and
-embedded in **both** binaries; the repository's upstream pin remains unchanged.
+a new runtime archive checksum/size is generated by the `runtime` job; the `build`
+job adds the signed payload's `tree_sha256` (computed by Recall's own extraction
+code) and embeds that lock in **both** binaries. The repository's upstream pin
+remains unchanged. Before every inference-worker launch the binaries rehash the
+installed runtime payload against that digest.
 The release-local lock also selects `runtime/b11669-<archive-sha256>` inside the
 collection. `recall init` installs this immutable release-specific copy alongside
 any previous runtime; it does not overwrite/remove old copies or rewrite the
@@ -107,7 +141,7 @@ The published assets are:
 - `Recall-0.1.0-darwin-arm64.pkg.sha256`
 
 Watch **Actions → Release macOS installer**. The first authorized tag run is needed
-to prove organization-secret access, certificate validity and Apple notarization;
+to prove environment-secret access, certificate validity and Apple notarization;
 local credential-free tests cannot establish those facts. Signing errors fail
 closed. Password-bearing command arguments/output from credential-management tools
 remain withheld. `codesign` failures report whether signing or verification failed,

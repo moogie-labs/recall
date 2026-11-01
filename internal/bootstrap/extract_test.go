@@ -11,10 +11,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"recall/internal/config"
 	"recall/internal/model"
+	"recall/internal/runtimetree"
 )
 
 type tarEntry struct {
@@ -390,5 +392,49 @@ func TestRuntimeVerifiesBytesConsumedByExtraction(t *testing.T) {
 				t.Fatalf("extracted stream verification: %v", err)
 			}
 		})
+	}
+}
+
+func TestRuntimePayloadDigestPinsInstalledTree(t *testing.T) {
+	raw, manifest := runtimeArchive(t,
+		tarEntry{name: "llama-b11669", kind: tar.TypeDir},
+		tarEntry{name: "llama-b11669/llama-server", body: "native fixture"},
+		tarEntry{name: "llama-b11669/libggml.1.dylib", body: "sibling library"},
+		tarEntry{name: "llama-b11669/libggml.dylib", kind: tar.TypeSymlink, link: "libggml.1.dylib"},
+	)
+	archive := filepath.Join(t.TempDir(), manifest.Filename)
+	writeFile(t, archive, raw)
+	digest, err := RuntimeArchiveDigest(t.Context(), archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrong := manifest
+	wrong.TreeSHA256 = strings.Repeat("0", 64)
+	cfg := preparedConfig(t)
+	if err := installRuntime(t.Context(), cfg, archive, wrong); model.ErrorCode(err) != "asset_invalid" {
+		t.Fatalf("mismatched payload digest accepted: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(cfg.RuntimeDir, "b11669")); !os.IsNotExist(err) {
+		t.Fatal("rejected payload was published", err)
+	}
+	manifest.TreeSHA256 = digest
+	if err := installRuntime(t.Context(), cfg, archive, manifest); err != nil {
+		t.Fatal(err)
+	}
+	installed, err := os.OpenRoot(filepath.Join(cfg.RuntimeDir, "b11669"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer installed.Close()
+	if got, err := runtimetree.Digest(t.Context(), installed); err != nil || got != digest {
+		t.Fatalf("installed tree %q differs from archive digest %q: %v", got, digest, err)
+	}
+}
+
+func TestPinnedManifestsRequireRuntimePayloadDigest(t *testing.T) {
+	m := fixtureManifest([]byte("fixture"))
+	m.TreeSHA256 = "not-a-digest"
+	if err := validateManifest(m); model.ErrorCode(err) != "asset_invalid" {
+		t.Fatalf("malformed payload digest accepted: %v", err)
 	}
 }

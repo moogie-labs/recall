@@ -23,6 +23,7 @@ import (
 	"recall/assets"
 	"recall/internal/config"
 	"recall/internal/model"
+	"recall/internal/runtimetree"
 )
 
 const guardianEnv = "RECALL_EMBEDDING_GUARD"
@@ -465,6 +466,7 @@ func verifyAssets(ctx context.Context, cfg config.Config) error {
 		SHA256   string `json:"sha256"`
 		Filename string `json:"filename"`
 		Size     int64  `json:"size"`
+		Tree     string `json:"tree_sha256"`
 	}
 	if json.Unmarshal([]byte(assets.ModelLock()), &m) != nil || json.Unmarshal([]byte(assets.RuntimeLock()), &rt) != nil {
 		return assetInvalid("invalid embedded asset identities")
@@ -517,6 +519,32 @@ func verifyAssets(ctx context.Context, cfg config.Config) error {
 	s, err = r.Lstat("runtime/" + directory + "/llama-server")
 	if err != nil || !s.Mode().IsRegular() || s.Mode().Perm()&0111 == 0 {
 		return unavailable("verified native executable is unavailable")
+	}
+	return verifyRuntimeTree(ctx, r, "runtime/"+directory, rt.Tree)
+}
+
+// verifyRuntimeTree rehashes the complete native payload (executable, sibling
+// dylibs and links) against the compiled-in pin before every launch. The
+// collection directory is not a trust anchor: it may be shared, synced or
+// cloned, and its runtime must not be able to supply code for Recall to run.
+func verifyRuntimeTree(ctx context.Context, r *os.Root, directory, want string) error {
+	if digest, err := hex.DecodeString(want); err != nil || len(digest) != sha256.Size {
+		return assetInvalid("embedded runtime lock does not pin its payload digest")
+	}
+	installed, err := r.OpenRoot(directory)
+	if err != nil {
+		return unavailable("verified native runtime is unavailable")
+	}
+	defer installed.Close()
+	got, err := runtimetree.Digest(ctx, installed)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		return assetInvalid("native runtime payload cannot be verified")
+	}
+	if got != want {
+		return assetInvalid("native runtime payload differs from pinned identity")
 	}
 	return nil
 }

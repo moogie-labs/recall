@@ -18,6 +18,24 @@ MODEL = json.loads((REPO / "assets/model.lock.json").read_text())
 ARCHIVE = REPO / "build/recall-darwin-arm64.tar.gz"
 DOCS = ["README.md", "docs/cli.md", "docs/agents.md", "docs/operations.md", "docs/verification.md"]
 COMMIT = "620d2225cc436ab0b001e3200e590e3b286ef9ab"  # llama.cpp b11669
+# Notices are shipped inside the signed installer, so their bytes are pinned like
+# any other release input rather than trusted from whatever a server returns.
+NOTICE_SHA256 = {
+    "LICENSE": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d",
+    "licenses/LICENSE-jsonhpp": "c0d068392ea65358b798b8c165103560f06e9e3b38c4ab4e2d8810a7b931af86",
+    "vendor/cpp-httplib/LICENSE": "4b45cbe16d7b71b89ae6127e26e0d90a029198ca5e958ad8e3d0b8bbed364d8b",
+    "vendor/hash/rotate-bits/LICENSE.md": "ca0b44aec101afb6b46f4c39b23369fa06a64fb9c0add37c2689d702156fee55",
+    "vendor/hash/sha256/LICENSE": "b81d0022ca6367918c67b57e9647d3513ee58809fd4b0ef0b3492f1356bced25",
+    "vendor/hash/xxhash/LICENSE": "6ffedbc0f7878612d2b23589f1ff2ab15633e1df7963a5d9fc750ec5500c7e7a",
+    "vendor/hash/sha1/sha1.c": "6de78afb7c2e54ccbd742c0307015db4dceaa64d85533709f99de05074d639e4",
+    "vendor/miniaudio/miniaudio.h": "ac7af4de748b7e26b777f37e01cee313a308a7296a3eb080e2906b320cc55c89",
+    "vendor/sheredom/subprocess.h": "ddec448cb93c2a5096f914a5b796f707dcf0a9e91591ca13000d210200160cb1",
+    "vendor/stb/stb_image.h": "594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3",
+    "ggml/src/ggml-cpu/llamafile/sgemm.cpp": "8413c9a0828ddea7289aee72a32c03bd56a23ee40179ec3600f9b0589a21e338",
+}
+APACHE = ("https://www.apache.org/licenses/LICENSE-2.0.txt", "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30")
+BORINGSSL = ("https://raw.githubusercontent.com/google/boringssl/0.20260929.0/LICENSE", "827c8d8fc207c2392794eef9e00fe246f9f61fdcc132556c275be3dd8c3cd97f")
+FIAT = ("https://raw.githubusercontent.com/google/boringssl/427ec40cc8edc545253289232e885708c409e5ea/third_party/fiat/LICENSE", "9eacbcb81be660840c714a560a9d65ba07913db98dd4baf969f78dd499fdd60f")
 
 
 def require(ok, message):
@@ -89,6 +107,25 @@ def extract(tf, dest, prefix, runtime=False):
             (dest / name).symlink_to(m.linkname)
 
 
+def fetch_pinned(url, path, sha256):
+    """Fetch (or reuse a cached copy) and require exact bytes; a stale or
+    tampered cache entry is replaced once, then any mismatch fails closed."""
+    if path.exists() and not (path.is_file() and not path.is_symlink() and digest(path) == sha256):
+        path.unlink()
+    fetch(url, path)
+    if not (path.is_file() and not path.is_symlink() and digest(path) == sha256):
+        path.unlink(missing_ok=True)  # Never leave unverified bytes in the cache.
+        raise ValueError("pinned download checksum mismatch: " + url)
+    return path
+
+
+def runtime_tree_digest(archive, cwd=REPO):
+    """Payload digest computed by Recall's own extraction (internal/runtimetree)."""
+    output = subprocess.check_output(["go", "run", "./internal/tools/runtimedigest", str(archive)], cwd=cwd, text=True).strip()
+    require(len(output) == 64 and all(c in "0123456789abcdef" for c in output), "invalid runtime payload digest")
+    return output
+
+
 def fetch(url, path):
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
@@ -111,18 +148,19 @@ def notices(dest):
               "vendor/hash/xxhash/LICENSE", "vendor/hash/sha1/sha1.c",
               "vendor/miniaudio/miniaudio.h", "vendor/sheredom/subprocess.h", "vendor/stb/stb_image.h",
               "ggml/src/ggml-cpu/llamafile/sgemm.cpp"]
+    require(sorted(native) == sorted(NOTICE_SHA256), "every native notice must be pinned")
     for name in native:
-        source = fetch(f"https://raw.githubusercontent.com/ggml-org/llama.cpp/{COMMIT}/{name}", CACHE / "notices/llama" / name)
+        source = fetch_pinned(f"https://raw.githubusercontent.com/ggml-org/llama.cpp/{COMMIT}/{name}", CACHE / "notices/llama" / name, NOTICE_SHA256[name])
         target = dest / "llama.cpp" / name
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target)
-    apache = fetch("https://www.apache.org/licenses/LICENSE-2.0.txt", CACHE / "notices/Apache-2.0.txt")
+    apache = fetch_pinned(APACHE[0], CACHE / "notices/Apache-2.0.txt", APACHE[1])
     shutil.copyfile(apache, dest / "nomic-Apache-2.0.txt")
     # The upstream macOS payload statically links BoringSSL (confirmed by nm,
     # not visible in otool -L). Version comes from pinned cpp-httplib CMake.
-    boring = fetch("https://raw.githubusercontent.com/google/boringssl/0.20260929.0/LICENSE", CACHE / "notices/BoringSSL-0.20260929.0-LICENSE")
+    boring = fetch_pinned(BORINGSSL[0], CACHE / "notices/BoringSSL-0.20260929.0-LICENSE", BORINGSSL[1])
     shutil.copyfile(boring, dest / "BoringSSL-0.20260929.0-LICENSE")
-    fiat = fetch("https://raw.githubusercontent.com/google/boringssl/427ec40cc8edc545253289232e885708c409e5ea/third_party/fiat/LICENSE", CACHE / "notices/BoringSSL-fiat-LICENSE")
+    fiat = fetch_pinned(FIAT[0], CACHE / "notices/BoringSSL-fiat-LICENSE", FIAT[1])
     shutil.copyfile(fiat, dest / "BoringSSL-fiat-LICENSE")
     # Collect the actual linked Go module graph, not licenses for Recall itself.
     raw = subprocess.check_output(["go", "list", "-deps", "-json", "./cmd/recall"], cwd=REPO).decode()
@@ -172,6 +210,8 @@ def package():
     pinned(runtime, RUNTIME)
     with tarfile.open(runtime) as tf:
         inspect(tf, "llama-b11669", True)
+    # The binary refuses to launch any runtime whose payload differs from this pin.
+    require(runtime_tree_digest(runtime) == RUNTIME.get("tree_sha256"), "runtime lock tree_sha256 does not match the pinned archive")
     ARCHIVE.parent.mkdir(exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="recall-package-", dir=ARCHIVE.parent) as tmp:
         root = Path(tmp) / "recall-darwin-arm64"

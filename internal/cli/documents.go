@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"slices"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"recall/internal/app"
+	"recall/internal/config"
 	"recall/internal/editor"
 	"recall/internal/model"
 )
@@ -172,7 +174,17 @@ func (i *invocation) edit(a *app.App, ref model.Ref) (any, error) {
 	if err != nil {
 		return nil, err
 	}
-	command, err := editor.Command(cfg.Editor, path)
+	argv, err := config.UserEditor()
+	if err != nil {
+		return nil, err
+	}
+	// Older releases wrote the default editor into every collection; only a
+	// customized legacy value is worth reporting.
+	if cfg.IgnoredEditor != nil && !slices.Equal(cfg.IgnoredEditor, argv) && !slices.Equal(cfg.IgnoredEditor, config.DefaultEditor) {
+		settings, _ := config.UserSettingsPath()
+		fmt.Fprintf(i.stderr, "recall: ignoring editor in the collection's config.json; set it in %s\n", terminalText(settings, false))
+	}
+	command, err := editor.Command(argv, path)
 	if err != nil {
 		return nil, err
 	}

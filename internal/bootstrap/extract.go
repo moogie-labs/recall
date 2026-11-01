@@ -19,6 +19,7 @@ import (
 	"recall/assets"
 	"recall/internal/config"
 	"recall/internal/model"
+	"recall/internal/runtimetree"
 )
 
 const archivePrefix = "llama-b11669/"
@@ -101,6 +102,17 @@ func installRuntime(ctx context.Context, cfg config.Config, archivePath string, 
 	if info.Mode()&0111 == 0 {
 		return invalidAsset("llama-server is not executable")
 	}
+	if m.TreeSHA256 != "" {
+		// The launch-time check compares against this same pinned digest, so
+		// only the exact payload installed here can ever be executed.
+		digest, err := runtimetree.Digest(ctx, staging)
+		if err != nil {
+			return err
+		}
+		if digest != m.TreeSHA256 {
+			return invalidAsset("extracted runtime differs from pinned payload digest")
+		}
+	}
 	if info, err := r.Lstat(directory); err == nil {
 		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			return invalidAsset("installed runtime must be a real directory")
@@ -110,11 +122,11 @@ func installRuntime(ctx context.Context, cfg config.Config, archivePath string, 
 			return err
 		}
 		defer installed.Close()
-		want, err := runtimeTree(ctx, staging)
+		want, err := runtimetree.Entries(ctx, staging)
 		if err != nil {
 			return err
 		}
-		got, err := runtimeTree(ctx, installed)
+		got, err := runtimetree.Entries(ctx, installed)
 		if err != nil {
 			return err
 		}
@@ -288,43 +300,34 @@ func archiveName(name string) (string, error) {
 	return name, nil
 }
 
-func runtimeTree(ctx context.Context, r *os.Root) (map[string]string, error) {
-	tree := make(map[string]string)
-	err := fs.WalkDir(r.FS(), ".", func(name string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			tree[name] = "directory"
-			return nil
-		}
-		if entry.Type()&os.ModeSymlink != 0 {
-			target, err := r.Readlink(name)
-			tree[name] = "link:" + target
-			return err
-		}
-		f, err := openRegular(r, name)
-		if err != nil {
-			return err
-		}
-		info, statErr := f.Stat()
-		hash := sha256.New()
-		_, readErr := io.Copy(hash, &progressReader{ctx: ctx, r: f})
-		if err := errors.Join(statErr, readErr, f.Close()); err != nil {
-			return err
-		}
-		tree[name] = fmt.Sprintf("%o:%x", info.Mode().Perm(), hash.Sum(nil))
-		return nil
-	})
-	return tree, err
-}
-
 func supportedPlatform(platform string) error {
 	if platform != "darwin-arm64" {
 		return &model.Error{Code: "unsupported_platform", Message: "bundled inference requires darwin/arm64; metadata operations remain available"}
 	}
 	return nil
+}
+
+// RuntimeArchiveDigest extracts a runtime archive into a private temporary
+// directory exactly as installation would and returns its payload digest.
+// Release tooling uses it to pin the tree that launch-time checks require.
+func RuntimeArchiveDigest(ctx context.Context, archivePath string) (string, error) {
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	dir, err := os.MkdirTemp("", "recall-runtime-digest-")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(dir)
+	r, err := os.OpenRoot(dir)
+	if err != nil {
+		return "", err
+	}
+	defer r.Close()
+	if err := extractRuntime(ctx, f, r); err != nil {
+		return "", err
+	}
+	return runtimetree.Digest(ctx, r)
 }

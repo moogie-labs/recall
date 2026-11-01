@@ -35,6 +35,7 @@ func TestPinnedManifestsUseImmutableReleaseIdentities(t *testing.T) {
 		ID: "b11669", URL: "https://github.com/ggml-org/llama.cpp/releases/download/b11669/llama-b11669-bin-macos-arm64.tar.gz",
 		SHA256:   "dbed55493d72bc1ba2babc8770d669c2289b5bc4ee9fb2a4dfc158d45b7d13fd",
 		Filename: "llama-b11669-bin-macos-arm64.tar.gz", Size: 12191582, License: "MIT",
+		TreeSHA256: "cbc1ef5ce60bb54e040a871ae758dfdcc9d92c6a40c345e92372772152a79628",
 	}
 	if m != wantModel || rt != wantRuntime {
 		t.Fatalf("embedded release locks differ: model=%+v runtime=%+v", m, rt)

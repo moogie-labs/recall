@@ -80,7 +80,7 @@ func TestPrepareIfAbsentCreatesSelectedIdentities(t *testing.T) {
 
 func TestPrepareIfAbsentCompetingNewRoots(t *testing.T) {
 	for range 8 {
-		cfg := Config{Root: filepath.Join(t.TempDir(), "new-collection"), Editor: []string{"nvim"}, Timezone: "Local"}
+		cfg := Config{Root: filepath.Join(t.TempDir(), "new-collection"), Timezone: "Local"}
 		start := make(chan struct{})
 		errs := make(chan error, 16)
 		var wg sync.WaitGroup
@@ -141,7 +141,7 @@ func TestPrepareIfAbsentReloadsWinnerAndPreservesUnknownBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := PrepareIfAbsent(stale)
-	if err != nil || got.ModelID != "winning-model" || got.RuntimeID != "winning-runtime" || got.Timezone != "America/New_York" || !reflect.DeepEqual(got.Editor, []string{"user-editor", "--keep"}) {
+	if err != nil || got.ModelID != "winning-model" || got.RuntimeID != "winning-runtime" || got.Timezone != "America/New_York" || !reflect.DeepEqual(got.IgnoredEditor, []string{"user-editor", "--keep"}) {
 		t.Fatalf("winner not reloaded: %+v %v", got, err)
 	}
 	for path, want := range map[string][]byte{configPath: winner, filepath.Join(stale.Content, "user.note.md"): []byte("existing user bytes"), stale.Database: []byte("existing user bytes")} {
@@ -185,7 +185,7 @@ func TestPrepareStillReplacesSavedPreferences(t *testing.T) {
 	if err := Prepare(cfg); err != nil {
 		t.Fatal(err)
 	}
-	cfg.Editor, cfg.Timezone = []string{"replacement-editor"}, "America/New_York"
+	cfg.Timezone = "America/New_York"
 	if err := Prepare(cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -224,11 +224,11 @@ func TestPreparePersistsConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Timezone != "Local" || !reflect.DeepEqual(cfg.Editor, []string{"nvim"}) {
+	if cfg.Timezone != "Local" || cfg.IgnoredEditor != nil {
 		t.Fatalf("defaults: %+v", cfg)
 	}
 	cfg.ModelID, cfg.ModelSHA256, cfg.ModelSignature = "model-id", "model-sha256", "model-signature"
-	cfg.RuntimeID, cfg.Timezone, cfg.Editor = "runtime-id", "America/New_York", []string{"nvim", "--clean"}
+	cfg.RuntimeID, cfg.Timezone = "runtime-id", "America/New_York"
 	if err := Prepare(cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -254,6 +254,9 @@ func TestPreparePersistsConfiguration(t *testing.T) {
 	}
 	if disk["model_id"] != "model-id" || disk["runtime_id"] != "runtime-id" {
 		t.Fatalf("identities not persisted: %s", raw)
+	}
+	if _, ok := disk["editor"]; ok {
+		t.Fatalf("collections must not store an executable editor choice: %s", raw)
 	}
 	got, err := Resolve(root)
 	if err != nil {
@@ -330,7 +333,7 @@ func TestResolveCanonicalizesRootWithoutShellExpansion(t *testing.T) {
 }
 
 func TestResolveRejectsMalformedConfiguration(t *testing.T) {
-	for _, raw := range []string{`not json`, `{"editor":[]}`, `{"timezone":"Not/A_Zone"}`, `{"timezone":"Local"} trailing garbage`, `{"timezone":"Local"} {}`} {
+	for _, raw := range []string{`not json`, `{"timezone":"Not/A_Zone"}`, `{"timezone":"Local"} trailing garbage`, `{"timezone":"Local"} {}`} {
 		t.Run(raw, func(t *testing.T) {
 			root := t.TempDir()
 			if err := os.WriteFile(filepath.Join(root, "config.json"), []byte(raw), 0600); err != nil {
@@ -340,5 +343,68 @@ func TestResolveRejectsMalformedConfiguration(t *testing.T) {
 				t.Fatalf("malformed configuration: %v", err)
 			}
 		})
+	}
+}
+
+func TestCollectionEditorIsReportedButNeverSelected(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte(`{"timezone":"UTC","editor":["/tmp/attacker-tool","--payload"]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Resolve(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cfg.IgnoredEditor, []string{"/tmp/attacker-tool", "--payload"}) {
+		t.Fatalf("legacy collection editor not reported: %+v", cfg)
+	}
+	editor, err := UserEditor()
+	if err != nil || !reflect.DeepEqual(editor, DefaultEditor) {
+		t.Fatalf("collection editor selected a program: %q %v", editor, err)
+	}
+}
+
+func TestUserEditorReadsOnlyPerUserSettings(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	path, err := UserSettingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := filepath.Join(home, "Library", "Application Support", "recall", "config.json"); path != want {
+		t.Fatalf("settings path %q, want %q", path, want)
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for raw, want := range map[string][]string{`{"editor":["code","--wait"]}`: {"code", "--wait"}, `{}`: DefaultEditor, `{"editor":null,"other":1}`: DefaultEditor} {
+		if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if got, err := UserEditor(); err != nil || !reflect.DeepEqual(got, want) {
+			t.Fatalf("%s: %q %v", raw, got, err)
+		}
+	}
+	for _, raw := range []string{`{"editor":[]}`, `{"editor":[""]}`, `not json`, `{} {}`} {
+		if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := UserEditor(); model.ErrorCode(err) != "invalid_argument" {
+			t.Fatalf("%s accepted: %v", raw, err)
+		}
+	}
+	target := filepath.Join(home, "elsewhere.json")
+	if err := os.WriteFile(target, []byte(`{"editor":["linked"]}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := UserEditor(); model.ErrorCode(err) != "invalid_argument" {
+		t.Fatalf("symlinked settings accepted: %v", err)
 	}
 }
