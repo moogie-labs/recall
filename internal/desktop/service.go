@@ -43,6 +43,8 @@ type Service struct {
 	sinkMu      sync.RWMutex
 	sink        func(string, any)
 	workers     sync.WaitGroup
+	setup       *Setup
+	setupState  setupState
 }
 
 func NewService(open func(context.Context, config.Config) (Application, error), preferences Preferences) *Service {
@@ -76,12 +78,24 @@ func (s *Service) OpenCollection(root string) CollectionReply {
 			return CollectionReply{Problem: problem(err)}
 		}
 	}
+	// Only the default collection is ever created automatically: a chosen,
+	// remembered or --root collection that is missing is reported instead.
+	fromDefault := root == ""
 	cfg, err := config.Resolve(root)
 	if err != nil {
 		return CollectionReply{Problem: problem(err)}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	a, err := s.open(ctx, cfg)
+	if err != nil && fromDefault && s.setup != nil && s.setup.Prepare != nil && model.ErrorCode(err) == "not_initialized" {
+		prepared, p := s.createDefault(ctx, cfg)
+		if p != nil {
+			cancel()
+			return CollectionReply{Root: cfg.Root, Problem: p}
+		}
+		cfg = prepared
+		a, err = s.open(ctx, cfg)
+	}
 	if err != nil {
 		cancel()
 		return CollectionReply{Root: cfg.Root, Problem: problem(err)}
@@ -107,6 +121,7 @@ func (s *Service) OpenCollection(root string) CollectionReply {
 	s.cancel = cancel
 	s.mu.Unlock()
 	s.startWorkers(ctx, a, cfg, s.session)
+	s.startSetup(ctx, cfg, s.session)
 	return CollectionReply{Session: s.session, Root: cfg.Root}
 }
 func (s *Service) Close() error {

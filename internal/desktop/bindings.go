@@ -15,3 +15,5 @@ func (a *API) Create(input CreateInput) CreateReply       { return a.service.Cre
 func (a *API) Delete(input DeleteInput) OperationReply    { return a.service.Delete(input) }
 func (a *API) Search(input SearchInput) SearchReply       { return a.service.Search(input) }
 func (a *API) Refresh(session string) TreeReply           { return a.service.Refresh(session) }
+func (a *API) SetupStatus(session string) SetupStatus     { return a.service.SetupStatus(session) }
+func (a *API) RetrySetup(session string) OperationReply   { return a.service.RetrySetup(session) }

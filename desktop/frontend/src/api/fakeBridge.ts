@@ -134,6 +134,14 @@ export function fakeBridge(
         .map((d) => ({ ...d, snippet: d.body.slice(0, 150) })),
       problem: null,
     }),
+    setupStatus: async (session) => ({
+      session,
+      state: "ready",
+      done: 0,
+      total: 0,
+      problem: null,
+    }),
+    retrySetup: async () => ({ problem: null }),
     refresh: async (session) => ({
       tree: {
         session,

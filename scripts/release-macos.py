@@ -419,6 +419,9 @@ def check_payload(staged, release, runtime_lock, runtime_archive):
     dist.require(re.fullmatch(r"[0-9a-f]{64}", str(lock.get("tree_sha256", ""))), "release payload runtime lock lacks its payload digest")
     dist.require({k: v for k, v in lock.items() if k != "tree_sha256"} == runtime_lock, "release payload runtime lock differs from the signed runtime")
     dist.require(dist.digest(assets / archive) == dist.digest(runtime_archive), "release payload runtime differs from the signed runtime")
+    bundled = app / "Contents/Resources/assets"
+    bundled_files = {p.relative_to(bundled).as_posix() for p in bundled.rglob("*") if not p.is_dir()} if bundled.is_dir() else set()
+    dist.require(bundled_files == files and all((bundled / f).read_bytes() == (assets / f).read_bytes() for f in files), "desktop app assets differ from the release assets")
 
 
 def sign_and_notarize(work, staged, release, keychain, identities, verify):
@@ -523,6 +526,11 @@ def build_stage(tag, runtime_dir, archive):
         env = dict(os.environ, RECALL_DESKTOP_OUTPUT=str(staged / "Recall.app"))
         run(["sh", "scripts/build-desktop.sh"], cwd=source, env=env)
         set_bundle_version(staged / "Recall.app", release)
+        # The desktop app installs its own runtime on first launch, so it
+        # carries the same pinned assets as the CLI (sealed by its signature).
+        bundled = staged / "Recall.app/Contents/Resources/assets"
+        dist.require(not bundled.exists(), "desktop build unexpectedly bundled assets")
+        shutil.copytree(assets, bundled)
         run([sys.executable, "scripts/verify-desktop.py", staged / "Recall.app"], cwd=source)
         run([cli, "--help"])
         notices = staged / "notices"

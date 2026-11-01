@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/wailsapp/wails/v2"
@@ -14,6 +15,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"recall/internal/app"
+	"recall/internal/bootstrap"
 	"recall/internal/cli"
 	"recall/internal/config"
 	dto "recall/internal/desktop"
@@ -39,6 +41,7 @@ func main() {
 	}
 	service := dto.NewService(func(ctx context.Context, cfg config.Config) (dto.Application, error) { return app.Open(ctx, cfg) }, preferences)
 	service.SetInitialRoot(*root)
+	service.SetSetup(automaticSetup())
 	defer service.Close()
 	host := newHost(func(name string, payload any) { runtime.EventsEmit(appctx, name, payload) }, func() { runtime.Quit(appctx) }, func(url string) { runtime.BrowserOpenURL(appctx, url) })
 	host.close = service.Close
@@ -58,4 +61,44 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+// automaticSetup lets first launch create ~/Documents/recall and install the
+// pinned runtime (bundled in Contents/Resources/assets) plus the model in the
+// background. Asset bytes are verified against pins compiled into this binary.
+func automaticSetup() *dto.Setup {
+	setup := &dto.Setup{
+		Prepare: bootstrap.PrepareMetadata,
+		Ready:   bootstrap.AssetsPresent,
+		Install: func(ctx context.Context, cfg config.Config, progress func(int64, int64)) error {
+			dir, err := bundledAssets()
+			if err != nil {
+				return err
+			}
+			_, err = bootstrap.Initialize(ctx, cfg, dir, progress)
+			return err
+		},
+	}
+	if home, err := os.UserHomeDir(); err == nil && filepath.IsAbs(home) {
+		setup.Legacy = filepath.Join(home, ".local", "share", "recall")
+	}
+	return setup
+}
+
+func bundledAssets() (string, error) {
+	if dir := os.Getenv("RECALL_ASSETS_DIR"); dir != "" {
+		if !filepath.IsAbs(dir) {
+			return "", fmt.Errorf("RECALL_ASSETS_DIR must be absolute")
+		}
+		return dir, nil
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	if executable, err = filepath.EvalSymlinks(executable); err != nil {
+		return "", err
+	}
+	// Recall.app/Contents/MacOS/Recall -> Recall.app/Contents/Resources/assets
+	return filepath.Join(filepath.Dir(filepath.Dir(executable)), "Resources", "assets"), nil
 }

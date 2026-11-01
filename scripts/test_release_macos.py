@@ -218,6 +218,7 @@ class ReleaseTests(unittest.TestCase):
         (assets / "model.lock.json").write_bytes((REPO / "assets/model.lock.json").read_bytes())
         (staged / "notices").mkdir()
         (staged / "notices/README.txt").write_text("notices")
+        shutil.copytree(assets, staged / "Recall.app/Contents/Resources/assets")
         return staged, runtime_lock, archive
 
     def test_sign_stage_runs_only_apple_tools_while_credentials_are_loaded(self):
@@ -295,6 +296,12 @@ class ReleaseTests(unittest.TestCase):
         self.release.check_payload(received, "1.2.3", runtime_lock, archive)
         with self.assertRaisesRegex(ValueError, "version"):
             self.release.check_payload(received, "1.2.4", runtime_lock, archive)
+        bundled = received / "Recall.app/Contents/Resources/assets/runtime/darwin-arm64/llama.tar.gz"
+        original = bundled.read_bytes()
+        bundled.write_bytes(b"swapped desktop runtime")
+        with self.assertRaisesRegex(ValueError, "desktop app assets"):
+            self.release.check_payload(received, "1.2.3", runtime_lock, archive)
+        bundled.write_bytes(original)
         (received / "assets/runtime/darwin-arm64/llama.tar.gz").write_bytes(b"swapped runtime fixture")
         with self.assertRaisesRegex(ValueError, "runtime"):
             self.release.check_payload(received, "1.2.3", runtime_lock, archive)

@@ -5,6 +5,7 @@ import type {
   TreeEntry,
   TreeSnapshot,
   DeleteInput,
+  SetupStatus as SetupState,
 } from "./api/types";
 import { SaveCoordinator } from "./saving/coordinator";
 import { Workspace } from "./navigation/workspace";
@@ -14,6 +15,7 @@ import { registerShutdown } from "./shutdown";
 import { Tree, parentPath } from "./tree/Tree";
 import { CreateDialog } from "./tree/CreateDialog";
 import { DeleteDialog } from "./tree/DeleteDialog";
+import { SetupStatus } from "./setup/SetupStatus";
 export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
   const coordinator = useMemo(() => new SaveCoordinator(api), [api]),
     workspace = useMemo(
@@ -31,7 +33,17 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
       entry: TreeEntry;
       input: DeleteInput;
     } | null>(null),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [setup, setSetup] = useState<SetupState | null>(null);
+  // Events can arrive before the frontend knows its session, so also read the
+  // current status whenever a collection session starts.
+  const loadSetup = (session: string) =>
+    api
+      .setupStatus(session)
+      .then((status) => {
+        if (session === workspace.snapshot().session) setSetup(status);
+      })
+      .catch(() => {});
   const refresh = async (session = workspace.snapshot().session) => {
     const r = await api.tree(session);
     if (session !== workspace.snapshot().session) return;
@@ -53,6 +65,9 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
       warn = host.on("desktop:collection-warning", ({ session, problem }) => {
         if (session === workspace.snapshot().session && problem)
           setError(problem.message);
+      }),
+      progress = host.on("desktop:setup", (status: SetupState) => {
+        if (status.session === workspace.snapshot().session) setSetup(status);
       });
     const focus = () => {
       const session = workspace.snapshot().session;
@@ -74,6 +89,7 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
     return () => {
       off();
       warn();
+      progress();
       window.removeEventListener("focus", focus);
     };
   }, [api, host, workspace]);
@@ -86,6 +102,8 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
       workspace.setCollection(r.session);
       setExpanded(new Set());
       setError("");
+      setSetup(null);
+      void loadSetup(r.session);
       await refresh(r.session);
     });
   }
@@ -98,7 +116,8 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
         if (r.problem) {
           setError(
             r.problem.message +
-              (r.problem.code === "not_initialized"
+              (r.problem.code === "not_initialized" &&
+              !r.problem.message.includes("Collection…")
                 ? ' — Run recall --root "' +
                   r.root +
                   '" init, then reopen the app.'
@@ -107,6 +126,7 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
           return;
         }
         workspace.setCollection(r.session);
+        void loadSetup(r.session);
         await refresh(r.session);
       })
       .catch((e) => {
@@ -329,6 +349,19 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
                 {p.path}: {p.message}
               </div>
             ))}
+            <SetupStatus
+              status={setup}
+              onRetry={() => {
+                const session = workspace.snapshot().session;
+                void api
+                  .retrySetup(session)
+                  .then((r) => {
+                    if (r.problem) setError(r.problem.message);
+                    else return loadSetup(session);
+                  })
+                  .catch((e) => setError(e.message));
+              }}
+            />
             <p className="tree-note">Plain Markdown. Yours to keep.</p>
           </div>
         </aside>

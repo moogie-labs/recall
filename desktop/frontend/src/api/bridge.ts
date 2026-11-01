@@ -14,6 +14,8 @@ export const api: DesktopAPI = {
   delete: (input) => backend().Delete(input),
   search: (input) => backend().Search(input),
   refresh: (session) => backend().Refresh(session),
+  setupStatus: (session) => backend().SetupStatus(session),
+  retrySetup: (session) => backend().RetrySetup(session),
 };
 export const hostAPI: HostAPI = {
   ready: () => host().Ready(),
