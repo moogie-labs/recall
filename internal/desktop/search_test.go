@@ -22,7 +22,7 @@ func (a *searchCapture) Search(ctx context.Context, q model.SearchQuery) ([]mode
 }
 func TestSearchDelegatesModesAndErrors(t *testing.T) {
 	s, a, cfg, _ := fixture(t)
-	a.Create(t.Context(), app.CreateInput{Kind: model.Note, Name: "find", Body: "needle"})
+	a.Create(t.Context(), app.CreateInput{Name: "find", Body: "needle"})
 	capture := &searchCapture{Application: a}
 	s.open = func(context.Context, config.Config) (Application, error) { return capture, nil }
 	s.mu.Lock()

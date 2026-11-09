@@ -93,9 +93,6 @@ func searchFixture(t *testing.T, docs ...model.Document) (*Engine, *memorySource
 		if docs[i].Path == "" {
 			docs[i].Path = docs[i].ID + ".note.md"
 		}
-		if docs[i].Kind == "" {
-			docs[i].Kind = model.Note
-		}
 		if docs[i].Raw == "" {
 			docs[i].Raw = docs[i].Body
 		}
@@ -179,7 +176,7 @@ func TestSemanticLimitsRankingAndInvalidQueries(t *testing.T) {
 			}
 		}
 	}
-	for _, q := range []model.SearchQuery{{Mode: "bad"}, {Limit: 101}, {Limit: -1}, {Filter: model.Filter{States: []model.State{"bad"}}}, {Text: strings.Repeat("x", 8193)}, {Text: strings.Repeat("x ", 257)}} {
+	for _, q := range []model.SearchQuery{{Mode: "bad"}, {Limit: 101}, {Limit: -1}, {Filter: model.Filter{Folder: "../x"}}, {Text: strings.Repeat("x", 8193)}, {Text: strings.Repeat("x ", 257)}} {
 		if _, err := e.Search(t.Context(), q); model.ErrorCode(err) != "invalid_argument" {
 			t.Fatalf("invalid query accepted: %v", err)
 		}

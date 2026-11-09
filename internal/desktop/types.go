@@ -17,8 +17,6 @@ type SearchHit struct {
 	Path    string `json:"path"`
 	Title   string `json:"title"`
 	Snippet string `json:"snippet"`
-	Kind    string `json:"kind"`
-	State   string `json:"state"`
 }
 type SearchReply struct {
 	Hits    []SearchHit `json:"hits"`
@@ -69,8 +67,6 @@ type DocumentView struct {
 	Path     string `json:"path"`
 	Name     string `json:"name"`
 	Title    string `json:"title"`
-	Kind     string `json:"kind"`
-	State    string `json:"state"`
 	Body     string `json:"body"`
 	Revision string `json:"revision"`
 }

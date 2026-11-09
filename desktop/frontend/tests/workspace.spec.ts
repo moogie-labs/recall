@@ -34,7 +34,7 @@ test("tree, Markdown modes, exact autosave timing, and cmd-f search", async ({
   ).toBeVisible();
   await page.screenshot({ path: "test-results/recall-preview.png" });
 });
-test("create note task and folder in active folder and delete with confirmation", async ({
+test("create note and folder in active folder and delete with confirmation", async ({
   page,
 }) => {
   await page.goto("/test-app.html");
@@ -42,7 +42,7 @@ test("create note task and folder in active folder and delete with confirmation"
   for (const [kind, name] of [
     ["folder", "Ideas"],
     ["note", "Outline"],
-    ["task", "Release"],
+    ["note", "Release"],
   ]) {
     await page.getByRole("button", { name: "Create", exact: true }).click();
     await page

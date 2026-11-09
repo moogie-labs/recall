@@ -10,7 +10,7 @@ import (
 )
 
 // EditorPath permits repairing malformed metadata only through an explicit
-// recognized typed path. IDs still require an unambiguous valid projection.
+// recognized document path. IDs still require an unambiguous valid projection.
 func (a *App) EditorPath(ctx context.Context, ref model.Ref) (string, error) {
 	if err := validateRef(ref); err != nil {
 		return "", err
@@ -46,13 +46,12 @@ func (a *App) typedSource(ctx context.Context, path string) (model.Document, err
 	if err := validatePath(path); err != nil {
 		return model.Document{}, err
 	}
-	kind, err := document.KindFromPath(path)
-	if err != nil {
+	if err := document.ValidatePath(path); err != nil {
 		return model.Document{}, err
 	}
 	raw, err := a.store.Read(ctx, path)
 	if err != nil {
 		return model.Document{}, err
 	}
-	return model.Document{Path: path, Kind: kind, Revision: fmt.Sprintf("%x", sha256.Sum256(raw))}, nil
+	return model.Document{Path: path, Revision: fmt.Sprintf("%x", sha256.Sum256(raw))}, nil
 }

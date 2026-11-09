@@ -10,18 +10,13 @@ import (
 )
 
 type CreateInput struct {
-	Kind   model.Kind  `json:"kind"`
-	Folder string      `json:"folder"`
-	Name   string      `json:"name"`
-	Title  string      `json:"title"`
-	Body   string      `json:"body"`
-	State  model.State `json:"state"`
+	Folder string `json:"folder"`
+	Name   string `json:"name"`
+	Title  string `json:"title"`
+	Body   string `json:"body"`
 }
 
 func (a *App) Create(ctx context.Context, input CreateInput) (model.Document, error) {
-	if input.Kind != model.Note && input.Kind != model.Task {
-		return model.Document{}, appError("invalid_argument", "", "kind must be note or task")
-	}
 	if err := validatePath(input.Name); err != nil {
 		return model.Document{}, err
 	}
@@ -33,13 +28,7 @@ func (a *App) Create(ctx context.Context, input CreateInput) (model.Document, er
 			return model.Document{}, err
 		}
 	}
-	if input.Kind == model.Note && input.State != "" {
-		return model.Document{}, appError("type_mismatch", "", "only tasks have states")
-	}
-	if input.State != "" && input.State != model.Planned && input.State != model.InProgress && input.State != model.Stalled && input.State != model.Completed {
-		return model.Document{}, appError("invalid_argument", "", "state must be a supported task state")
-	}
-	path := filepath.Join(input.Folder, input.Name+"."+string(input.Kind)+".md")
+	path := filepath.Join(input.Folder, input.Name+document.Suffix)
 	return a.mutate(ctx, func(snapshot model.Snapshot) (model.Document, error) {
 		id := a.newID()
 		if id == "" {
@@ -55,8 +44,8 @@ func (a *App) Create(ctx context.Context, input CreateInput) (model.Document, er
 		if title == "" {
 			title = input.Name
 		}
-		p := document.Parsed{Document: model.Document{ID: id, Path: path, Kind: input.Kind, Title: title, State: input.State}, Body: []byte(input.Body)}
-		q, _, err := document.Normalize(p, a.now(), a.newID)
+		p := document.Parsed{Document: model.Document{ID: id, Path: path, Title: title}, Body: []byte(input.Body)}
+		q, _, err := document.Normalize(p, a.newID)
 		if err != nil {
 			return model.Document{}, err
 		}
@@ -95,7 +84,7 @@ func (a *App) Update(ctx context.Context, ref model.Ref, expectedRevision, raw s
 		if p.Document.ID != current.ID {
 			return model.Document{}, appError("invalid_argument", current.Path, "document ID cannot be changed or removed")
 		}
-		q, _, err := document.Normalize(p, a.now(), a.newID)
+		q, _, err := document.Normalize(p, a.newID)
 		if err != nil {
 			return model.Document{}, err
 		}
@@ -106,18 +95,14 @@ func (a *App) Update(ctx context.Context, ref model.Ref, expectedRevision, raw s
 	})
 }
 
-// Move takes a complete content-relative, type-bearing destination filename.
+// Move takes a complete content-relative .note.md destination filename.
 func (a *App) Move(ctx context.Context, ref model.Ref, destination, expectedRevision string) (model.Document, error) {
 	if err := validatePath(destination); err != nil {
 		return model.Document{}, err
 	}
 	return a.mutateDocument(ctx, ref, expectedRevision, func(current model.Document) (model.Document, error) {
-		kind, err := document.KindFromPath(destination)
-		if err != nil {
+		if err := document.ValidatePath(destination); err != nil {
 			return model.Document{}, err
-		}
-		if kind != current.Kind {
-			return model.Document{}, appError("type_mismatch", destination, "destination filename must preserve the document kind")
 		}
 		if err := a.store.Move(ctx, current.Path, destination); err != nil {
 			return model.Document{}, err

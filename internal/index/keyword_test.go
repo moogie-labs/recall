@@ -13,8 +13,8 @@ import (
 func TestKeywordFTS5SearchesSourceFields(t *testing.T) {
 	s := openTestStore(t)
 	d := fixture(t, "a", "commands/unique-path.note.md", "Café titleterm", "first\nidentifier_thing C++ foo-bar \"quoted\"\nlast")
-	task := fixture(t, "b", "b.task.md", "Task", "body", model.Event{State: model.InProgress, At: instant("2026-01-01T00:00:00Z")})
-	apply(t, s, model.Snapshot{Documents: []model.Document{d, task}})
+	other := fixture(t, "b", "b.note.md", "Other", "body")
+	apply(t, s, model.Snapshot{Documents: []model.Document{d, other}})
 	for _, text := range []string{"café", "titleterm", "unique-path", "identifier_thing", "C++", "foo-bar", "\"quoted\""} {
 		hits, err := s.Keyword(t.Context(), model.SearchQuery{Text: text})
 		if err != nil || len(hits) != 1 || hits[0].ID != "a" {
@@ -26,14 +26,8 @@ func TestKeywordFTS5SearchesSourceFields(t *testing.T) {
 		t.Fatalf("hits: %+v %v", hits, err)
 	}
 	h := hits[0]
-	if h.Path != d.Path || h.Title != d.Title || h.Kind != model.Note || h.IndexState != "current" || !strings.Contains(h.Snippet, "identifier_thing") || h.Score <= 0 {
+	if h.Path != d.Path || h.Title != d.Title || h.IndexState != "current" || !strings.Contains(h.Snippet, "identifier_thing") || h.Score <= 0 {
 		t.Fatalf("hit metadata: %+v", h)
-	}
-	for _, text := range []string{"task in_progress", "note"} {
-		hits, err := s.Keyword(t.Context(), model.SearchQuery{Text: text})
-		if err != nil || len(hits) != 1 {
-			t.Fatalf("metadata %q: %+v %v", text, hits, err)
-		}
 	}
 }
 
@@ -75,17 +69,17 @@ func TestKeywordTreatsQueryAsLiteralTerms(t *testing.T) {
 	}
 }
 
-func TestKeywordSharesFolderStateAndDateFilters(t *testing.T) {
+func TestKeywordSharesFolderFilters(t *testing.T) {
 	s := openTestStore(t)
 	apply(t, s, model.Snapshot{Documents: []model.Document{
 		fixture(t, "root", "root.note.md", "Same", "needle"),
-		fixture(t, "a", "a%_/a.task.md", "Same", "needle", model.Event{State: model.Completed, At: instant("2026-01-01T00:00:00Z")}, model.Event{State: model.Planned, At: instant("2026-02-01T00:00:00Z")}),
-		fixture(t, "b", "axx/b.task.md", "Same", "needle"),
+		fixture(t, "a", "a%_/a.note.md", "Same", "needle"),
+		fixture(t, "b", "axx/b.note.md", "Same", "needle"),
 	}})
 	for _, tc := range []struct {
 		f    model.Filter
 		want []string
-	}{{model.Filter{Folder: ".", Recursive: false}, []string{"root"}}, {model.Filter{Folder: "a%_", Recursive: true}, []string{"a"}}, {model.Filter{States: []model.State{model.Completed}}, []string{}}, {model.Filter{DateField: "transition", EventState: model.Completed}, []string{"a"}}, {model.Filter{Kinds: []model.Kind{model.Note}}, []string{"root"}}} {
+	}{{model.Filter{Folder: ".", Recursive: false}, []string{"root"}}, {model.Filter{Folder: "a%_", Recursive: true}, []string{"a"}}} {
 		hits, err := s.Keyword(t.Context(), model.SearchQuery{Text: "needle", Filter: tc.f})
 		if err != nil {
 			t.Fatal(err)

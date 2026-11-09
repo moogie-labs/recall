@@ -80,7 +80,7 @@ func TestPrepareIfAbsentCreatesSelectedIdentities(t *testing.T) {
 
 func TestPrepareIfAbsentCompetingNewRoots(t *testing.T) {
 	for range 8 {
-		cfg := Config{Root: filepath.Join(t.TempDir(), "new-collection"), Timezone: "Local"}
+		cfg := Config{Root: filepath.Join(t.TempDir(), "new-collection")}
 		start := make(chan struct{})
 		errs := make(chan error, 16)
 		var wg sync.WaitGroup
@@ -141,7 +141,7 @@ func TestPrepareIfAbsentReloadsWinnerAndPreservesUnknownBytes(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, err := PrepareIfAbsent(stale)
-	if err != nil || got.ModelID != "winning-model" || got.RuntimeID != "winning-runtime" || got.Timezone != "America/New_York" || !reflect.DeepEqual(got.IgnoredEditor, []string{"user-editor", "--keep"}) {
+	if err != nil || got.ModelID != "winning-model" || got.RuntimeID != "winning-runtime" || !reflect.DeepEqual(got.IgnoredEditor, []string{"user-editor", "--keep"}) {
 		t.Fatalf("winner not reloaded: %+v %v", got, err)
 	}
 	for path, want := range map[string][]byte{configPath: winner, filepath.Join(stale.Content, "user.note.md"): []byte("existing user bytes"), stale.Database: []byte("existing user bytes")} {
@@ -185,7 +185,6 @@ func TestPrepareStillReplacesSavedPreferences(t *testing.T) {
 	if err := Prepare(cfg); err != nil {
 		t.Fatal(err)
 	}
-	cfg.Timezone = "America/New_York"
 	if err := Prepare(cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -224,11 +223,11 @@ func TestPreparePersistsConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Timezone != "Local" || cfg.IgnoredEditor != nil {
+	if cfg.IgnoredEditor != nil {
 		t.Fatalf("defaults: %+v", cfg)
 	}
 	cfg.ModelID, cfg.ModelSHA256, cfg.ModelSignature = "model-id", "model-sha256", "model-signature"
-	cfg.RuntimeID, cfg.Timezone = "runtime-id", "America/New_York"
+	cfg.RuntimeID = "runtime-id"
 	if err := Prepare(cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +332,7 @@ func TestResolveCanonicalizesRootWithoutShellExpansion(t *testing.T) {
 }
 
 func TestResolveRejectsMalformedConfiguration(t *testing.T) {
-	for _, raw := range []string{`not json`, `{"timezone":"Not/A_Zone"}`, `{"timezone":"Local"} trailing garbage`, `{"timezone":"Local"} {}`} {
+	for _, raw := range []string{`not json`, `{"model_id":"x"} trailing garbage`, `{"model_id":"x"} {}`} {
 		t.Run(raw, func(t *testing.T) {
 			root := t.TempDir()
 			if err := os.WriteFile(filepath.Join(root, "config.json"), []byte(raw), 0600); err != nil {
@@ -349,7 +348,7 @@ func TestResolveRejectsMalformedConfiguration(t *testing.T) {
 func TestCollectionEditorIsReportedButNeverSelected(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte(`{"timezone":"UTC","editor":["/tmp/attacker-tool","--payload"]}`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte(`{"editor":["/tmp/attacker-tool","--payload"]}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := Resolve(root)

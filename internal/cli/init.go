@@ -128,21 +128,13 @@ func (i *invocation) statusCommand() *cobra.Command {
 			if err != nil {
 				return nil, err
 			}
-			tasks := 0
-			for _, d := range snapshot.Documents {
-				if d.Kind == model.Task {
-					tasks++
-				}
-			}
 			return struct {
 				Root          string             `json:"root"`
-				Timezone      string             `json:"timezone"`
 				MetadataReady bool               `json:"metadata_ready"`
 				Documents     int                `json:"documents"`
-				Tasks         int                `json:"tasks"`
 				Folders       int                `json:"folders"`
 				Diagnostics   []model.Diagnostic `json:"diagnostics"`
-			}{i.cfg.Root, i.cfg.Timezone, true, len(snapshot.Documents), tasks, len(snapshot.Folders), snapshot.Diagnostics}, nil
+			}{i.cfg.Root, true, len(snapshot.Documents), len(snapshot.Folders), snapshot.Diagnostics}, nil
 		})
 	})
 }

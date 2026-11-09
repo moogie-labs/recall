@@ -43,34 +43,20 @@ func as[T any](t *testing.T, got result) T {
 	return data
 }
 
-func TestCRUDHistoryAndKeywordFromUnrelatedCWDWithoutInference(t *testing.T) {
+func TestCRUDAndKeywordFromUnrelatedCWDWithoutInference(t *testing.T) {
 	cfg := prepared(t) // No runtime or model: semantic operations must fail, never metadata.
 	t.Chdir(t.TempDir())
 	t.Setenv("RECALL_HOME", cfg.Root)
 	invoke(t, cfg.Root, "", "folder", "create", "projects")
 	invoke(t, cfg.Root, "", "folder", "create", "projects/sub")
-	note := as[model.Document](t, invoke(t, cfg.Root, "free-form café\r\n", "document", "create", "--type", "note", "--folder", "projects", "--name", "guide", "--title", "Guide"))
+	note := as[model.Document](t, invoke(t, cfg.Root, "free-form café\r\n", "document", "create", "--folder", "projects", "--name", "guide", "--title", "Guide"))
 	if note.Path != "projects/guide.note.md" || note.Body != "free-form café\r\n" {
 		t.Fatalf("%+v", note)
 	}
-	task := as[model.Document](t, invoke(t, cfg.Root, "reset password", "document", "create", "--type", "task", "--folder", "projects/sub", "--name", "reset"))
-	if task.State != model.Planned {
-		t.Fatal(task)
-	}
-	for _, state := range []string{"completed", "in_progress", "in_progress", "stalled"} {
-		task = as[model.Document](t, invoke(t, cfg.Root, "", "task", "state", "--id", task.ID, "--state", state))
-	}
-	history := as[[]model.Event](t, invoke(t, cfg.Root, "", "task", "history", "--path", task.Path))
-	if len(history) != 4 || history[1].State != model.Completed || history[3].State != model.Stalled {
-		t.Fatalf("%+v", history)
-	}
-	page := as[model.Page[model.DocumentSummary]](t, invoke(t, cfg.Root, "", "task", "list", "--folder", "projects", "--state", "stalled", "--date-field", "transition", "--event-state", "completed", "--sort", "state_changed", "--desc"))
-	if len(page.Items) != 1 || page.Items[0].ID != task.ID {
-		t.Fatalf("%+v", page)
-	}
-	page = as[model.Page[model.DocumentSummary]](t, invoke(t, cfg.Root, "", "task", "list", "--folder", "projects", "--recursive=false"))
-	if len(page.Items) != 0 {
-		t.Fatal(page)
+	other := as[model.Document](t, invoke(t, cfg.Root, "reset password", "document", "create", "--folder", "projects/sub", "--name", "reset"))
+	top := as[documentList](t, invoke(t, cfg.Root, "", "document", "list", "--folder", "projects", "--recursive=false"))
+	if len(top.Documents) != 1 || top.Documents[0].ID != note.ID {
+		t.Fatalf("%+v", top)
 	}
 	updated := as[model.Document](t, invoke(t, cfg.Root, strings.Replace(note.Raw, "free-form café", "updated café", 1), "document", "update", "--id", note.ID, "--if-revision", note.Revision))
 	if updated.Revision == note.Revision || updated.Body != "updated café\r\n" {
@@ -86,7 +72,7 @@ func TestCRUDHistoryAndKeywordFromUnrelatedCWDWithoutInference(t *testing.T) {
 	if read.Path != "archive/sub/renamed.note.md" {
 		t.Fatal(read)
 	}
-	hits := as[[]model.Hit](t, invoke(t, cfg.Root, "", "search", "updated", "--mode", "keyword", "--folder", "archive", "--type", "note"))
+	hits := as[[]model.Hit](t, invoke(t, cfg.Root, "", "search", "updated", "--mode", "keyword", "--folder", "archive"))
 	if len(hits) != 1 || hits[0].ID != note.ID {
 		t.Fatal(hits)
 	}
@@ -102,7 +88,7 @@ func TestCRUDHistoryAndKeywordFromUnrelatedCWDWithoutInference(t *testing.T) {
 	if code := Run(t.Context(), []string{"--root", cfg.Root, "--json", "folder", "delete", "archive"}, nil, &out, &logs); code != 4 || decodeResult(t, &out).Error.Code != "folder_not_empty" {
 		t.Fatalf("nonrecursive delete: %d %s", code, &logs)
 	}
-	invoke(t, cfg.Root, "input must not become a confirmation", "document", "delete", "--id", task.ID)
+	invoke(t, cfg.Root, "input must not become a confirmation", "document", "delete", "--id", other.ID)
 	invoke(t, cfg.Root, "", "folder", "delete", "archive", "--recursive")
 	if _, err := os.Stat(filepath.Join(cfg.Content, "archive")); !os.IsNotExist(err) {
 		t.Fatal(err)
@@ -122,11 +108,11 @@ func TestBodyAndRawFilesEmptyCreationAndEditorReconciliation(t *testing.T) {
 	if err := os.WriteFile(file, []byte("from body file\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	note := as[model.Document](t, invoke(t, cfg.Root, "ignored stdin", "document", "create", "--type", "note", "--name", "file", "--body-file", file))
+	note := as[model.Document](t, invoke(t, cfg.Root, "ignored stdin", "document", "create", "--name", "file", "--body-file", file))
 	if note.Body != "from body file\n" {
 		t.Fatal(note)
 	}
-	empty := as[model.Document](t, invoke(t, cfg.Root, "", "document", "create", "--type", "note", "--name", "empty"))
+	empty := as[model.Document](t, invoke(t, cfg.Root, "", "document", "create", "--name", "empty"))
 	if empty.Body != "" {
 		t.Fatal(empty)
 	}
@@ -159,7 +145,7 @@ func TestBodyAndRawFilesEmptyCreationAndEditorReconciliation(t *testing.T) {
 
 func TestHumanSearchIncludesTheMatchedSourcePassage(t *testing.T) {
 	cfg := prepared(t)
-	invoke(t, cfg.Root, "needle useful source passage\n", "document", "create", "--type", "note", "--name", "guide")
+	invoke(t, cfg.Root, "needle useful source passage\n", "document", "create", "--name", "guide")
 	var out, logs bytes.Buffer
 	code := Run(t.Context(), []string{"--root", cfg.Root, "search", "needle", "--mode", "keyword"}, nil, &out, &logs)
 	if code != 0 || !strings.Contains(out.String(), "guide.note.md") || !strings.Contains(out.String(), "needle useful source passage") {
@@ -171,29 +157,6 @@ func TestHumanSearchIncludesTheMatchedSourcePassage(t *testing.T) {
 	got := decodeResult(t, &out)
 	if code != 1 || got.Error == nil || got.Error.Code != "runtime_unavailable" {
 		t.Fatalf("%d %+v", code, got)
-	}
-}
-
-func TestDateFiltersUsePersistedTimezoneAndPagination(t *testing.T) {
-	cfg := prepared(t)
-	for name, at := range map[string]string{"early": "2026-03-08T04:30:00Z", "inside": "2026-03-08T05:30:00Z", "late": "2026-03-09T04:30:00Z"} {
-		raw := "---\ntype: task\nid: " + name + "\nstate: planned\nstate_history:\n  - state: planned\n    at: " + at + "\n---\nneedle\n"
-		if err := os.WriteFile(filepath.Join(cfg.Content, name+".task.md"), []byte(raw), 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	args := []string{"--date-field", "created", "--from", "2026-03-08", "--through", "2026-03-08"}
-	page := as[model.Page[model.DocumentSummary]](t, invoke(t, cfg.Root, "", append([]string{"task", "list"}, args...)...))
-	if len(page.Items) != 1 || page.Items[0].ID != "inside" {
-		t.Fatal(page)
-	}
-	hits := as[[]model.Hit](t, invoke(t, cfg.Root, "", append([]string{"search", "needle", "--mode", "keyword"}, args...)...))
-	if len(hits) != 1 || hits[0].ID != "inside" {
-		t.Fatal(hits)
-	}
-	page = as[model.Page[model.DocumentSummary]](t, invoke(t, cfg.Root, "", "task", "list", "--sort", "title", "--limit", "1", "--offset", "1"))
-	if len(page.Items) != 1 || page.Items[0].ID != "inside" || page.NextOffset == nil || *page.NextOffset != 2 {
-		t.Fatal(page)
 	}
 }
 
@@ -318,8 +281,8 @@ func TestExecutablePinnedNativeWorkflow(t *testing.T) {
 	}
 	t.Logf("real private provider: %d finite L2-normalized components", len(vectors[0]))
 	run("", "folder", "create", "guides")
-	related := as[model.Document](t, run("To reset your account password, open account settings and choose Reset password.", "document", "create", "--type", "note", "--name", "account", "--folder", "guides"))
-	run("A sourdough bread recipe uses flour, water and salt.", "document", "create", "--type", "note", "--name", "bread", "--folder", "guides")
+	related := as[model.Document](t, run("To reset your account password, open account settings and choose Reset password.", "document", "create", "--name", "account", "--folder", "guides"))
+	run("A sourdough bread recipe uses flour, water and salt.", "document", "create", "--name", "bread", "--folder", "guides")
 	run("", "sync", "--rebuild", "--wait")
 	for _, mode := range []string{"keyword", "semantic", "hybrid"} {
 		started = time.Now()

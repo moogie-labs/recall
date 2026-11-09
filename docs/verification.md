@@ -1,5 +1,9 @@
 # Verification — baseline 2026-10-21–22; correction 2026-10-23–24
 
+**Tasks were removed on 2026-11-08** (see the final section). Commands, tool
+counts and note/task coverage in the sections below are historical evidence
+from before that change, not a description of current commands.
+
 ## Environment and scope
 
 Apple M1 **Pro**, 16 GiB, Darwin/arm64, macOS 26.6.2 (25G83); Go 1.27.1;
@@ -318,3 +322,22 @@ The run exited 0 and verified that HEAD did not change while tests ran:
 
 The subsequent documentation-only checkpoint records this evidence; it does not
 change the tested product source or turn the unrun limits into passed checks.
+
+## Task removal — 2026-11-08
+
+Tasks were removed from the model, codec, index, CLI, MCP tools and desktop UI.
+The index schema moved from version 2 to 3; `removeTaskColumns` upgrades v1/v2
+databases in place and keeps embeddings. `.task.md` and other non-`.note.md`
+files are left untouched and reported as `invalid_document` diagnostics.
+
+| Command / gate | Actual result |
+| --- | --- |
+| `go test ./... -count=1`; `go test` in `desktop/` | All packages pass |
+| Race run on model, index, search, app, CLI, MCP, document, scanner | Pass, no race report |
+| `go vet ./...`; `gofmt -l`; `git diff --check` | Exit 0; no output |
+| `npm test`; `npm run build`; `npm run test:e2e` | 43 unit tests; build; 4 Playwright tests pass |
+| `python3 scripts/verify-neovim.py <binary>` | Installed Neovim 0.12.6 path, atomic save, W12 keep/reload pass |
+| Previous-commit binary → this build on a temporary collection | Index v2 upgraded to v3; task row removed; `.task.md` and a note with `state`/`state_history` byte-identical |
+
+Not rerun: native desktop smoke (`scripts/verify-desktop.sh`), packaged offline
+and real-model gates.

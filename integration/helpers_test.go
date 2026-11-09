@@ -80,7 +80,7 @@ func isolated(t *testing.T) string {
 }
 
 // Synthetic on-disk metadata fixture, as documented in docs/verification.md:
-// private layout directories plus config.json with a timezone, no asset IDs,
+// private layout directories plus an empty config.json, no asset IDs,
 // weights or preowned worker. Not init output or evidence of semantic readiness.
 func prepared(t *testing.T) string {
 	t.Helper()
@@ -90,7 +90,7 @@ func prepared(t *testing.T) string {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte("{\"timezone\":\"UTC\"}\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "config.json"), []byte("{}\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	return root
@@ -138,8 +138,8 @@ func command[T any](t testing.TB, args ...string) T {
 	return result[T](t, out, code)
 }
 
-func create(t testing.TB, kind, name, body string) model.Document {
+func create(t testing.TB, name, body string) model.Document {
 	t.Helper()
-	out, code := runInput(t, body, "--json", "document", "create", "--type", kind, "--name", name)
+	out, code := runInput(t, body, "--json", "document", "create", "--name", name)
 	return result[model.Document](t, out, code)
 }

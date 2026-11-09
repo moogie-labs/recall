@@ -3,14 +3,13 @@ package app
 import (
 	"os"
 	"path/filepath"
-	"recall/internal/model"
 	"testing"
 )
 
 func TestReadSourceRequiresConfinedTypedPath(t *testing.T) {
 	a, cfg := newTestApp(t)
 	defer a.Close()
-	d := mustCreate(t, a, CreateInput{Kind: model.Note, Name: "source", Body: "body"})
+	d := mustCreate(t, a, CreateInput{Name: "source", Body: "body"})
 	source, err := a.ReadSource(t.Context(), d.Path)
 	if err != nil || source.Raw != d.Raw || source.ID != d.ID || source.Revision != d.Revision {
 		t.Fatal("source identity was not preserved", err)

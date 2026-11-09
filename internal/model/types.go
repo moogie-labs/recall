@@ -1,28 +1,5 @@
 package model
 
-import "time"
-
-type Kind string
-
-const (
-	Note Kind = "note"
-	Task Kind = "task"
-)
-
-type State string
-
-const (
-	Planned    State = "planned"
-	InProgress State = "in_progress"
-	Stalled    State = "stalled"
-	Completed  State = "completed"
-)
-
-type Event struct {
-	State State     `json:"state"`
-	At    time.Time `json:"at"`
-}
-
 // Ref identifies a document by exactly one of ID or Path.
 type Ref struct {
 	ID   string `json:"id"`
@@ -30,15 +7,12 @@ type Ref struct {
 }
 
 type Document struct {
-	ID       string  `json:"id"`
-	Path     string  `json:"path"`
-	Title    string  `json:"title"`
-	Kind     Kind    `json:"kind"`
-	State    State   `json:"state"`
-	History  []Event `json:"history"`
-	Body     string  `json:"body"`
-	Raw      string  `json:"raw"`
-	Revision string  `json:"revision"` // SHA-256 of the raw source bytes, in lowercase hex.
+	ID       string `json:"id"`
+	Path     string `json:"path"`
+	Title    string `json:"title"`
+	Body     string `json:"body"`
+	Raw      string `json:"raw"`
+	Revision string `json:"revision"` // SHA-256 of the raw source bytes, in lowercase hex.
 }
 
 type Diagnostic struct {
@@ -53,31 +27,9 @@ type Snapshot struct {
 	Folders     []string     `json:"folders"`
 }
 
-// DateField is "created", "state_changed", or "transition".
-type DateField string
-
 type Filter struct {
-	Folder     string     `json:"folder"`
-	Recursive  bool       `json:"recursive"`
-	Kinds      []Kind     `json:"kinds"`
-	States     []State    `json:"states"`
-	DateField  DateField  `json:"date_field"`
-	EventState State      `json:"event_state"`
-	From       *time.Time `json:"from"`
-	Until      *time.Time `json:"until"`
-}
-
-type TaskQuery struct {
-	Filter Filter `json:"filter"`
-	Sort   string `json:"sort"`
-	Desc   bool   `json:"desc"`
-	Limit  int    `json:"limit"`
-	Offset int    `json:"offset"`
-}
-
-type Page[T any] struct {
-	Items      []T  `json:"items"`
-	NextOffset *int `json:"next_offset"`
+	Folder    string `json:"folder"`
+	Recursive bool   `json:"recursive"`
 }
 
 type SearchQuery struct {
@@ -95,8 +47,6 @@ type Hit struct {
 	Snippet        string  `json:"snippet"`
 	IndexState     string  `json:"index_state"`
 	Revision       string  `json:"revision"` // Raw-source revision captured with this result.
-	Kind           Kind    `json:"kind"`
-	State          State   `json:"state"`
 	StartLine      int     `json:"start_line"`
 	EndLine        int     `json:"end_line"`
 	Score          float64 `json:"score"`

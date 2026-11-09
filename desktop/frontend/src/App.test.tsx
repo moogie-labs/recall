@@ -23,8 +23,6 @@ const doc = {
   title: "A",
   body: "# A",
   revision: "r0",
-  kind: "note",
-  state: "",
 };
 it("does not allow collection picking to race initial collection loading", async () => {
   const api = fakeBridge([doc], ["Work"]);
@@ -99,7 +97,7 @@ it("creates beside a selected file and inside a selected folder then opens new d
   const folder = await screen.findByRole("treeitem", { name: "Work" });
   fireEvent.click(folder);
   fireEvent.click(screen.getByRole("button", { name: "Create" }));
-  fireEvent.click(screen.getByRole("menuitem", { name: "New task" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "New note" }));
   fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
     target: { value: "release" },
   });
@@ -112,9 +110,8 @@ it("creates beside a selected file and inside a selected folder then opens new d
   );
   const tree = (await api.tree("test-session")).tree!;
   expect(tree.entries.find((e) => e.name === "release")?.path).toBe(
-    "Work/release.task.md",
+    "Work/release.note.md",
   );
-  expect(screen.getByText(/task · planned/i)).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Create" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "New note" }));
   fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {

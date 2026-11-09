@@ -8,7 +8,7 @@ import (
 )
 
 func view(d model.Document) *DocumentView {
-	return &DocumentView{ID: d.ID, Path: d.Path, Name: strings.TrimSuffix(filepath.Base(d.Path), "."+string(d.Kind)+".md"), Title: d.Title, Kind: string(d.Kind), State: string(d.State), Body: d.Body, Revision: d.Revision}
+	return &DocumentView{ID: d.ID, Path: d.Path, Name: strings.TrimSuffix(filepath.Base(d.Path), document.Suffix), Title: d.Title, Body: d.Body, Revision: d.Revision}
 }
 func (s *Service) OpenDocument(session, id string) DocumentReply {
 	s.mu.RLock()

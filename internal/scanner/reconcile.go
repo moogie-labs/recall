@@ -10,7 +10,6 @@ import (
 	"errors"
 	"slices"
 	"strings"
-	"time"
 
 	"recall/internal/document"
 	"recall/internal/fsstore"
@@ -19,14 +18,10 @@ import (
 
 type Scanner struct {
 	store *fsstore.Store
-	now   func() time.Time
 	newID func() string
 }
 
-func New(store *fsstore.Store, now func() time.Time, newID func() string) *Scanner {
-	if now == nil {
-		now = time.Now
-	}
+func New(store *fsstore.Store, newID func() string) *Scanner {
 	if newID == nil {
 		newID = func() string {
 			var id [16]byte
@@ -35,7 +30,7 @@ func New(store *fsstore.Store, now func() time.Time, newID func() string) *Scann
 			return hex.EncodeToString(id[:])
 		}
 	}
-	return &Scanner{store: store, now: now, newID: newID}
+	return &Scanner{store: store, newID: newID}
 }
 
 // Reconcile returns only current valid, uniquely identified documents, together
@@ -84,7 +79,7 @@ func (s *Scanner) reconcile(ctx context.Context) (model.Snapshot, error) {
 			snapshot.Folders = append(snapshot.Folders, entry.Path)
 			continue
 		}
-		if _, err := document.KindFromPath(entry.Path); err != nil {
+		if err := document.ValidatePath(entry.Path); err != nil {
 			snapshot.Diagnostics = append(snapshot.Diagnostics, diagnostic(entry.Path, err))
 			continue
 		}
@@ -108,7 +103,6 @@ func (s *Scanner) reconcile(ctx context.Context) (model.Snapshot, error) {
 		}
 	}
 	var candidates []candidate
-	now := s.now()
 	for _, p := range parsed {
 		if err := ctx.Err(); err != nil {
 			return model.Snapshot{}, err
@@ -117,7 +111,7 @@ func (s *Scanner) reconcile(ctx context.Context) (model.Snapshot, error) {
 			snapshot.Diagnostics = append(snapshot.Diagnostics, duplicate(p.Document.Path))
 			continue
 		}
-		q, changed, err := document.Normalize(p, now, s.newID)
+		q, changed, err := document.Normalize(p, s.newID)
 		if err != nil {
 			snapshot.Diagnostics = append(snapshot.Diagnostics, diagnostic(p.Document.Path, err))
 			continue

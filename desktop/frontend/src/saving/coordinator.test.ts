@@ -6,8 +6,6 @@ export const doc: DocumentView = {
   path: "one.note.md",
   name: "one",
   title: "One",
-  kind: "note",
-  state: "",
   body: "old",
   revision: "r0",
 };

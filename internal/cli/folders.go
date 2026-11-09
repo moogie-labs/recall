@@ -17,7 +17,7 @@ func (i *invocation) folderCommand() *cobra.Command {
 			return snapshot.Folders, err
 		})
 	})
-	f.bindFolder(list)
+	f.bind(list)
 	c.AddCommand(list)
 	c.AddCommand(i.command("create PATH", "Create a content-relative folder", exactArgs(1), func(_ *cobra.Command, args []string) (any, error) {
 		return i.withApp(func(a *app.App) (any, error) {

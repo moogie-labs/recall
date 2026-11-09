@@ -12,7 +12,7 @@ import (
 
 // Setup lets the desktop app prepare a collection itself: create the default
 // collection on first launch, then install the semantic-search assets in the
-// background while notes, tasks and keyword search are already usable.
+// background while notes and keyword search are already usable.
 type Setup struct {
 	// Prepare creates the collection layout and pinned configuration only.
 	Prepare func(context.Context, config.Config) (config.Config, error)

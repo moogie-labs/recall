@@ -97,17 +97,11 @@ export function DocumentPane({
         {!state.document && (
           <div className="empty">
             <h1>Your Recall collection</h1>
-            <p>Select a note or task, or use + to create one.</p>
+            <p>Select a note, or use + to create one.</p>
           </div>
         )}
         {state.document && (
           <>
-            <div className="document-meta">
-              {state.document.kind}
-              {state.document.state
-                ? " · " + state.document.state.replaceAll("_", " ")
-                : ""}
-            </div>
             <div hidden={state.mode !== "preview"}>
               <MarkdownPreview body={save.body} />
             </div>

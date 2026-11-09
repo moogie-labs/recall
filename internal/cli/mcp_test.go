@@ -16,22 +16,19 @@ import (
 	"recall/internal/model"
 )
 
-func TestJSONListsOmitLargeBodyButGetAndHistoryRemainExplicit(t *testing.T) {
+func TestJSONListsOmitLargeBodyButGetRemainsExplicit(t *testing.T) {
 	cfg := prepared(t)
 	body := strings.Repeat("distinctive-heavy-payload-", 10000)
-	for _, kind := range []string{"note", "task"} {
-		d := as[model.Document](t, invoke(t, cfg.Root, body, "document", "create", "--type", kind, "--name", kind))
+	for _, name := range []string{"first", "second"} {
+		d := as[model.Document](t, invoke(t, cfg.Root, body, "document", "create", "--name", name))
 		got := as[model.Document](t, invoke(t, cfg.Root, "", "document", "get", "--id", d.ID))
 		if got.Body != body || !strings.Contains(got.Raw, body) {
 			t.Fatal("get lost full body")
 		}
-		if kind == "task" && len(as[[]model.Event](t, invoke(t, cfg.Root, "", "task", "history", "--id", d.ID))) != 1 {
-			t.Fatal("history lost")
-		}
 	}
-	for _, args := range [][]string{{"document", "list"}, {"task", "list"}} {
+	for _, args := range [][]string{{"document", "list"}} {
 		r := invoke(t, cfg.Root, "", args...)
-		for _, forbidden := range []string{"distinctive-heavy-payload", `"body"`, `"raw"`, `"history"`} {
+		for _, forbidden := range []string{"distinctive-heavy-payload", `"body"`, `"raw"`} {
 			if bytes.Contains(r.Data, []byte(forbidden)) {
 				t.Fatalf("%v leaks %s", args, forbidden)
 			}
@@ -86,7 +83,7 @@ func queryExecutableMCP(t *testing.T, bin, root, wantID string, modes []string) 
 func TestExecutableMCPKeywordWorkflowWithoutInference(t *testing.T) {
 	bin := buildExecutable(t)
 	cfg := prepared(t)
-	d := as[model.Document](t, invoke(t, cfg.Root, "reset password in account settings", "document", "create", "--type", "note", "--name", "account"))
+	d := as[model.Document](t, invoke(t, cfg.Root, "reset password in account settings", "document", "create", "--name", "account"))
 	queryExecutableMCP(t, bin, cfg.Root, d.ID, []string{"keyword"})
 	if _, err := os.Stat(filepath.Join(os.Getenv("HOME"), ".cache", "recall")); !os.IsNotExist(err) {
 		t.Fatalf("keyword started worker: %v", err)
@@ -114,7 +111,7 @@ func TestDefaultMCPAdapterProtocolEOFAndJSONGuard(t *testing.T) {
 		t.Fatal(err)
 	}
 	tools, err := s.ListTools(ctx, nil)
-	if err != nil || len(tools.Tools) != 14 {
+	if err != nil || len(tools.Tools) != 11 {
 		t.Fatalf("%+v %v", tools, err)
 	}
 	s.Close()

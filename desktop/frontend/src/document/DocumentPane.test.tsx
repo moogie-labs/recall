@@ -13,8 +13,6 @@ const doc = {
   title: "A",
   body: "# Original",
   revision: "r0",
-  kind: "note",
-  state: "",
 };
 async function setup() {
   const api = fakeBridge([doc]);

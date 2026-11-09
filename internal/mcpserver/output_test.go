@@ -7,21 +7,20 @@ import (
 	"strings"
 	"testing"
 
-	"recall/internal/cli"
 	"recall/internal/model"
 )
 
 // Removing metadata projection/budget checks must fail these public tool tests.
 func TestPreviewWireBudgetsTitleAndExactReferences(t *testing.T) {
 	title := strings.Repeat("界", 100000)
-	raw := "---\nid: exact-id\ntype: task\ntitle: " + title + "\n---\nneedle passage\n"
-	a, _ := newTestAppWithSources(t, map[string]string{"exact.task.md": raw})
+	raw := "---\nid: exact-id\ntitle: " + title + "\n---\nneedle passage\n"
+	a, _ := newTestAppWithSources(t, map[string]string{"exact.note.md": raw})
 	s := connect(t, a, "")
 	full := data[model.Document](t, call(t, s, "document_get", map[string]any{"id": "exact-id"}))
 	if full.Title != title || !strings.Contains(full.Raw, title) {
 		t.Fatal("full get lost title")
 	}
-	for _, name := range []string{"documents_list", "tasks_list", "search"} {
+	for _, name := range []string{"documents_list", "search"} {
 		t.Run(name, func(t *testing.T) {
 			args := map[string]any{"limit": 1}
 			if name == "search" {
@@ -34,10 +33,6 @@ func TestPreviewWireBudgetsTitleAndExactReferences(t *testing.T) {
 				row = data[struct {
 					Documents []map[string]any `json:"documents"`
 				}](t, r).Documents[0]
-			case "tasks_list":
-				row = data[struct {
-					Items []map[string]any `json:"items"`
-				}](t, r).Items[0]
 			case "search":
 				row = data[struct {
 					Hits []map[string]any `json:"hits"`
@@ -72,11 +67,11 @@ func TestPreviewWireBudgetsOversizedIdentityAndWholePage(t *testing.T) {
 				if tc.name == "encoded-identity" {
 					id = strings.Repeat("<", tc.idBytes)
 				}
-				sources[fmt.Sprintf("%03d.task.md", n)] = "---\nid: '" + id + "'\ntype: task\ntitle: Same\nstate: planned\nstate_history:\n  - state: planned\n    at: 2026-10-18T00:00:00Z\n---\nneedle\n"
+				sources[fmt.Sprintf("%03d.note.md", n)] = "---\nid: '" + id + "'\ntitle: Same\n---\nneedle\n"
 			}
 			a, _ := newTestAppWithSources(t, sources)
 			s := connect(t, a, "")
-			for _, name := range []string{"documents_list", "tasks_list", "search"} {
+			for _, name := range []string{"documents_list", "search"} {
 				args := map[string]any{"limit": tc.limit}
 				if name == "search" {
 					args["text"], args["mode"] = "needle", "keyword"
@@ -97,38 +92,11 @@ func TestPreviewWireBudgetsOversizedIdentityAndWholePage(t *testing.T) {
 				}
 			}
 			// Even an undisplayable ID is valid source and explicitly retrievable.
-			d := data[model.Document](t, call(t, s, "document_get", map[string]any{"path": "000.task.md"}))
-			if d.Raw != sources["000.task.md"] {
+			d := data[model.Document](t, call(t, s, "document_get", map[string]any{"path": "000.note.md"}))
+			if d.Raw != sources["000.note.md"] {
 				t.Fatal("output bounds rewrote source")
 			}
 		})
-	}
-}
-
-func TestStateFilterIsTaskOnlyAcrossAdaptersAndPreservesNote(t *testing.T) {
-	noteRaw := "---\nid: note\ntype: note\nstate: completed\n---\nneedle\n"
-	a, cfg := newTestAppWithSources(t, map[string]string{"note.note.md": noteRaw, "task.task.md": "---\nid: task\ntype: task\nstate: completed\n---\nneedle\n"})
-	s := connect(t, a, "")
-	hits := data[struct {
-		Hits []model.Hit `json:"hits"`
-	}](t, call(t, s, "search", map[string]any{"text": "needle", "mode": "keyword", "filter": map[string]any{"states": []string{"completed"}}}))
-	if len(hits.Hits) != 1 || hits.Hits[0].ID != "task" {
-		t.Errorf("MCP task-state includes notes: %+v", hits.Hits)
-	}
-	var out, logs bytes.Buffer
-	code := cli.Run(t.Context(), []string{"--root", cfg.Root, "--json", "search", "needle", "--mode", "keyword", "--state", "completed"}, nil, &out, &logs)
-	var result struct {
-		Data []model.Hit `json:"data"`
-	}
-	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
-		t.Fatal(err)
-	}
-	if code != 0 || len(result.Data) != 1 || result.Data[0].ID != "task" {
-		t.Errorf("CLI task-state includes notes: exit=%d hits=%+v", code, result.Data)
-	}
-	full := data[model.Document](t, call(t, s, "document_get", map[string]any{"id": "note"}))
-	if full.Raw != noteRaw || full.State != model.Completed || full.Kind != model.Note {
-		t.Fatal("valid note state was rejected/rewritten")
 	}
 }
 

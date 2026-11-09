@@ -81,15 +81,6 @@ a:focus-visible {
   overflow: auto;
   padding: 44px clamp(28px, 7vw, 90px);
 }
-.document-meta {
-  max-width: 650px;
-  margin: 0 auto 18px;
-  font-size: 10px;
-  color: #7a8b70;
-  font-weight: 600;
-  letter-spacing: 1.4px;
-  text-transform: uppercase;
-}
 .markdown {
   max-width: 650px;
   margin: auto;

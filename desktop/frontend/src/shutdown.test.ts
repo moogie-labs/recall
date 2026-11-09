@@ -11,8 +11,6 @@ const doc = {
   title: "A",
   body: "old",
   revision: "r0",
-  kind: "note",
-  state: "",
 };
 it("shutdown waits for source acknowledgement and coalesces repeated requests", async () => {
   const api = fakeBridge([doc]);

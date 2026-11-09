@@ -130,9 +130,9 @@ func TestRealPackagedOnboardingAndOffline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	account := create(t, "note", "account", "To recover forgotten credentials, open account settings and reset the password.")
-	create(t, "note", "garden", "Tomatoes need sunlight, soil and regular watering.")
-	create(t, "task", "offline task", "Inspect login recovery workflow.")
+	account := create(t, "account", "To recover forgotten credentials, open account settings and reset the password.")
+	create(t, "garden", "Tomatoes need sunlight, soil and regular watering.")
+	create(t, "offline note", "Inspect login recovery workflow.")
 	start = time.Now()
 	command[model.SyncReport](t, "sync", "--wait")
 	t.Logf("initial indexing (three documents): %s", time.Since(start))
@@ -241,13 +241,12 @@ func TestRealPackagedOnboardingAndOffline(t *testing.T) {
 	// Full native chain is now descended from sandbox-exec, not a previously
 	// running unsandboxed worker. MCP and CLI CRUD/search share that worker.
 	s := connectMCP(t, denied("--root", root, "mcp"))
-	d := tool[model.Document](t, s, "document_create", map[string]any{"kind": "task", "name": "denied", "body": "offline recovery task"})
-	d = tool[model.Document](t, s, "task_set_state", map[string]any{"id": d.ID, "state": "completed"})
-	d = tool[model.Document](t, s, "document_update", map[string]any{"id": d.ID, "if_revision": d.Revision, "raw": strings.Replace(d.Raw, "offline recovery task", "edited recovery task", 1)})
-	d = tool[model.Document](t, s, "document_move", map[string]any{"id": d.ID, "to": "moved.task.md"})
+	d := tool[model.Document](t, s, "document_create", map[string]any{"name": "denied", "body": "offline recovery note"})
+	d = tool[model.Document](t, s, "document_update", map[string]any{"id": d.ID, "if_revision": d.Revision, "raw": strings.Replace(d.Raw, "offline recovery note", "edited recovery note", 1)})
+	d = tool[model.Document](t, s, "document_move", map[string]any{"id": d.ID, "to": "moved.note.md"})
 	got := tool[model.Document](t, s, "document_get", map[string]any{"id": d.ID})
-	if got.Path != d.Path || got.State != model.Completed || len(got.History) != 2 {
-		t.Fatal("offline CRUD/history failed")
+	if got.Path != d.Path {
+		t.Fatal("offline CRUD failed")
 	}
 	for _, mode := range []string{"semantic", "hybrid", "keyword"} {
 		text := "forgot my password"
@@ -263,7 +262,7 @@ func TestRealPackagedOnboardingAndOffline(t *testing.T) {
 	}
 	tool[any](t, s, "document_delete", map[string]any{"id": d.ID})
 	// CLI source CRUD is restricted too, not just the MCP adapter.
-	for _, args := range [][]string{{"document", "create", "--type", "note", "--name", "denied-cli"}, {"document", "get", "--path", "denied-cli.note.md"}, {"document", "move", "--path", "denied-cli.note.md", "--to", "renamed.note.md"}, {"document", "delete", "--path", "renamed.note.md"}} {
+	for _, args := range [][]string{{"document", "create", "--name", "denied-cli"}, {"document", "get", "--path", "denied-cli.note.md"}, {"document", "move", "--path", "denied-cli.note.md", "--to", "renamed.note.md"}, {"document", "delete", "--path", "renamed.note.md"}} {
 		c := denied(append([]string{"--root", root, "--json"}, args...)...)
 		c.Stdin = strings.NewReader("offline CLI body")
 		out, err := c.CombinedOutput()

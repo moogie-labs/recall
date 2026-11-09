@@ -29,35 +29,14 @@ func openTestStore(t *testing.T) *Store {
 	return s
 }
 
-func fixture(t *testing.T, id, path, title, body string, events ...model.Event) model.Document {
+func fixture(t *testing.T, id, path, title, body string) model.Document {
 	t.Helper()
-	kind, err := document.KindFromPath(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	raw := fmt.Sprintf("---\nid: %q\ntype: %s\ntitle: %q\ncustom: retained\n", id, kind, title)
-	if kind == model.Task {
-		if len(events) == 0 {
-			events = []model.Event{{State: model.Planned, At: instant("2026-01-01T00:00:00Z")}}
-		}
-		raw += fmt.Sprintf("state: %s\nstate_history:\n", events[len(events)-1].State)
-		for _, event := range events {
-			raw += fmt.Sprintf("  - state: %s\n    at: %s\n", event.State, event.At.Format(time.RFC3339Nano))
-		}
-	}
-	p, err := document.Parse(path, []byte(raw+"---\n"+body))
+	raw := fmt.Sprintf("---\nid: %q\ntitle: %q\ncustom: retained\n---\n%s", id, title, body)
+	p, err := document.Parse(path, []byte(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
 	return p.Document
-}
-
-func instant(s string) time.Time {
-	v, err := time.Parse(time.RFC3339Nano, s)
-	if err != nil {
-		panic(err)
-	}
-	return v
 }
 
 func apply(t *testing.T, s *Store, snapshot model.Snapshot) model.SyncReport {
@@ -69,32 +48,41 @@ func apply(t *testing.T, s *Store, snapshot model.Snapshot) model.SyncReport {
 	return r
 }
 
-func taskIDs(t *testing.T, s *Store, q model.TaskQuery) []string {
+func indexedDocuments(t *testing.T, s *Store) []model.Document {
 	t.Helper()
-	p, err := s.Tasks(t.Context(), q)
+	rows, err := s.db.QueryContext(t.Context(), "SELECT id, path, title, body, raw, revision FROM documents ORDER BY id")
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer rows.Close()
+	documents := []model.Document{}
+	for rows.Next() {
+		var d model.Document
+		if err := rows.Scan(&d.ID, &d.Path, &d.Title, &d.Body, &d.Raw, &d.Revision); err != nil {
+			t.Fatal(err)
+		}
+		documents = append(documents, d)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	return documents
+}
+
+func indexedIDs(t *testing.T, s *Store) []string {
+	t.Helper()
 	ids := []string{}
-	for _, d := range p.Items {
+	for _, d := range indexedDocuments(t, s) {
 		ids = append(ids, d.ID)
 	}
 	return ids
 }
 
-func TestEmptyIndexTaskPage(t *testing.T) {
-	s := openTestStore(t)
-	got, err := s.Tasks(t.Context(), model.TaskQuery{Limit: 50})
-	if err != nil || len(got.Items) != 0 || got.NextOffset != nil {
-		t.Fatalf("%+v %v", got, err)
-	}
-}
-
 func TestApplyRebuildRoundTripAndIdempotence(t *testing.T) {
 	s := openTestStore(t)
-	d := fixture(t, "task", "a/task.task.md", "Unicode α", "First\r\nSecond\n", model.Event{State: model.Planned, At: instant("2026-01-01T00:00:00.123456789Z")}, model.Event{State: model.Completed, At: instant("2026-02-01T00:00:00Z")})
+	d := fixture(t, "doc", "a/doc.note.md", "Unicode α", "First\r\nSecond\n")
 	n := fixture(t, "note", "note.note.md", "Note", "rebuild keyword")
-	snapshot := model.Snapshot{Documents: []model.Document{d, n}, Diagnostics: []model.Diagnostic{{Code: "invalid_document", Path: "bad.task.md", Message: "invalid metadata"}}}
+	snapshot := model.Snapshot{Documents: []model.Document{d, n}, Diagnostics: []model.Diagnostic{{Code: "invalid_document", Path: "bad.note.md", Message: "invalid metadata"}}}
 	first := apply(t, s, snapshot)
 	if first.Added != 2 || first.Updated != 0 || first.Removed != 0 || !reflect.DeepEqual(first.Diagnostics, snapshot.Diagnostics) {
 		t.Fatalf("report: %+v", first)
@@ -103,15 +91,14 @@ func TestApplyRebuildRoundTripAndIdempotence(t *testing.T) {
 	if second.Added != 0 || second.Updated != 0 || second.Removed != 0 {
 		t.Fatalf("repeat report: %+v", second)
 	}
-	p, err := s.Tasks(t.Context(), model.TaskQuery{})
-	if err != nil || len(p.Items) != 1 || !reflect.DeepEqual(p.Items[0], d) {
-		t.Fatalf("round trip: %+v, %v", p, err)
+	p := indexedDocuments(t, s)
+	if len(p) != 2 || !reflect.DeepEqual(p[0], d) || !reflect.DeepEqual(p[1], n) {
+		t.Fatalf("round trip: %+v", p)
 	}
 	rebuilt := openTestStore(t)
 	apply(t, rebuilt, snapshot)
-	other, err := rebuilt.Tasks(t.Context(), model.TaskQuery{})
-	if err != nil || !reflect.DeepEqual(p, other) {
-		t.Fatalf("rebuild differs: %+v %v", other, err)
+	if other := indexedDocuments(t, rebuilt); !reflect.DeepEqual(p, other) {
+		t.Fatalf("rebuild differs: %+v", other)
 	}
 	hits, err := s.Keyword(t.Context(), model.SearchQuery{Text: "rebuild"})
 	otherHits, otherErr := rebuilt.Keyword(t.Context(), model.SearchQuery{Text: "rebuild"})
@@ -122,24 +109,24 @@ func TestApplyRebuildRoundTripAndIdempotence(t *testing.T) {
 
 func TestApplyRemovesInvalidDuplicateAndAbsentDocuments(t *testing.T) {
 	s := openTestStore(t)
-	a := fixture(t, "a", "a.task.md", "A", "vanishing")
-	b := fixture(t, "b", "b.task.md", "B", "vanishing")
-	c := fixture(t, "c", "c.task.md", "C", "vanishing")
+	a := fixture(t, "a", "a.note.md", "A", "vanishing")
+	b := fixture(t, "b", "b.note.md", "B", "vanishing")
+	c := fixture(t, "c", "c.note.md", "C", "vanishing")
 	apply(t, s, model.Snapshot{Documents: []model.Document{a, b, c}})
 	// Scanner omits invalid and duplicate documents; a missing source is absent too.
-	diagnostics := []model.Diagnostic{{Code: "invalid_document", Path: a.Path}, {Code: "duplicate_id", Path: b.Path}, {Code: "duplicate_id", Path: "copy.task.md"}}
+	diagnostics := []model.Diagnostic{{Code: "invalid_document", Path: a.Path}, {Code: "duplicate_id", Path: b.Path}, {Code: "duplicate_id", Path: "copy.note.md"}}
 	r := apply(t, s, model.Snapshot{Diagnostics: diagnostics})
 	if r.Removed != 3 || !reflect.DeepEqual(r.Diagnostics, diagnostics) {
 		t.Fatalf("removal report: %+v", r)
 	}
-	if got := taskIDs(t, s, model.TaskQuery{}); len(got) != 0 {
-		t.Fatalf("stale tasks: %v", got)
+	if got := indexedIDs(t, s); len(got) != 0 {
+		t.Fatalf("stale documents: %v", got)
 	}
 	hits, err := s.Keyword(t.Context(), model.SearchQuery{Text: "vanishing"})
 	if err != nil || len(hits) != 0 {
 		t.Fatalf("stale FTS: %+v %v", hits, err)
 	}
-	for _, table := range []string{"documents", "state_events", "document_fts"} {
+	for _, table := range []string{"documents", "document_fts"} {
 		var count int
 		if err := s.db.QueryRow("SELECT count(*) FROM " + table).Scan(&count); err != nil || count != 0 {
 			t.Fatalf("stale %s: %d %v", table, count, err)
@@ -154,8 +141,8 @@ func TestApplyRemovesInvalidDuplicateAndAbsentDocuments(t *testing.T) {
 
 func TestApplyMovesReplacementAndSeparateFingerprints(t *testing.T) {
 	s := openTestStore(t)
-	a := fixture(t, "a", "a.task.md", "Same", "content")
-	b := fixture(t, "b", "b.task.md", "Other", "other")
+	a := fixture(t, "a", "a.note.md", "Same", "content")
+	b := fixture(t, "b", "b.note.md", "Other", "other")
 	apply(t, s, model.Snapshot{Documents: []model.Document{a, b}})
 	var revision, before string
 	if err := s.db.QueryRow("SELECT revision, semantic_fingerprint FROM documents WHERE id = ?", "a").Scan(&revision, &before); err != nil || revision != a.Revision || before == "" {
@@ -220,7 +207,7 @@ func TestTwoConnectionsAndReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer b.Close()
-	d := fixture(t, "a", "a.task.md", "A", "concurrent")
+	d := fixture(t, "a", "a.note.md", "A", "concurrent")
 	snapshot := model.Snapshot{Documents: []model.Document{d}}
 	var wg sync.WaitGroup
 	errs := make(chan error, 2)
@@ -231,7 +218,7 @@ func TestTwoConnectionsAndReopen(t *testing.T) {
 					errs <- err
 					return
 				}
-				if _, err := s.Tasks(t.Context(), model.TaskQuery{}); err != nil {
+				if _, err := s.Keyword(t.Context(), model.SearchQuery{Text: "concurrent"}); err != nil {
 					errs <- err
 					return
 				}
@@ -251,7 +238,7 @@ func TestTwoConnectionsAndReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	if got := taskIDs(t, c, model.TaskQuery{}); !reflect.DeepEqual(got, []string{"a"}) {
+	if got := indexedIDs(t, c); !reflect.DeepEqual(got, []string{"a"}) {
 		t.Fatalf("reopen: %v", got)
 	}
 }
@@ -264,29 +251,28 @@ func TestSQLiteConfigurationAndAtomicFailure(t *testing.T) {
 			t.Fatalf("%s: %s %v", pragma, got, err)
 		}
 	}
-	d := fixture(t, "a", "a.task.md", "A", "kept")
+	d := fixture(t, "a", "a.note.md", "A", "kept")
 	apply(t, s, model.Snapshot{Documents: []model.Document{d}})
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	if _, err := s.Apply(ctx, model.Snapshot{}); err == nil {
 		t.Fatal("cancelled apply succeeded")
 	}
-	if got := taskIDs(t, s, model.TaskQuery{}); !reflect.DeepEqual(got, []string{"a"}) {
+	if got := indexedIDs(t, s); !reflect.DeepEqual(got, []string{"a"}) {
 		t.Fatalf("partial apply: %v", got)
 	}
-	// Fail after document/history/FTS updates, proving all tables roll back
+	// Fail after document/FTS updates, proving all tables roll back
 	// together and driver errors cannot expose document content.
 	if _, err := s.db.Exec(`CREATE TRIGGER fail_diagnostic BEFORE INSERT ON diagnostics BEGIN SELECT RAISE(ABORT, 'private source content'); END`); err != nil {
 		t.Fatal(err)
 	}
-	newDoc := fixture(t, "b", "b.task.md", "B", "replacement")
-	_, err := s.Apply(t.Context(), model.Snapshot{Documents: []model.Document{newDoc}, Diagnostics: []model.Diagnostic{{Code: "invalid_document", Path: "bad.task.md"}}})
+	newDoc := fixture(t, "b", "b.note.md", "B", "replacement")
+	_, err := s.Apply(t.Context(), model.Snapshot{Documents: []model.Document{newDoc}, Diagnostics: []model.Diagnostic{{Code: "invalid_document", Path: "bad.note.md"}}})
 	if model.ErrorCode(err) != "index_unavailable" || strings.Contains(err.Error(), "private source content") {
 		t.Fatalf("failure: %v", err)
 	}
-	p, err := s.Tasks(t.Context(), model.TaskQuery{})
-	if err != nil || len(p.Items) != 1 || !reflect.DeepEqual(p.Items[0], d) {
-		t.Fatalf("partially published metadata/history: %+v %v", p, err)
+	if p := indexedDocuments(t, s); len(p) != 1 || !reflect.DeepEqual(p[0], d) {
+		t.Fatalf("partially published metadata: %+v", p)
 	}
 	hits, err := s.Keyword(t.Context(), model.SearchQuery{Text: "kept"})
 	if err != nil || len(hits) != 1 || hits[0].ID != "a" {
@@ -300,13 +286,10 @@ func TestDeleteDatabaseAndRebuildSamePath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := fixture(t, "a", "a.task.md", "A", "rebuildword")
+	d := fixture(t, "a", "a.note.md", "A", "rebuildword")
 	snapshot := model.Snapshot{Documents: []model.Document{d}}
 	apply(t, s, snapshot)
-	before, err := s.Tasks(t.Context(), model.TaskQuery{})
-	if err != nil {
-		t.Fatal(err)
-	}
+	before := indexedDocuments(t, s)
 	beforeHits, err := s.Keyword(t.Context(), model.SearchQuery{Text: "rebuildword"})
 	if err != nil {
 		t.Fatal(err)
@@ -323,9 +306,8 @@ func TestDeleteDatabaseAndRebuildSamePath(t *testing.T) {
 	}
 	defer s.Close()
 	apply(t, s, snapshot)
-	after, err := s.Tasks(t.Context(), model.TaskQuery{})
-	if err != nil || !reflect.DeepEqual(before, after) {
-		t.Fatalf("rebuild metadata/history: %+v %v", after, err)
+	if after := indexedDocuments(t, s); !reflect.DeepEqual(before, after) {
+		t.Fatalf("rebuild metadata: %+v", after)
 	}
 	afterHits, err := s.Keyword(t.Context(), model.SearchQuery{Text: "rebuildword"})
 	if err != nil || !reflect.DeepEqual(beforeHits, afterHits) {
@@ -345,7 +327,7 @@ func TestWALReaderCannotSeeUncommittedMetadataOrKeywords(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer b.Close()
-	d := fixture(t, "a", "a.task.md", "A", "publishedword")
+	d := fixture(t, "a", "a.note.md", "A", "publishedword")
 	apply(t, a, model.Snapshot{Documents: []model.Document{d}})
 	conn, err := a.db.Conn(t.Context())
 	if err != nil {
@@ -361,9 +343,8 @@ func TestWALReaderCannotSeeUncommittedMetadataOrKeywords(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
-	p, err := b.Tasks(ctx, model.TaskQuery{})
-	if err != nil || len(p.Items) != 1 || !reflect.DeepEqual(p.Items[0], d) {
-		t.Fatalf("reader blocked or dirty metadata: %+v %v", p, err)
+	if p := indexedDocuments(t, b); len(p) != 1 || !reflect.DeepEqual(p[0], d) {
+		t.Fatalf("reader blocked or dirty metadata: %+v", p)
 	}
 	hits, err := b.Keyword(ctx, model.SearchQuery{Text: "publishedword"})
 	if err != nil || len(hits) != 1 {

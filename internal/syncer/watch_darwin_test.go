@@ -24,7 +24,7 @@ func testOutsideActivity(t *testing.T, existingLink bool) {
 	for _, kind := range []string{"directory", "file"} {
 		t.Run(kind, func(t *testing.T) {
 			root, outside := t.TempDir(), t.TempDir()
-			outsideFile := filepath.Join(outside, "outside.task.md")
+			outsideFile := filepath.Join(outside, "outside.note.md")
 			write(t, outsideFile, "outside body")
 			target := outside
 			if kind == "file" {

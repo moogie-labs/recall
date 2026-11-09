@@ -54,11 +54,11 @@ func TestCreateAndDelete(t *testing.T) {
 	if f.Problem != nil {
 		t.Fatal(f.Problem)
 	}
-	d := s.Create(CreateInput{Session: session, Kind: "task", Parent: "work", Name: "task"})
-	if d.Problem != nil || d.Document.Path != "work/task.task.md" || d.Document.State != "planned" {
+	d := s.Create(CreateInput{Session: session, Kind: "note", Parent: "work", Name: "item"})
+	if d.Problem != nil || d.Document.Path != "work/item.note.md" || d.Entry.Kind != "note" {
 		t.Fatal(d)
 	}
-	for _, in := range []CreateInput{{Kind: "task", Parent: "work", Name: "task"}, {Kind: "folder", Name: "../escape"}, {Kind: "note", Name: "a/b"}, {Kind: "folder", Name: "."}} {
+	for _, in := range []CreateInput{{Kind: "note", Parent: "work", Name: "item"}, {Kind: "task", Parent: "work", Name: "other"}, {Kind: "folder", Name: "../escape"}, {Kind: "note", Name: "a/b"}, {Kind: "folder", Name: "."}} {
 		in.Session = session
 		if s.Create(in).Problem == nil {
 			t.Fatalf("invalid creation accepted %+v", in)

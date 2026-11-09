@@ -25,7 +25,7 @@ type documentList struct {
 }
 
 func (i *invocation) documentCommand() *cobra.Command {
-	c := i.group("document", "List, read, create, and mutate notes and tasks")
+	c := i.group("document", "List, read, create, and mutate notes")
 	c.AddCommand(i.documentListCommand(), i.documentCreateCommand())
 	for _, verb := range []string{"get", "update", "edit", "move", "delete"} {
 		c.AddCommand(i.documentMutationCommand(verb))
@@ -35,23 +35,16 @@ func (i *invocation) documentCommand() *cobra.Command {
 
 func (i *invocation) documentListCommand() *cobra.Command {
 	var f filterFlags
-	var kind string
 	var limit, offset int
 	var desc bool
 	c := i.command("list", "List documents by title (paginated; includes diagnostics and folders)", noArgs, func(*cobra.Command, []string) (any, error) {
 		if err := pageBounds(limit, offset, 200); err != nil {
 			return nil, err
 		}
-		if kind != "" && kind != "note" && kind != "task" {
-			return nil, invalid("type must be note or task")
-		}
 		return i.withApp(func(a *app.App) (any, error) {
 			snapshot, err := a.List(i.ctx, f.folder, f.recursive)
 			if err != nil {
 				return nil, err
-			}
-			if kind != "" {
-				snapshot.Documents = slices.DeleteFunc(snapshot.Documents, func(d model.Document) bool { return d.Kind != model.Kind(kind) })
 			}
 			slices.SortFunc(snapshot.Documents, func(a, b model.Document) int {
 				order := strings.Compare(a.Title, b.Title)
@@ -80,8 +73,7 @@ func (i *invocation) documentListCommand() *cobra.Command {
 			return documentList{Documents: summaries, Diagnostics: snapshot.Diagnostics, Folders: snapshot.Folders, NextOffset: next}, nil
 		})
 	})
-	f.bindFolder(c)
-	c.Flags().StringVar(&kind, "type", "", "Filter note or task documents")
+	f.bind(c)
 	c.Flags().IntVar(&limit, "limit", 50, "Page size (maximum 200)")
 	c.Flags().IntVar(&offset, "offset", 0, "Nonnegative page offset")
 	c.Flags().BoolVar(&desc, "desc", false, "Sort titles descending (ID breaks ties)")
@@ -89,11 +81,8 @@ func (i *invocation) documentListCommand() *cobra.Command {
 }
 
 func (i *invocation) documentCreateCommand() *cobra.Command {
-	var kind, folder, name, title, bodyFile string
+	var folder, name, title, bodyFile string
 	c := i.command("create", "Create from stdin or --body-file; never launches an editor", noArgs, func(*cobra.Command, []string) (any, error) {
-		if kind != "note" && kind != "task" {
-			return nil, invalid("--type note or task is required")
-		}
 		if err := bareName(name); err != nil {
 			return nil, err
 		}
@@ -102,12 +91,11 @@ func (i *invocation) documentCreateCommand() *cobra.Command {
 			return nil, err
 		}
 		return i.withApp(func(a *app.App) (any, error) {
-			return a.Create(i.ctx, app.CreateInput{Kind: model.Kind(kind), Folder: folder, Name: name, Title: title, Body: body})
+			return a.Create(i.ctx, app.CreateInput{Folder: folder, Name: name, Title: title, Body: body})
 		})
 	})
-	c.Flags().StringVar(&kind, "type", "", "Required document type: note or task")
 	c.Flags().StringVar(&folder, "folder", "", "Destination folder (default: content root)")
-	c.Flags().StringVar(&name, "name", "", "Required bare filename component; Recall appends .note.md/.task.md")
+	c.Flags().StringVar(&name, "name", "", "Required bare filename component; Recall appends .note.md")
 	c.Flags().StringVar(&title, "title", "", "Display title (default: name)")
 	c.Flags().StringVar(&bodyFile, "body-file", "", "Read body from file (- or omitted: stdin; terminal: empty body)")
 	return c
@@ -116,7 +104,7 @@ func (i *invocation) documentCreateCommand() *cobra.Command {
 func (i *invocation) documentMutationCommand(verb string) *cobra.Command {
 	var f referenceFlags
 	var rawFile, destination string
-	c := i.command(verb, map[string]string{"get": "Read complete source Markdown", "update": "Replace raw Markdown with a required source revision", "edit": "Explicitly launch the configured editor on the real source", "move": "Move to a full content-relative typed filename", "delete": "Permanently delete without prompting"}[verb], noArgs, func(*cobra.Command, []string) (any, error) {
+	c := i.command(verb, map[string]string{"get": "Read complete source Markdown", "update": "Replace raw Markdown with a required source revision", "edit": "Explicitly launch the configured editor on the real source", "move": "Move to a full content-relative .note.md filename", "delete": "Permanently delete without prompting"}[verb], noArgs, func(*cobra.Command, []string) (any, error) {
 		ref, err := f.ref()
 		if err != nil {
 			return nil, err
@@ -132,7 +120,7 @@ func (i *invocation) documentMutationCommand(verb string) *cobra.Command {
 			}
 		}
 		if verb == "move" && destination == "" {
-			return nil, invalid("move requires --to with a complete typed filename")
+			return nil, invalid("move requires --to with a complete .note.md filename")
 		}
 		return i.withApp(func(a *app.App) (any, error) {
 			switch verb {
@@ -160,7 +148,7 @@ func (i *invocation) documentMutationCommand(verb string) *cobra.Command {
 		c.Flags().StringVar(&rawFile, "raw-file", "", "Complete Markdown file (- or omitted: stdin)")
 	}
 	if verb == "move" {
-		c.Flags().StringVar(&destination, "to", "", "Required full relative destination, including the type suffix")
+		c.Flags().StringVar(&destination, "to", "", "Required full relative destination, including .note.md")
 	}
 	return c
 }

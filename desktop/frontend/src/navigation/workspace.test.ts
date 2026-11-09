@@ -10,8 +10,6 @@ const a: DocumentView = {
   title: "A",
   body: "old",
   revision: "r0",
-  kind: "note",
-  state: "",
 };
 const b: DocumentView = { ...a, id: "b", path: "b.note.md" };
 it("folder selection and preview/search preserve the draft and its save timers", async () => {

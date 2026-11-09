@@ -53,12 +53,12 @@ func (p *appProvider) Embed(ctx context.Context, purpose string, texts []string)
 func installProvider(a *App, p *appProvider) {
 	a.search = search.New(search.NewStoreSource(a.store), a.index, p)
 }
-func TestStateChangeDoesNotReembedBody(t *testing.T) {
+func TestMetadataChangeDoesNotReembedBody(t *testing.T) {
 	a, _ := newTestApp(t)
 	defer a.Close()
 	p := &appProvider{}
 	installProvider(a, p)
-	d := mustCreate(t, a, CreateInput{Kind: model.Task, Name: "work", Body: "original body"})
+	d := mustCreate(t, a, CreateInput{Name: "work", Body: "original body"})
 	if p.calls.Load() != 0 {
 		t.Fatal("one-shot write ran inference")
 	}
@@ -66,11 +66,11 @@ func TestStateChangeDoesNotReembedBody(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := p.calls.Load()
-	changed, err := a.SetState(t.Context(), model.Ref{ID: d.ID}, model.Completed, d.Revision)
+	changed, err := a.Update(t.Context(), model.Ref{ID: d.ID}, d.Revision, strings.Replace(d.Raw, "title:", "custom: changed\ntitle:", 1))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = a.Move(t.Context(), model.Ref{ID: d.ID}, "moved.task.md", changed.Revision); err != nil {
+	if _, err = a.Move(t.Context(), model.Ref{ID: d.ID}, "moved.note.md", changed.Revision); err != nil {
 		t.Fatal(err)
 	}
 	if err = a.IndexPending(t.Context()); err != nil {
@@ -80,7 +80,7 @@ func TestStateChangeDoesNotReembedBody(t *testing.T) {
 		t.Fatal("metadata-only edit re-embedded")
 	}
 	hits, err := a.Search(t.Context(), model.SearchQuery{Text: "concept", Mode: "semantic"})
-	if err != nil || len(hits) != 1 || hits[0].Path != "moved.task.md" || hits[0].State != model.Completed {
+	if err != nil || len(hits) != 1 || hits[0].Path != "moved.note.md" {
 		t.Fatalf("%+v %v", hits, err)
 	}
 	line := 1 + strings.Count(changed.Raw[:len(changed.Raw)-len(changed.Body)], "\n")
@@ -99,7 +99,7 @@ func TestStoreSourceDeletionDuringEmbeddingAndLiveCleanup(t *testing.T) {
 	defer a.Close()
 	p := &appProvider{started: make(chan struct{}), release: make(chan struct{})}
 	installProvider(a, p)
-	d := mustCreate(t, a, CreateInput{Kind: model.Note, Name: "work", Body: "needle"})
+	d := mustCreate(t, a, CreateInput{Name: "work", Body: "needle"})
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	done := make(chan error, 1)
@@ -141,7 +141,7 @@ func TestExternalBodyChangeCannotPublishOldEmbedding(t *testing.T) {
 	defer a.Close()
 	p := &appProvider{started: make(chan struct{}), release: make(chan struct{})}
 	installProvider(a, p)
-	d := mustCreate(t, a, CreateInput{Kind: model.Note, Name: "work", Body: "old body"})
+	d := mustCreate(t, a, CreateInput{Name: "work", Body: "old body"})
 	done := make(chan error, 1)
 	go func() { done <- a.IndexPending(t.Context()) }()
 	<-p.started
@@ -159,11 +159,11 @@ func TestMoveDuringEmbeddingReusesVector(t *testing.T) {
 	defer a.Close()
 	p := &appProvider{started: make(chan struct{}), release: make(chan struct{})}
 	installProvider(a, p)
-	d := mustCreate(t, a, CreateInput{Kind: model.Task, Name: "work", Body: "body"})
+	d := mustCreate(t, a, CreateInput{Name: "work", Body: "body"})
 	done := make(chan error, 1)
 	go func() { done <- a.IndexPending(t.Context()) }()
 	<-p.started
-	if _, err := a.Move(t.Context(), model.Ref{ID: d.ID}, "moved.task.md", d.Revision); err != nil {
+	if _, err := a.Move(t.Context(), model.Ref{ID: d.ID}, "moved.note.md", d.Revision); err != nil {
 		t.Fatal(err)
 	}
 	close(p.release)
@@ -180,7 +180,7 @@ func TestSourceChangedDuringQueryInferenceIsNotCurrentHit(t *testing.T) {
 	defer a.Close()
 	p := &appProvider{queryStarted: make(chan struct{}), queryRelease: make(chan struct{})}
 	installProvider(a, p)
-	d := mustCreate(t, a, CreateInput{Kind: model.Note, Name: "work", Body: "old body"})
+	d := mustCreate(t, a, CreateInput{Name: "work", Body: "old body"})
 	if err := a.IndexPending(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestBodyEditInvalidatesOldSemanticRowsUntilDrained(t *testing.T) {
 	defer a.Close()
 	p := &appProvider{}
 	installProvider(a, p)
-	d := mustCreate(t, a, CreateInput{Kind: model.Note, Name: "work", Body: "before"})
+	d := mustCreate(t, a, CreateInput{Name: "work", Body: "before"})
 	if err := a.IndexPending(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -247,7 +247,7 @@ func TestAllRetrieversCarryActualSourceRevision(t *testing.T) {
 	a, cfg := newTestApp(t)
 	defer a.Close()
 	installProvider(a, &appProvider{})
-	d := mustCreate(t, a, CreateInput{Kind: model.Task, Name: "source", Body: "needle original"})
+	d := mustCreate(t, a, CreateInput{Name: "source", Body: "needle original"})
 	for _, mode := range []string{"keyword", "semantic", "hybrid"} {
 		t.Run(mode, func(t *testing.T) {
 			hits, err := a.Search(t.Context(), model.SearchQuery{Text: "needle", Mode: mode})
@@ -256,13 +256,13 @@ func TestAllRetrieversCarryActualSourceRevision(t *testing.T) {
 			}
 		})
 	}
-	changed, err := a.SetState(t.Context(), model.Ref{ID: d.ID}, model.InProgress, d.Revision)
+	changed, err := a.Update(t.Context(), model.Ref{ID: d.ID}, d.Revision, strings.Replace(d.Raw, "title:", "custom: changed\ntitle:", 1))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, mode := range []string{"keyword", "semantic", "hybrid"} {
 		hits, err := a.Search(t.Context(), model.SearchQuery{Text: "needle", Mode: mode})
-		if err != nil || len(hits) != 1 || hits[0].Revision != changed.Revision || hits[0].State != model.InProgress {
+		if err != nil || len(hits) != 1 || hits[0].Revision != changed.Revision {
 			t.Fatalf("metadata-only %s revision: %+v %v", mode, hits, err)
 		}
 	}

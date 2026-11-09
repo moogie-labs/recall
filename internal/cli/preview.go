@@ -25,7 +25,7 @@ func terminalText(text string, passage bool) string {
 }
 
 // Validate complete discovery data before writing either human or JSON output.
-// Full documents/raw/history and mutation results deliberately remain exempt.
+// Full documents/raw and mutation results deliberately remain exempt.
 func checkDiscovery(data any) error {
 	switch page := data.(type) {
 	case documentList:
@@ -39,7 +39,7 @@ func checkDiscovery(data any) error {
 		if err := model.CheckFolders(page); err != nil {
 			return err
 		}
-	case model.Page[model.DocumentSummary], []model.Hit:
+	case []model.Hit:
 	default:
 		return nil
 	}

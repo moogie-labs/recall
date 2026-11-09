@@ -16,7 +16,7 @@ func TestEditorPathAndDeleteMalformedExplicitSources(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	a, cfg := newTestApp(t)
 	defer a.Close()
-	for _, raw := range []string{"---\nid: [broken\n---\nbody", "---\nid: conflict\ntype: task\n---\nbody"} {
+	for _, raw := range []string{"---\nid: [broken\n---\nbody", "---\nid: conflict\ntitle: [broken\n---\nbody"} {
 		path := filepath.Join(cfg.Content, "repair.note.md")
 		if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
 			t.Fatal(err)
@@ -34,7 +34,7 @@ func TestEditorPathAndDeleteMalformedExplicitSources(t *testing.T) {
 			t.Fatalf("not deleted: %v", err)
 		}
 	}
-	d := mustCreate(t, a, CreateInput{Kind: model.Note, Name: "one"})
+	d := mustCreate(t, a, CreateInput{Name: "one"})
 	if err := os.WriteFile(filepath.Join(cfg.Content, "two.note.md"), []byte(d.Raw), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestEditorRecoveryRejectsUnmanagedSymlinkAndRootReplacement(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	a, cfg := newTestApp(t)
 	defer a.Close()
-	d := mustCreate(t, a, CreateInput{Kind: model.Note, Name: "safe"})
+	d := mustCreate(t, a, CreateInput{Name: "safe"})
 	outside := t.TempDir()
 	if err := os.WriteFile(filepath.Join(outside, "out.note.md"), []byte("outside"), 0600); err != nil {
 		t.Fatal(err)
@@ -101,7 +101,7 @@ func TestEditorRejectsReplacedActualDirectoryRoot(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	a, cfg := newTestApp(t)
 	defer a.Close()
-	d := mustCreate(t, a, CreateInput{Kind: model.Note, Name: "safe"})
+	d := mustCreate(t, a, CreateInput{Name: "safe"})
 	if err := os.Rename(cfg.Content, cfg.Content+"-old"); err != nil {
 		t.Fatal(err)
 	}

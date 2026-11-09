@@ -17,8 +17,6 @@ const api = fakeBridge(
       body:
         fixture.__fixtureBody ??
         "# Reading notes\n\nA quieter place to keep useful ideas.\n\n## Next steps\n\n- Read something good\n- Keep a note",
-      kind: "note",
-      state: "",
       revision: "r0",
     },
   ],

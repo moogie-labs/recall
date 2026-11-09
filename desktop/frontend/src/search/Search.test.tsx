@@ -12,8 +12,6 @@ const doc = {
   title: "A",
   body: "needle",
   revision: "r0",
-  kind: "note",
-  state: "",
 };
 function setup() {
   const api = fakeBridge([doc], ["Work"]);
