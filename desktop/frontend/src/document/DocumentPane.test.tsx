@@ -185,3 +185,74 @@ it("copies an unsaved conflict draft through the native boundary without browser
   unmount();
   c.dispose();
 });
+function renderWithCopy(
+  c: SaveCoordinator,
+  w: Workspace,
+  copy: (text: string) => Promise<{ problem: null | any }>,
+) {
+  return render(
+    <DocumentPane workspace={w} coordinator={c} copyDraft={copy} />,
+  );
+}
+const copyButton = () =>
+  screen.getByRole("button", { name: "Copy Markdown to clipboard" });
+it("copies the same live Markdown body from preview and edit modes", async () => {
+  const { c, w } = await setup();
+  const copy = vi.fn(async (_: string) => ({ problem: null }));
+  const { unmount } = renderWithCopy(c, w, copy);
+  act(() => c.edit("# Unsaved"));
+  await act(async () => {
+    fireEvent.click(copyButton());
+  });
+  expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Copied" }));
+  });
+  expect(copy.mock.calls).toEqual([["# Unsaved"], ["# Unsaved"]]);
+  unmount();
+  c.dispose();
+});
+it("returns to the copy label shortly after a successful copy", async () => {
+  vi.useFakeTimers();
+  const { c, w } = await setup();
+  const { unmount } = renderWithCopy(c, w, async () => ({ problem: null }));
+  await act(async () => {
+    fireEvent.click(copyButton());
+  });
+  expect(screen.getByText("Copied to clipboard")).toBeInTheDocument();
+  await act(() => vi.advanceTimersByTimeAsync(1499));
+  expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+  await act(() => vi.advanceTimersByTimeAsync(1));
+  expect(copyButton()).toHaveTextContent("Copy");
+  unmount();
+  c.dispose();
+});
+it.each([
+  [
+    "a host problem",
+    async () => ({ problem: { code: "internal", message: "nope" } }),
+  ],
+  ["a rejected bridge call", () => Promise.reject(new Error("bridge"))],
+])("reports a failed copy from %s", async (_, copy) => {
+  const { c, w } = await setup();
+  const { unmount } = renderWithCopy(c, w, copy as any);
+  await act(async () => {
+    fireEvent.click(copyButton());
+  });
+  expect(
+    screen.getByRole("button", { name: "Copy failed" }),
+  ).toBeInTheDocument();
+  expect(screen.getByText("Could not copy the document")).toBeInTheDocument();
+  unmount();
+  c.dispose();
+});
+it("offers no copy button when no document is open", () => {
+  const api = fakeBridge([doc]);
+  const c = new SaveCoordinator(api);
+  const w = new Workspace(api, c);
+  const { unmount } = render(<DocumentPane workspace={w} coordinator={c} />);
+  expect(screen.queryByRole("button", { name: /copy/i })).toBeNull();
+  unmount();
+  c.dispose();
+});
