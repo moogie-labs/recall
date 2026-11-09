@@ -32,7 +32,7 @@ export function Search({
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
       if (event.isComposing) return;
-      if (event.metaKey && event.key.toLowerCase() === "f") {
+      if (event.metaKey && !event.ctrlKey && event.key.toLowerCase() === "f") {
         event.preventDefault();
         input.current?.focus();
         input.current?.select();

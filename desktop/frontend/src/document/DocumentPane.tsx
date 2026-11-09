@@ -8,6 +8,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { Workspace } from "../navigation/workspace";
 import { SaveCoordinator } from "../saving/coordinator";
 import { MarkdownPreview } from "./MarkdownPreview";
+import { CopyButton } from "./CopyButton";
 export function DocumentPane({
   workspace,
   coordinator,
@@ -91,6 +92,13 @@ export function DocumentPane({
               </button>
             ))}
           </div>
+        )}
+        {state.document && (
+          <CopyButton
+            key={state.document.id}
+            text={save.body}
+            copy={copyDraft}
+          />
         )}
       </div>
       <div className="document-scroll">

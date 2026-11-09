@@ -81,6 +81,21 @@ it("uses cmd-f and escape without resetting draft save timers", async () => {
   unmount();
   c.dispose();
 });
+it("leaves ctrl-cmd-f to the native full screen shortcut", () => {
+  const { api, c, w } = setup();
+  const { unmount } = render(
+    <Search api={api} workspace={w} session="test-session" reveal={() => {}} />,
+  );
+  const handled = !fireEvent.keyDown(document, {
+    key: "f",
+    metaKey: true,
+    ctrlKey: true,
+  });
+  expect(handled).toBe(false);
+  expect(screen.getByRole("textbox", { name: "Search" })).not.toHaveFocus();
+  unmount();
+  c.dispose();
+});
 it("offers an explicit keyword retry and flushes before opening results", async () => {
   vi.useFakeTimers();
   const { api, c, w } = setup();

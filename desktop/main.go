@@ -11,8 +11,10 @@ import (
 	"syscall"
 
 	"github.com/wailsapp/wails/v2"
+	"github.com/wailsapp/wails/v2/pkg/menu"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v2/pkg/options/mac"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"recall/internal/app"
 	"recall/internal/bootstrap"
@@ -51,7 +53,13 @@ func main() {
 	}
 	err = wails.Run(&options.App{Title: "Recall", Width: 1140, Height: 760, MinWidth: 760, MinHeight: 500,
 		AssetServer: &assetserver.Options{Assets: assets},
-		OnDomReady:  verifyDOMReady,
+		Menu:        applicationMenu(),
+		// Wails disables the green window button unless Mac options are present.
+		Mac: &mac.Options{},
+		OnDomReady: func(ctx context.Context) {
+			installFullScreenMenuItem()
+			verifyDOMReady(ctx)
+		},
 		OnStartup: func(ctx context.Context) {
 			appctx = ctx
 			service.SetEventSink(func(name string, payload any) { runtime.EventsEmit(ctx, name, payload) })
@@ -61,6 +69,16 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+}
+
+// applicationMenu keeps the Wails default App, Edit and Window menus (Edit carries
+// the native copy/paste/undo/select-all shortcuts) and adds a View menu, which
+// installFullScreenMenuItem fills once the window exists.
+func applicationMenu() *menu.Menu {
+	items := menu.NewMenuFromItems(menu.AppMenu(), menu.EditMenu())
+	items.AddSubmenu("View")
+	items.Append(menu.WindowMenu())
+	return items
 }
 
 // automaticSetup lets first launch create ~/Documents/recall and install the
