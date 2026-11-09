@@ -16,11 +16,11 @@ func TestErrorCode(t *testing.T) {
 		"asset_invalid", "unsupported_platform",
 	} {
 		t.Run(code, func(t *testing.T) {
-			err := fmt.Errorf("operation failed: %w", &Error{Code: code, Message: "safe explanation", Path: "folder/ideas.note.md"})
+			err := fmt.Errorf("operation failed: %w", &Error{Code: code, Message: "safe explanation", Path: "folder/ideas.md"})
 			if got := ErrorCode(err); got != code {
 				t.Fatalf("ErrorCode = %q, want %q", got, code)
 			}
-			if !strings.Contains(err.Error(), "safe explanation") || !strings.Contains(err.Error(), "folder/ideas.note.md") {
+			if !strings.Contains(err.Error(), "safe explanation") || !strings.Contains(err.Error(), "folder/ideas.md") {
 				t.Fatalf("error is not actionable: %v", err)
 			}
 		})

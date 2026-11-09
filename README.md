@@ -1,7 +1,7 @@
 # Recall
 
 Local-first notes and offline hybrid search for Apple Silicon macOS.
-Typed Markdown files are authoritative; SQLite and embeddings are rebuildable.
+Markdown files are authoritative; SQLite and embeddings are rebuildable.
 No accounts, cloud API, Ollama, launch agent, or generated answers.
 
 To build from source with Go 1.27+, run `go build -o ./build/recall ./cmd/recall` from the repository root; see [developer packaging](docs/operations.md#developer-packaging) for a complete distributable package.
@@ -41,6 +41,10 @@ inference. The installer itself does not initialize or alter your collections, a
 setup never replaces your configuration or authored files.
 If `/usr/local/bin` is not on your PATH, use `/usr/local/bin/recall` directly.
 Release automation and maintainer setup are described in [releases](docs/releases.md).
+
+Upgrading a collection that still has `*.note.md` files? Follow
+[the migration steps](docs/operations.md#migrating-a-collection-from-notemd-to-plain-md)
+**before** running the new build.
 
 ## First use
 

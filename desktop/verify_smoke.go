@@ -21,7 +21,7 @@ func (h *Host) VerifyExternalChange() error {
 	if err != nil || string(marker) != "owned verification fixture" {
 		return fmt.Errorf("not an owned fixture")
 	}
-	file := filepath.Join(root, "content", "smoke.note.md")
+	file := filepath.Join(root, "content", "smoke.md")
 	raw, err := os.ReadFile(file)
 	if err != nil {
 		return err
@@ -43,7 +43,7 @@ func verifyDOMReady(ctx context.Context) {
  const insert=async text=>{const editor=await wait(()=>{const el=document.querySelector('.cm-content[contenteditable=true]');return el&&!el.closest('[hidden]')?el:null},'editable document');editor.focus();const sel=window.getSelection();sel.selectAllChildren(editor);sel.collapseToEnd();if(!document.execCommand('insertText',false,text))throw Error('Native insertion was refused');await wait(()=>status()==='Unsaved changes','dirty state')};
  try{
   await window.go.main.Host.VerifyMarker('NATIVE_STAGE opening');
-  const row=await wait(()=>document.querySelector('[role=treeitem][data-path="smoke.note.md"]'),'tree');row.click();
+  const row=await wait(()=>document.querySelector('[role=treeitem][data-path="smoke.md"]'),'tree');row.click();
   await wait(()=>button('Edit'),'document');button('Edit').click();await insert('\nAutosaved 自由');
   await wait(()=>status()==='Autosaving','one-second message');await wait(()=>status()==='Saved','three-second source save');
   await window.go.main.Host.VerifyMarker('NATIVE_STAGE saved');
@@ -52,9 +52,9 @@ func verifyDOMReady(ctx context.Context) {
   await wait(()=>!document.querySelector('.search-results'),'result navigation');
   await window.go.main.Host.VerifyMarker('NATIVE_STAGE tree CRUD');
   const create=async(kind,name,path)=>{document.querySelector('button[aria-label=Create]').click();const choice=await wait(()=>button('New '+kind),'create menu');choice.click();const field=await wait(()=>document.querySelector('dialog input'),'create dialog');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(field,name);field.dispatchEvent(new Event('input',{bubbles:true}));await sleep(0);button('Create item').click();await wait(()=>document.querySelector('[role=treeitem][data-path="'+path+'"]'),'created '+kind);await wait(()=>!document.querySelector('dialog'),'closed create dialog')};
-  await create('folder','Temporary','Temporary');await create('note','Outline','Temporary/Outline.note.md');
+  await create('folder','Temporary','Temporary');await create('note','Outline','Temporary/Outline.md');
   document.querySelector('[role=treeitem][data-path=Temporary]').click();await wait(()=>document.querySelector('[role=treeitem][data-path=Temporary]')?.getAttribute('aria-selected')==='true','folder selection');document.querySelector('button[aria-label="Delete selection"]').click();await wait(()=>button('Delete permanently'),'recursive delete confirmation');button('Delete permanently').click();await wait(()=>!document.querySelector('[role=treeitem][data-path=Temporary]'),'deleted folder');
-  document.querySelector('[role=treeitem][data-path="smoke.note.md"]').click();await wait(()=>button('Edit'),'reopen note');button('Edit').click();await insert('\nQuit flush 😀');
+  document.querySelector('[role=treeitem][data-path="smoke.md"]').click();await wait(()=>button('Edit'),'reopen note');button('Edit').click();await insert('\nQuit flush 😀');
   await window.go.main.Host.VerifyMarker('NATIVE_STAGE quitting');
   if(window.__recallVerifyConflict){
    await window.go.main.Host.VerifyExternalChange();window.runtime.Quit();await wait(()=>status()==='Save failed','blocked conflicting Quit');await sleep(500);window.runtime.Quit();await sleep(500);if(status()!=='Save failed')throw Error('Conflicting quit lost draft');await window.go.main.Host.VerifyMarker('NATIVE_CONFLICT_PASS');window.confirm=()=>true;button('Reload file…').click();await wait(()=>status()==='Saved','explicit discard/reload');window.runtime.Quit();

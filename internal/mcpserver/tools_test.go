@@ -24,14 +24,14 @@ func TestDocumentsListInvalidOnlyDiagnosticsAreDiscoverableAndPaged(t *testing.T
 	for _, version := range []string{"", "2025-06-18"} {
 		t.Run(version, func(t *testing.T) {
 			sources := map[string]string{
-				"a-malformed.note.md": "---\ntitle: [unterminated\n---\nprivate-invalid-body\n",
-				"b-conflict.note.md":  "---\nid: [conflict\n---\nprivate-invalid-body\n",
-				"c-duplicate.note.md": "---\nid: shared\ntype: note\n---\nprivate-invalid-body\n",
-				"d-duplicate.note.md": "---\nid: shared\n---\nprivate-invalid-body\n",
+				"a-malformed.md": "---\ntitle: [unterminated\n---\nprivate-invalid-body\n",
+				"b-conflict.md":  "---\nid: [conflict\n---\nprivate-invalid-body\n",
+				"c-duplicate.md": "---\nid: shared\ntype: note\n---\nprivate-invalid-body\n",
+				"d-duplicate.md": "---\nid: shared\n---\nprivate-invalid-body\n",
 			}
 			a, cfg := newTestAppWithSources(t, sources)
 			s := connect(t, a, version)
-			want := []struct{ path, code string }{{"a-malformed.note.md", "invalid_document"}, {"b-conflict.note.md", "invalid_document"}, {"c-duplicate.note.md", "duplicate_id"}, {"d-duplicate.note.md", "duplicate_id"}}
+			want := []struct{ path, code string }{{"a-malformed.md", "invalid_document"}, {"b-conflict.md", "invalid_document"}, {"c-duplicate.md", "duplicate_id"}, {"d-duplicate.md", "duplicate_id"}}
 			for offset := 0; offset < 4; offset += 2 {
 				r := call(t, s, "documents_list", map[string]any{"limit": 2, "offset": offset, "desc": true})
 				page := data[documentPage](t, r)
@@ -103,10 +103,10 @@ func TestDocumentsListInvalidOnlyDiagnosticsAreDiscoverableAndPaged(t *testing.T
 
 func TestDocumentsListMixedSourcesShareOnePaginationBudget(t *testing.T) {
 	a, _ := newTestAppWithSources(t, map[string]string{
-		"bad.note.md":    "---\ntitle: [unterminated\n---\nprivate-invalid-body\n",
-		"good-a.note.md": "---\nid: b\ntype: note\ntitle: Same\n---\nprivate-valid-body\n",
-		"good-b.note.md": "---\nid: a\ntype: note\ntitle: Same\n---\nprivate-valid-body\n",
-		"good-z.note.md": "---\nid: z\ntype: note\ntitle: Zulu\n---\nprivate-valid-body\n",
+		"bad.md":    "---\ntitle: [unterminated\n---\nprivate-invalid-body\n",
+		"good-a.md": "---\nid: b\ntype: note\ntitle: Same\n---\nprivate-valid-body\n",
+		"good-b.md": "---\nid: a\ntype: note\ntitle: Same\n---\nprivate-valid-body\n",
+		"good-z.md": "---\nid: z\ntype: note\ntitle: Zulu\n---\nprivate-valid-body\n",
 	})
 	s := connect(t, a, "")
 	for _, tc := range []struct {
@@ -145,12 +145,12 @@ func TestDocumentsListMixedSourcesShareOnePaginationBudget(t *testing.T) {
 
 func TestDocumentsListDiagnosticFolderScope(t *testing.T) {
 	a, _ := newTestAppWithSources(t, map[string]string{
-		"bad.note.md":            "---\ntitle: [unterminated\n---\n",
-		"work/bad.note.md":       "---\ntitle: [unterminated\n---\n",
-		"work/sub/bad.note.md":   "---\ntitle: [unterminated\n---\n",
-		"outside/bad.note.md":    "---\ntitle: [unterminated\n---\n",
-		"work/valid.note.md":     "---\nid: first\ntype: note\n---\nfirst body\n",
-		"work/sub/valid.note.md": "---\nid: second\n---\nsecond body\n",
+		"bad.md":            "---\ntitle: [unterminated\n---\n",
+		"work/bad.md":       "---\ntitle: [unterminated\n---\n",
+		"work/sub/bad.md":   "---\ntitle: [unterminated\n---\n",
+		"outside/bad.md":    "---\ntitle: [unterminated\n---\n",
+		"work/valid.md":     "---\nid: first\ntype: note\n---\nfirst body\n",
+		"work/sub/valid.md": "---\nid: second\n---\nsecond body\n",
 	})
 	s := connect(t, a, "")
 	for _, tc := range []struct {
@@ -159,10 +159,10 @@ func TestDocumentsListDiagnosticFolderScope(t *testing.T) {
 		paths     []string
 		ids       []string
 	}{
-		{"work", false, []string{"work/bad.note.md"}, []string{"first"}},
-		{"work", true, []string{"work/bad.note.md", "work/sub/bad.note.md"}, []string{"first", "second"}},
-		{".", false, []string{"bad.note.md"}, []string{}},
-		{"", false, []string{"bad.note.md", "outside/bad.note.md", "work/bad.note.md", "work/sub/bad.note.md"}, []string{"first", "second"}},
+		{"work", false, []string{"work/bad.md"}, []string{"first"}},
+		{"work", true, []string{"work/bad.md", "work/sub/bad.md"}, []string{"first", "second"}},
+		{".", false, []string{"bad.md"}, []string{}},
+		{"", false, []string{"bad.md", "outside/bad.md", "work/bad.md", "work/sub/bad.md"}, []string{"first", "second"}},
 	} {
 		page := data[documentPage](t, call(t, s, "documents_list", map[string]any{"folder": tc.folder, "recursive": tc.recursive}))
 		paths := make([]string, len(page.Diagnostics))
@@ -254,12 +254,12 @@ func TestFullCRUDFoldersAndStaleWritesWithoutApproval(t *testing.T) {
 		t.Fatal(updated)
 	}
 	errorCode(t, call(t, s, "document_update", map[string]any{"id": note.ID, "if_revision": note.Revision, "raw": note.Raw}), "conflict")
-	errorCode(t, call(t, s, "document_move", map[string]any{"id": note.ID, "to": "stale.note.md", "if_revision": note.Revision}), "conflict")
+	errorCode(t, call(t, s, "document_move", map[string]any{"id": note.ID, "to": "stale.md", "if_revision": note.Revision}), "conflict")
 	errorCode(t, call(t, s, "document_delete", map[string]any{"id": note.ID, "if_revision": note.Revision}), "conflict")
-	data[model.Document](t, call(t, s, "document_move", map[string]any{"id": note.ID, "to": "projects/sub/moved.note.md", "if_revision": updated.Revision}))
+	data[model.Document](t, call(t, s, "document_move", map[string]any{"id": note.ID, "to": "projects/sub/moved.md", "if_revision": updated.Revision}))
 	data[any](t, call(t, s, "folder_move", map[string]any{"from": "projects", "to": "archive"}))
 	got := data[model.Document](t, call(t, s, "document_get", map[string]any{"id": note.ID}))
-	if got.Path != "archive/sub/moved.note.md" || got.Raw != updated.Raw {
+	if got.Path != "archive/sub/moved.md" || got.Raw != updated.Raw {
 		t.Fatal(got)
 	}
 	folders := data[struct {
@@ -360,8 +360,8 @@ func TestSharedQueriesFiltersPaginationAndKeywordStayLazy(t *testing.T) {
 		{"documents_list", map[string]any{"offset": -1}, "invalid_argument"},
 		{"search", map[string]any{"text": "x", "mode": "keyword", "limit": 101}, "invalid_argument"},
 		{"document_get", map[string]any{}, "invalid_argument"},
-		{"document_get", map[string]any{"id": "abc", "path": "x.note.md"}, "invalid_argument"},
-		{"document_get", map[string]any{"path": "../escape.note.md"}, "outside_root"},
+		{"document_get", map[string]any{"id": "abc", "path": "x.md"}, "invalid_argument"},
+		{"document_get", map[string]any{"path": "../escape.md"}, "outside_root"},
 		{"folder_delete", map[string]any{"path": ".", "recursive": true}, "outside_root"},
 	} {
 		errorCode(t, call(t, s, tc.name, tc.args), tc.code)

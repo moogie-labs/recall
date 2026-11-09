@@ -55,7 +55,7 @@ func TestStartupAndSyncRefreshCompleteSnapshot(t *testing.T) {
 	if err := a.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(cfg.Content, "direct.note.md"), []byte("body"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(cfg.Content, "direct.md"), []byte("body"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	a, err := Open(t.Context(), cfg)
@@ -66,7 +66,7 @@ func TestStartupAndSyncRefreshCompleteSnapshot(t *testing.T) {
 	if docs := indextest.Documents(t, cfg.Database); len(docs) != 1 || docs[0].ID == "" {
 		t.Fatalf("startup: %+v", docs)
 	}
-	if err := os.Remove(filepath.Join(cfg.Content, "direct.note.md")); err != nil {
+	if err := os.Remove(filepath.Join(cfg.Content, "direct.md")); err != nil {
 		t.Fatal(err)
 	}
 	report, err := a.Sync(t.Context())

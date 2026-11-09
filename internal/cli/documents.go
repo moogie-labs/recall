@@ -95,7 +95,7 @@ func (i *invocation) documentCreateCommand() *cobra.Command {
 		})
 	})
 	c.Flags().StringVar(&folder, "folder", "", "Destination folder (default: content root)")
-	c.Flags().StringVar(&name, "name", "", "Required bare filename component; Recall appends .note.md")
+	c.Flags().StringVar(&name, "name", "", "Required bare filename component; Recall appends .md")
 	c.Flags().StringVar(&title, "title", "", "Display title (default: name)")
 	c.Flags().StringVar(&bodyFile, "body-file", "", "Read body from file (- or omitted: stdin; terminal: empty body)")
 	return c
@@ -104,7 +104,7 @@ func (i *invocation) documentCreateCommand() *cobra.Command {
 func (i *invocation) documentMutationCommand(verb string) *cobra.Command {
 	var f referenceFlags
 	var rawFile, destination string
-	c := i.command(verb, map[string]string{"get": "Read complete source Markdown", "update": "Replace raw Markdown with a required source revision", "edit": "Explicitly launch the configured editor on the real source", "move": "Move to a full content-relative .note.md filename", "delete": "Permanently delete without prompting"}[verb], noArgs, func(*cobra.Command, []string) (any, error) {
+	c := i.command(verb, map[string]string{"get": "Read complete source Markdown", "update": "Replace raw Markdown with a required source revision", "edit": "Explicitly launch the configured editor on the real source", "move": "Move to a full content-relative .md filename", "delete": "Permanently delete without prompting"}[verb], noArgs, func(*cobra.Command, []string) (any, error) {
 		ref, err := f.ref()
 		if err != nil {
 			return nil, err
@@ -120,7 +120,7 @@ func (i *invocation) documentMutationCommand(verb string) *cobra.Command {
 			}
 		}
 		if verb == "move" && destination == "" {
-			return nil, invalid("move requires --to with a complete .note.md filename")
+			return nil, invalid("move requires --to with a complete .md filename")
 		}
 		return i.withApp(func(a *app.App) (any, error) {
 			switch verb {
@@ -148,7 +148,7 @@ func (i *invocation) documentMutationCommand(verb string) *cobra.Command {
 		c.Flags().StringVar(&rawFile, "raw-file", "", "Complete Markdown file (- or omitted: stdin)")
 	}
 	if verb == "move" {
-		c.Flags().StringVar(&destination, "to", "", "Required full relative destination, including .note.md")
+		c.Flags().StringVar(&destination, "to", "", "Required full relative destination, including .md")
 	}
 	return c
 }

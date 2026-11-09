@@ -70,7 +70,7 @@ func TestMetadataChangeDoesNotReembedBody(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = a.Move(t.Context(), model.Ref{ID: d.ID}, "moved.note.md", changed.Revision); err != nil {
+	if _, err = a.Move(t.Context(), model.Ref{ID: d.ID}, "moved.md", changed.Revision); err != nil {
 		t.Fatal(err)
 	}
 	if err = a.IndexPending(t.Context()); err != nil {
@@ -80,7 +80,7 @@ func TestMetadataChangeDoesNotReembedBody(t *testing.T) {
 		t.Fatal("metadata-only edit re-embedded")
 	}
 	hits, err := a.Search(t.Context(), model.SearchQuery{Text: "concept", Mode: "semantic"})
-	if err != nil || len(hits) != 1 || hits[0].Path != "moved.note.md" {
+	if err != nil || len(hits) != 1 || hits[0].Path != "moved.md" {
 		t.Fatalf("%+v %v", hits, err)
 	}
 	line := 1 + strings.Count(changed.Raw[:len(changed.Raw)-len(changed.Body)], "\n")
@@ -163,7 +163,7 @@ func TestMoveDuringEmbeddingReusesVector(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- a.IndexPending(t.Context()) }()
 	<-p.started
-	if _, err := a.Move(t.Context(), model.Ref{ID: d.ID}, "moved.note.md", d.Revision); err != nil {
+	if _, err := a.Move(t.Context(), model.Ref{ID: d.ID}, "moved.md", d.Revision); err != nil {
 		t.Fatal(err)
 	}
 	close(p.release)

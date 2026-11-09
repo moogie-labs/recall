@@ -14,14 +14,14 @@ import (
 func TestStaleRevisionDoesNotWrite(t *testing.T) {
 	s, _ := openStore(t)
 	ctx := context.Background()
-	locked(t, s, func() error { return s.Write(ctx, "a.note.md", "", []byte("original")) })
+	locked(t, s, func() error { return s.Write(ctx, "a.md", "", []byte("original")) })
 	locked(t, s, func() error {
-		if err := s.Write(ctx, "a.note.md", "wrong-revision", []byte("changed")); model.ErrorCode(err) != "conflict" {
+		if err := s.Write(ctx, "a.md", "wrong-revision", []byte("changed")); model.ErrorCode(err) != "conflict" {
 			t.Fatalf("stale write: %v", err)
 		}
 		return nil
 	})
-	got, err := s.Read(ctx, "a.note.md")
+	got, err := s.Read(ctx, "a.md")
 	if err != nil || string(got) != "original" {
 		t.Fatalf("stale write modified source: %q %v", got, err)
 	}
@@ -31,18 +31,18 @@ func TestWriteCreateOnlyAndRevisionUpdate(t *testing.T) {
 	s, cfg := openStore(t)
 	ctx := context.Background()
 	locked(t, s, func() error {
-		if err := s.Write(ctx, "a.note.md", "", []byte("original")); err != nil {
+		if err := s.Write(ctx, "a.md", "", []byte("original")); err != nil {
 			return err
 		}
-		if err := s.Write(ctx, "a.note.md", "", []byte("overwrite")); model.ErrorCode(err) != "already_exists" {
+		if err := s.Write(ctx, "a.md", "", []byte("overwrite")); model.ErrorCode(err) != "already_exists" {
 			t.Fatalf("create overwrite: %v", err)
 		}
-		if err := s.Write(ctx, "missing.note.md", "nonempty", nil); model.ErrorCode(err) != "conflict" {
+		if err := s.Write(ctx, "missing.md", "nonempty", nil); model.ErrorCode(err) != "conflict" {
 			t.Fatalf("deleted source: %v", err)
 		}
-		return s.Write(ctx, "a.note.md", fmt.Sprintf("%x", sha256.Sum256([]byte("original"))), []byte("replacement"))
+		return s.Write(ctx, "a.md", fmt.Sprintf("%x", sha256.Sum256([]byte("original"))), []byte("replacement"))
 	})
-	got, err := s.Read(ctx, "a.note.md")
+	got, err := s.Read(ctx, "a.md")
 	if err != nil || string(got) != "replacement" {
 		t.Fatalf("replacement: %q %v", got, err)
 	}
@@ -54,12 +54,12 @@ func TestWriteCreateOnlyAndRevisionUpdate(t *testing.T) {
 
 func TestWritePreservesExistingMode(t *testing.T) {
 	s, cfg := openStore(t)
-	path := filepath.Join(cfg.Content, "a.note.md")
+	path := filepath.Join(cfg.Content, "a.md")
 	if err := os.WriteFile(path, []byte("original"), 0640); err != nil {
 		t.Fatal(err)
 	}
 	locked(t, s, func() error {
-		return s.Write(context.Background(), "a.note.md", fmt.Sprintf("%x", sha256.Sum256([]byte("original"))), []byte("replacement"))
+		return s.Write(context.Background(), "a.md", fmt.Sprintf("%x", sha256.Sum256([]byte("original"))), []byte("replacement"))
 	})
 	info, err := os.Stat(path)
 	if err != nil {
@@ -78,13 +78,13 @@ func TestCompetingRevisionWritesHaveOneWinner(t *testing.T) {
 	}
 	defer other.Close()
 	ctx := context.Background()
-	locked(t, s, func() error { return s.Write(ctx, "a.note.md", "", []byte("initial")) })
+	locked(t, s, func() error { return s.Write(ctx, "a.md", "", []byte("initial")) })
 	revision := fmt.Sprintf("%x", sha256.Sum256([]byte("initial")))
 	start, results := make(chan struct{}), make(chan error, 2)
 	for i, store := range []*Store{s, other} {
 		go func() {
 			<-start
-			results <- store.WithLock(ctx, func() error { return store.Write(ctx, "a.note.md", revision, []byte(fmt.Sprintf("writer-%d", i))) })
+			results <- store.WithLock(ctx, func() error { return store.Write(ctx, "a.md", revision, []byte(fmt.Sprintf("writer-%d", i))) })
 		}()
 	}
 	close(start)
@@ -103,7 +103,7 @@ func TestCompetingRevisionWritesHaveOneWinner(t *testing.T) {
 	if wins != 1 || conflicts != 1 {
 		t.Fatalf("wins=%d conflicts=%d", wins, conflicts)
 	}
-	got, err := s.Read(ctx, "a.note.md")
+	got, err := s.Read(ctx, "a.md")
 	if err != nil || (string(got) != "writer-0" && string(got) != "writer-1") {
 		t.Fatalf("winner bytes: %q %v", got, err)
 	}
@@ -131,11 +131,11 @@ func TestWriteKeepsValidatedParentAcrossAncestorSwap(t *testing.T) {
 	// the revision reread, publication, cleanup, or directory fsync.
 	ctx := &checkpointContext{Context: context.Background(), at: 3, action: swap}
 	revision := fmt.Sprintf("%x", sha256.Sum256([]byte("original")))
-	locked(t, s, func() error { return s.Write(ctx, "active/a.note.md", revision, []byte("replacement")) })
+	locked(t, s, func() error { return s.Write(ctx, "active/a.md", revision, []byte("replacement")) })
 	if ctx.checks < ctx.at {
 		t.Fatal("swap checkpoint was not reached")
 	}
-	for path, want := range map[string]string{"parked/a.note.md": "replacement", "victim/a.note.md": "victim"} {
+	for path, want := range map[string]string{"parked/a.md": "replacement", "victim/a.md": "victim"} {
 		raw, err := os.ReadFile(filepath.Join(cfg.Content, path))
 		if err != nil || string(raw) != want {
 			t.Fatalf("%s: %q %v", path, raw, err)
@@ -156,14 +156,14 @@ func TestWriteDeletedParentIsConflict(t *testing.T) {
 		if err := s.Mkdir(ctx, "folder"); err != nil {
 			return err
 		}
-		if err := s.Write(ctx, "folder/a.note.md", "", []byte("original")); err != nil {
+		if err := s.Write(ctx, "folder/a.md", "", []byte("original")); err != nil {
 			return err
 		}
 		if err := s.Remove(ctx, "folder", true); err != nil {
 			return err
 		}
 		revision := fmt.Sprintf("%x", sha256.Sum256([]byte("original")))
-		if err := s.Write(ctx, "folder/a.note.md", revision, []byte("replacement")); model.ErrorCode(err) != "conflict" {
+		if err := s.Write(ctx, "folder/a.md", revision, []byte("replacement")); model.ErrorCode(err) != "conflict" {
 			t.Fatalf("deleted parent: %v", err)
 		}
 		return nil
@@ -174,11 +174,11 @@ func TestCreateKeepsPinnedParentAcrossAncestorSwap(t *testing.T) {
 	s, cfg := openStore(t)
 	swap := seedAncestorSwap(t, cfg)
 	ctx := &checkpointContext{Context: context.Background(), at: 2, action: swap}
-	locked(t, s, func() error { return s.Write(ctx, "active/new.note.md", "", []byte("created")) })
+	locked(t, s, func() error { return s.Write(ctx, "active/new.md", "", []byte("created")) })
 	if ctx.checks < ctx.at {
 		t.Fatal("swap checkpoint was not reached")
 	}
-	raw, err := os.ReadFile(filepath.Join(cfg.Content, "parked", "new.note.md"))
+	raw, err := os.ReadFile(filepath.Join(cfg.Content, "parked", "new.md"))
 	if err != nil || string(raw) != "created" {
 		t.Fatalf("original directory create: %q %v", raw, err)
 	}

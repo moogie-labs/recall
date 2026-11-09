@@ -7,7 +7,7 @@ import { Workspace } from "../navigation/workspace";
 import type { SearchReply } from "../api/types";
 const doc = {
   id: "a",
-  path: "Work/a.note.md",
+  path: "Work/a.md",
   name: "a",
   title: "A",
   body: "needle",
@@ -137,7 +137,7 @@ it("offers an explicit keyword retry and flushes before opening results", async 
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: /A.*Found/ }));
   });
-  expect(revealed).toEqual(["Work/a.note.md"]);
+  expect(revealed).toEqual(["Work/a.md"]);
   expect((await api.openDocument("test-session", "a")).document?.body).toBe(
     "draft",
   );

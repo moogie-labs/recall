@@ -130,7 +130,7 @@ func TestPrepareIfAbsentReloadsWinnerAndPreservesUnknownBytes(t *testing.T) {
 	if err := os.WriteFile(configPath, winner, 0600); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{filepath.Join(stale.Content, "user.note.md"), stale.Database} {
+	for _, path := range []string{filepath.Join(stale.Content, "user.md"), stale.Database} {
 		if err := os.WriteFile(path, []byte("existing user bytes"), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -144,7 +144,7 @@ func TestPrepareIfAbsentReloadsWinnerAndPreservesUnknownBytes(t *testing.T) {
 	if err != nil || got.ModelID != "winning-model" || got.RuntimeID != "winning-runtime" || !reflect.DeepEqual(got.IgnoredEditor, []string{"user-editor", "--keep"}) {
 		t.Fatalf("winner not reloaded: %+v %v", got, err)
 	}
-	for path, want := range map[string][]byte{configPath: winner, filepath.Join(stale.Content, "user.note.md"): []byte("existing user bytes"), stale.Database: []byte("existing user bytes")} {
+	for path, want := range map[string][]byte{configPath: winner, filepath.Join(stale.Content, "user.md"): []byte("existing user bytes"), stale.Database: []byte("existing user bytes")} {
 		raw, err := os.ReadFile(path)
 		if err != nil || string(raw) != string(want) {
 			t.Fatalf("competing publication changed %s: %q %v", path, raw, err)

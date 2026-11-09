@@ -28,7 +28,8 @@ export function DocumentPane({
   );
   const element = useRef<HTMLDivElement>(null),
     editor = useRef<EditorView | null>(null),
-    editable = useRef(new Compartment());
+    editable = useRef(new Compartment()),
+    preview = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!state.document || !element.current) return;
     const view = new EditorView({
@@ -75,6 +76,30 @@ export function DocumentPane({
       ]),
     });
   }, [state.busy]);
+  const previewing = !!state.document && state.mode === "preview" && !hidden;
+  useEffect(() => {
+    if (!previewing) return;
+    function selectPreview(event: KeyboardEvent) {
+      if (
+        event.key.toLowerCase() !== "a" ||
+        !event.metaKey ||
+        event.shiftKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        (event.target instanceof Element &&
+          event.target.closest(
+            'input, textarea, [contenteditable]:not([contenteditable="false"])',
+          )) ||
+        document.querySelector("dialog[open]") ||
+        !preview.current
+      )
+        return;
+      event.preventDefault();
+      window.getSelection()?.selectAllChildren(preview.current);
+    }
+    document.addEventListener("keydown", selectPreview);
+    return () => document.removeEventListener("keydown", selectPreview);
+  }, [previewing]);
   const failed = save.status === "error" || save.status === "conflict";
   return (
     <section className="document-pane" hidden={hidden} aria-label="Document">
@@ -110,7 +135,7 @@ export function DocumentPane({
         )}
         {state.document && (
           <>
-            <div hidden={state.mode !== "preview"}>
+            <div ref={preview} hidden={state.mode !== "preview"}>
               <MarkdownPreview body={save.body} />
             </div>
             <div

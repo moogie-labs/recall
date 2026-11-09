@@ -8,14 +8,23 @@ import (
 )
 
 // Suffix marks a file as a Recall document.
-const Suffix = ".note.md"
+const Suffix = ".md"
 
-// ValidatePath recognizes only nonempty, case-sensitive .note.md filenames.
-// Path confinement and filesystem entry validation belong to the store.
+// ValidatePath accepts a case-sensitive .md filename with a nonempty name and
+// no hidden path component. Path confinement and filesystem entry validation
+// belong to the store.
 func ValidatePath(path string) error {
-	name := filepath.Base(path)
-	if path != "" && !strings.HasSuffix(path, string(filepath.Separator)) && strings.HasSuffix(name, Suffix) && len(name) > len(Suffix) {
+	if path != "" && !strings.HasSuffix(path, string(filepath.Separator)) && strings.HasSuffix(filepath.Base(path), Suffix) && !hidden(path) {
 		return nil
 	}
-	return &model.Error{Code: "invalid_document", Path: path, Message: "filename must have a nonempty name followed by " + Suffix}
+	return &model.Error{Code: "invalid_document", Path: path, Message: "a note must be a .md file outside hidden paths"}
+}
+
+func hidden(path string) bool {
+	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
+		if strings.HasPrefix(part, ".") && part != "." && part != ".." {
+			return true
+		}
+	}
+	return false
 }

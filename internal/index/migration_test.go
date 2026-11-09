@@ -90,7 +90,7 @@ func legacyIndex(t *testing.T, version int, note model.Document) string {
 func TestLegacyIndexUpgradesInPlaceAndDropsTaskData(t *testing.T) {
 	for _, version := range []int{1, 2} {
 		t.Run(map[int]string{1: "v1", 2: "v2"}[version], func(t *testing.T) {
-			note := fixture(t, "note", "note.note.md", "Note", "needle")
+			note := fixture(t, "note", "note.md", "Note", "needle")
 			filename := legacyIndex(t, version, note)
 			s, err := Open(filename)
 			if err != nil {

@@ -14,7 +14,7 @@ import (
 // App retain the shared model types, defaults, validation and timestamp rules.
 type refInput struct {
 	ID   string `json:"id,omitempty" jsonschema:"Stable document ID; supply exactly one of id or path"`
-	Path string `json:"path,omitempty" jsonschema:"Content-relative .note.md filename; never an absolute path"`
+	Path string `json:"path,omitempty" jsonschema:"Content-relative .md filename; never an absolute path"`
 }
 
 func (in refInput) ref() model.Ref { return model.Ref{ID: in.ID, Path: in.Path} }
@@ -32,11 +32,11 @@ type updateInput struct {
 
 type moveInput struct {
 	revisionInput
-	To string `json:"to" jsonschema:"Complete content-relative destination filename including .note.md"`
+	To string `json:"to" jsonschema:"Complete content-relative destination filename including .md"`
 }
 
 type createInput struct {
-	Name   string `json:"name" jsonschema:"Bare filename component; Recall appends .note.md"`
+	Name   string `json:"name" jsonschema:"Bare filename component; Recall appends .md"`
 	Folder string `json:"folder,omitempty"`
 	Title  string `json:"title,omitempty"`
 	Body   string `json:"body,omitempty"`
@@ -141,7 +141,7 @@ func registerTools(server *mcp.Server, a *app.App) {
 	addTool(server, "document_update", "Replace complete raw Markdown; requires current revision and preserves ID. Conflicting writes fail.", false, true, false, func(ctx context.Context, in updateInput) (model.Document, error) {
 		return a.Update(ctx, in.ref(), in.Revision, in.Raw)
 	})
-	addTool(server, "document_move", "Move a document to a full content-relative .note.md filename; preserves ID.", false, true, false, func(ctx context.Context, in moveInput) (model.Document, error) {
+	addTool(server, "document_move", "Move a document to a full content-relative .md filename; preserves ID.", false, true, false, func(ctx context.Context, in moveInput) (model.Document, error) {
 		return a.Move(ctx, in.ref(), in.To, in.Revision)
 	})
 	addTool(server, "document_delete", "Permanently delete a document immediately, without confirmation or trash.", false, true, false, func(ctx context.Context, in revisionInput) (mutationResult, error) {

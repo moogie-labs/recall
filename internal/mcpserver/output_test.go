@@ -14,7 +14,7 @@ import (
 func TestPreviewWireBudgetsTitleAndExactReferences(t *testing.T) {
 	title := strings.Repeat("界", 100000)
 	raw := "---\nid: exact-id\ntitle: " + title + "\n---\nneedle passage\n"
-	a, _ := newTestAppWithSources(t, map[string]string{"exact.note.md": raw})
+	a, _ := newTestAppWithSources(t, map[string]string{"exact.md": raw})
 	s := connect(t, a, "")
 	full := data[model.Document](t, call(t, s, "document_get", map[string]any{"id": "exact-id"}))
 	if full.Title != title || !strings.Contains(full.Raw, title) {
@@ -67,7 +67,7 @@ func TestPreviewWireBudgetsOversizedIdentityAndWholePage(t *testing.T) {
 				if tc.name == "encoded-identity" {
 					id = strings.Repeat("<", tc.idBytes)
 				}
-				sources[fmt.Sprintf("%03d.note.md", n)] = "---\nid: '" + id + "'\ntitle: Same\n---\nneedle\n"
+				sources[fmt.Sprintf("%03d.md", n)] = "---\nid: '" + id + "'\ntitle: Same\n---\nneedle\n"
 			}
 			a, _ := newTestAppWithSources(t, sources)
 			s := connect(t, a, "")
@@ -92,8 +92,8 @@ func TestPreviewWireBudgetsOversizedIdentityAndWholePage(t *testing.T) {
 				}
 			}
 			// Even an undisplayable ID is valid source and explicitly retrievable.
-			d := data[model.Document](t, call(t, s, "document_get", map[string]any{"path": "000.note.md"}))
-			if d.Raw != sources["000.note.md"] {
+			d := data[model.Document](t, call(t, s, "document_get", map[string]any{"path": "000.md"}))
+			if d.Raw != sources["000.md"] {
 				t.Fatal("output bounds rewrote source")
 			}
 		})
@@ -103,8 +103,8 @@ func TestPreviewWireBudgetsOversizedIdentityAndWholePage(t *testing.T) {
 func TestPreviewBudgetsPreserveFullTitleSortAndCursor(t *testing.T) {
 	prefix := strings.Repeat("x", 300)
 	a, _ := newTestAppWithSources(t, map[string]string{
-		"a.note.md": "---\nid: a\ntype: note\ntitle: " + prefix + "z\n---\nbody\n",
-		"z.note.md": "---\nid: z\ntype: note\ntitle: " + prefix + "a\n---\nbody\n",
+		"a.md": "---\nid: a\ntype: note\ntitle: " + prefix + "z\n---\nbody\n",
+		"z.md": "---\nid: z\ntype: note\ntitle: " + prefix + "a\n---\nbody\n",
 	})
 	s := connect(t, a, "")
 	for offset, want := range []string{"z", "a"} {
@@ -121,7 +121,7 @@ func TestPreviewBudgetsPreserveFullTitleSortAndCursor(t *testing.T) {
 func TestPreviewBudgetsDiagnosticsAndFolders(t *testing.T) {
 	sources := map[string]string{}
 	for n := 0; n < 180; n++ {
-		sources[fmt.Sprintf("%03d-", n)+strings.Repeat("f", 190)+"/bad.note.md"] = "---\ntitle: [\n---\n"
+		sources[fmt.Sprintf("%03d-", n)+strings.Repeat("f", 190)+"/bad.md"] = "---\ntitle: [\n---\n"
 	}
 	a, _ := newTestAppWithSources(t, sources)
 	s := connect(t, a, "")

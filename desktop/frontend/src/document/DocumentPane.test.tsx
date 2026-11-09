@@ -8,7 +8,7 @@ import { SaveCoordinator } from "../saving/coordinator";
 import { fakeBridge } from "../api/fakeBridge";
 const doc = {
   id: "a",
-  path: "a.note.md",
+  path: "a.md",
   name: "a",
   title: "A",
   body: "# Original",
@@ -80,7 +80,7 @@ it("blocks undo after a flush while destination navigation is still pending", as
   const retained = c.snapshot().body;
   await act(async () => {
     resolve({
-      document: { ...doc, id: "b", path: "b.note.md", body: "# Next" },
+      document: { ...doc, id: "b", path: "b.md", body: "# Next" },
       problem: null,
     });
     await navigation;
@@ -253,4 +253,101 @@ it("offers no copy button when no document is open", () => {
   expect(screen.queryByRole("button", { name: /copy/i })).toBeNull();
   unmount();
   c.dispose();
+});
+
+function pressCommandA(
+  target: Element | Document = document.body,
+  modifiers: Record<string, boolean> = {},
+) {
+  // fireEvent returns false once a handler called preventDefault.
+  return !fireEvent.keyDown(target, { key: "a", metaKey: true, ...modifiers });
+}
+function selectedText() {
+  return window.getSelection()?.toString() ?? "";
+}
+it("selects only the preview on Command-A", async () => {
+  const { c, w } = await setup();
+  const { unmount } = render(
+    <div>
+      <p>Outside text</p>
+      <DocumentPane workspace={w} coordinator={c} />
+    </div>,
+  );
+  expect(pressCommandA()).toBe(true);
+  expect(selectedText()).toContain("Original");
+  expect(selectedText()).not.toContain("Outside text");
+  expect(selectedText()).not.toContain("Preview");
+  unmount();
+  c.dispose();
+});
+it.each([
+  ["shift", { shiftKey: true }],
+  ["control", { ctrlKey: true }],
+  ["alt", { altKey: true }],
+  ["no command", { metaKey: false }],
+])("ignores Command-A with %s", async (_name, modifiers) => {
+  const { c, w } = await setup();
+  const { unmount } = render(<DocumentPane workspace={w} coordinator={c} />);
+  window.getSelection()?.removeAllRanges();
+  expect(pressCommandA(document.body, modifiers)).toBe(false);
+  expect(selectedText()).toBe("");
+  unmount();
+  c.dispose();
+});
+it.each([
+  ["input", '<input aria-label="field" />'],
+  ["textarea", "<textarea></textarea>"],
+  ["contenteditable", '<div contenteditable="true"><span>inner</span></div>'],
+])("leaves Command-A alone in a focused %s", async (_name, html) => {
+  const { c, w } = await setup();
+  const { unmount } = render(<DocumentPane workspace={w} coordinator={c} />);
+  const host = document.createElement("div");
+  host.innerHTML = html;
+  document.body.append(host);
+  window.getSelection()?.removeAllRanges();
+  const target = host.querySelector("span") ?? host.firstElementChild!;
+  expect(pressCommandA(target)).toBe(false);
+  expect(selectedText()).toBe("");
+  host.remove();
+  unmount();
+  c.dispose();
+});
+it("leaves Command-A alone while a dialog is open", async () => {
+  const { c, w } = await setup();
+  const { unmount } = render(<DocumentPane workspace={w} coordinator={c} />);
+  const dialog = document.createElement("dialog");
+  dialog.setAttribute("open", "");
+  document.body.append(dialog);
+  window.getSelection()?.removeAllRanges();
+  expect(pressCommandA()).toBe(false);
+  expect(selectedText()).toBe("");
+  dialog.remove();
+  expect(pressCommandA()).toBe(true);
+  unmount();
+  c.dispose();
+});
+it("leaves Command-A alone in edit mode, when hidden and with no document", async () => {
+  const { c, w } = await setup();
+  const { rerender, unmount } = render(
+    <DocumentPane workspace={w} coordinator={c} />,
+  );
+  window.getSelection()?.removeAllRanges();
+  act(() => w.setMode("edit"));
+  expect(pressCommandA()).toBe(false);
+  act(() => w.setMode("preview"));
+  rerender(<DocumentPane workspace={w} coordinator={c} hidden />);
+  expect(pressCommandA()).toBe(false);
+  rerender(<DocumentPane workspace={w} coordinator={c} />);
+  expect(pressCommandA()).toBe(true);
+  unmount();
+  expect(pressCommandA()).toBe(false);
+  c.dispose();
+  const api = fakeBridge([doc]);
+  const empty = new SaveCoordinator(api);
+  const idle = new Workspace(api, empty);
+  idle.setCollection("test-session");
+  const closed = render(<DocumentPane workspace={idle} coordinator={empty} />);
+  expect(pressCommandA()).toBe(false);
+  closed.unmount();
+  empty.dispose();
 });

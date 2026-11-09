@@ -243,7 +243,7 @@ func TestRealPackagedOnboardingAndOffline(t *testing.T) {
 	s := connectMCP(t, denied("--root", root, "mcp"))
 	d := tool[model.Document](t, s, "document_create", map[string]any{"name": "denied", "body": "offline recovery note"})
 	d = tool[model.Document](t, s, "document_update", map[string]any{"id": d.ID, "if_revision": d.Revision, "raw": strings.Replace(d.Raw, "offline recovery note", "edited recovery note", 1)})
-	d = tool[model.Document](t, s, "document_move", map[string]any{"id": d.ID, "to": "moved.note.md"})
+	d = tool[model.Document](t, s, "document_move", map[string]any{"id": d.ID, "to": "moved.md"})
 	got := tool[model.Document](t, s, "document_get", map[string]any{"id": d.ID})
 	if got.Path != d.Path {
 		t.Fatal("offline CRUD failed")
@@ -262,7 +262,7 @@ func TestRealPackagedOnboardingAndOffline(t *testing.T) {
 	}
 	tool[any](t, s, "document_delete", map[string]any{"id": d.ID})
 	// CLI source CRUD is restricted too, not just the MCP adapter.
-	for _, args := range [][]string{{"document", "create", "--name", "denied-cli"}, {"document", "get", "--path", "denied-cli.note.md"}, {"document", "move", "--path", "denied-cli.note.md", "--to", "renamed.note.md"}, {"document", "delete", "--path", "renamed.note.md"}} {
+	for _, args := range [][]string{{"document", "create", "--name", "denied-cli"}, {"document", "get", "--path", "denied-cli.md"}, {"document", "move", "--path", "denied-cli.md", "--to", "renamed.md"}, {"document", "delete", "--path", "renamed.md"}} {
 		c := denied(append([]string{"--root", root, "--json"}, args...)...)
 		c.Stdin = strings.NewReader("offline CLI body")
 		out, err := c.CombinedOutput()

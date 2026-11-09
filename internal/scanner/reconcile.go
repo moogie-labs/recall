@@ -1,4 +1,4 @@
-// Package scanner reconciles filename-gated source documents. The caller MUST
+// Package scanner reconciles Markdown source documents. The caller MUST
 // hold the store's WithLock across Reconcile and application of its snapshot to
 // any derived index. Reconcile never acquires or releases that lock itself.
 package scanner

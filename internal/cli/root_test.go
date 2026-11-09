@@ -250,7 +250,7 @@ func TestCancellationAndBoundedInput(t *testing.T) {
 	if code := Run(t.Context(), []string{"--root", cfg.Root, "document", "create", "--name", "large", "--json"}, io.LimitReader(zeroReader{}, 16<<20+1), &out, &logs); code != 2 {
 		t.Fatalf("%d %s", code, &out)
 	}
-	if _, err := os.Stat(filepath.Join(cfg.Content, "large.note.md")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(cfg.Content, "large.md")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("oversized input mutated source")
 	}
 }
@@ -368,7 +368,7 @@ func TestIdleStdinPipeCanBeCanceled(t *testing.T) {
 	if code != 1 || got.Error == nil || got.Error.Message != "operation timed out" {
 		t.Fatalf("%d %+v", code, got)
 	}
-	if _, err := os.Stat(filepath.Join(cfg.Content, "idle.note.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(cfg.Content, "idle.md")); !os.IsNotExist(err) {
 		t.Fatal("canceled input mutated source")
 	}
 }

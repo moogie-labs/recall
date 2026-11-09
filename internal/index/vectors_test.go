@@ -25,7 +25,7 @@ func TestConcurrentClaimsExpiredLeaseAndPublication(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer second.Close()
-	d := fixture(t, "a", "a.note.md", "Title", "body")
+	d := fixture(t, "a", "a.md", "Title", "body")
 	apply(t, s, model.Snapshot{Documents: []model.Document{d}})
 	if err := s.EnsureSignature(t.Context(), "sig"); err != nil {
 		t.Fatal(err)
@@ -94,7 +94,7 @@ func TestConcurrentClaimsExpiredLeaseAndPublication(t *testing.T) {
 }
 func TestVectorValidationAndSignatureInvalidation(t *testing.T) {
 	s := openTestStore(t)
-	d := fixture(t, "a", "a.note.md", "Title", "body")
+	d := fixture(t, "a", "a.md", "Title", "body")
 	apply(t, s, model.Snapshot{Documents: []model.Document{d}})
 	s.EnsureSignature(t.Context(), "one")
 	now := time.Now()
@@ -121,7 +121,7 @@ func TestVectorValidationAndSignatureInvalidation(t *testing.T) {
 
 func TestExpiredLeaseCannotRenewOrPublish(t *testing.T) {
 	s := openTestStore(t)
-	d := fixture(t, "a", "a.note.md", "Title", "body")
+	d := fixture(t, "a", "a.md", "Title", "body")
 	apply(t, s, model.Snapshot{Documents: []model.Document{d}})
 	if err := s.EnsureSignature(t.Context(), "sig"); err != nil {
 		t.Fatal(err)
@@ -153,7 +153,7 @@ func TestLeaseClockIsSampledAfterAcquiringTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer second.Close()
-	d := fixture(t, "a", "a.note.md", "Title", "body")
+	d := fixture(t, "a", "a.md", "Title", "body")
 	apply(t, s, model.Snapshot{Documents: []model.Document{d}})
 	if err := s.EnsureSignature(t.Context(), "sig"); err != nil {
 		t.Fatal(err)

@@ -18,7 +18,7 @@ const host: HostAPI = {
 };
 const doc = {
   id: "a",
-  path: "Work/a.note.md",
+  path: "Work/a.md",
   name: "a",
   title: "A",
   body: "# A",
@@ -110,7 +110,7 @@ it("creates beside a selected file and inside a selected folder then opens new d
   );
   const tree = (await api.tree("test-session")).tree!;
   expect(tree.entries.find((e) => e.name === "release")?.path).toBe(
-    "Work/release.note.md",
+    "Work/release.md",
   );
   fireEvent.click(screen.getByRole("button", { name: "Create" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "New note" }));
@@ -127,7 +127,7 @@ it("creates beside a selected file and inside a selected folder then opens new d
     (await api.tree("test-session")).tree!.entries.find(
       (e) => e.name === "beside",
     )?.path,
-  ).toBe("Work/beside.note.md");
+  ).toBe("Work/beside.md");
 });
 it("confirms permanent recursive deletion and preserves the collection on cancel", async () => {
   const api = fakeBridge([doc], ["Work"]);

@@ -26,16 +26,20 @@ func TestExecutableRejectsUninitializedRoot(t *testing.T) {
 
 func TestCentralCollectionAdoptionAndSourceRecovery(t *testing.T) {
 	root := prepared(t)
-	plain := []byte("# ordinary Markdown\nuntouched\n")
+	plain := []byte("# ordinary Markdown\nkept verbatim\n")
 	if err := os.WriteFile(filepath.Join(root, "content", "plain.md"), plain, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "content", "external.note.md"), []byte("external body\n"), 0600); err != nil {
+	other := []byte("not markdown\n")
+	if err := os.WriteFile(filepath.Join(root, "content", "other.txt"), other, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "content", "external.md"), []byte("external body\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	t.Chdir(t.TempDir())
-	command[model.SyncReport](t, "sync") // startup reconciliation already adopted the typed file
-	d := command[model.Document](t, "document", "get", "--path", "external.note.md")
+	command[model.SyncReport](t, "sync") // startup reconciliation already adopted the Markdown files
+	d := command[model.Document](t, "document", "get", "--path", "external.md")
 	t.Chdir(t.TempDir())
 	for _, suffix := range []string{"", "-wal", "-shm"} {
 		if err := os.Remove(filepath.Join(root, "index.sqlite") + suffix); err != nil && !os.IsNotExist(err) {
@@ -47,8 +51,12 @@ func TestCentralCollectionAdoptionAndSourceRecovery(t *testing.T) {
 	if !reflect.DeepEqual(got, d) {
 		t.Fatal("rebuild changed source document")
 	}
-	if got, err := os.ReadFile(filepath.Join(root, "content", "plain.md")); err != nil || !bytes.Equal(got, plain) {
-		t.Fatal("plain Markdown adopted/changed")
+	adopted := command[model.Document](t, "document", "get", "--path", "plain.md")
+	if adopted.ID == "" || adopted.Body != string(plain) || !strings.HasSuffix(adopted.Raw, string(plain)) {
+		t.Fatalf("plain Markdown not adopted intact: %+v", adopted)
+	}
+	if got, err := os.ReadFile(filepath.Join(root, "content", "other.txt")); err != nil || !bytes.Equal(got, other) {
+		t.Fatal("non-Markdown file changed")
 	}
 }
 
@@ -107,7 +115,7 @@ func TestExecutableMCPCLICompleteCRUD(t *testing.T) {
 			t.Fatal("CLI update not visible in MCP")
 		}
 		d = tool[model.Document](t, s, "document_update", map[string]any{"id": d.ID, "if_revision": d.Revision, "raw": strings.Replace(d.Raw, "updated needle", "MCP needle", 1)})
-		d = tool[model.Document](t, s, "document_move", map[string]any{"id": d.ID, "to": "moved." + name + ".note.md", "if_revision": d.Revision})
+		d = tool[model.Document](t, s, "document_move", map[string]any{"id": d.ID, "to": "moved." + name + ".md", "if_revision": d.Revision})
 		got = command[model.Document](t, "document", "get", "--path", d.Path)
 		if got.ID != d.ID {
 			t.Fatal("move changed identity")

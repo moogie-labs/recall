@@ -41,7 +41,7 @@ func TestBodySavePreservesHeaderAndID(t *testing.T) {
 		t.Run(strings.ReplaceAll(nl, "\n", "LF"), func(t *testing.T) {
 			s, a, cfg, session := fixture(t)
 			raw := strings.ReplaceAll("---\nid: stable\ntitle: Title\nstate: planned\n# keep me\ncustom: {x: yes}\n---\nold\n", "\n", nl)
-			if err := os.WriteFile(filepath.Join(cfg.Content, "test.note.md"), []byte(raw), 0600); err != nil {
+			if err := os.WriteFile(filepath.Join(cfg.Content, "test.md"), []byte(raw), 0600); err != nil {
 				t.Fatal(err)
 			}
 			doc := s.OpenDocument(session, "stable")
@@ -62,7 +62,7 @@ func TestBodySavePreservesHeaderAndID(t *testing.T) {
 			if !r.Saved || r.Problem != nil || r.Generation != 2 {
 				t.Fatalf("save %+v", r)
 			}
-			disk, err := os.ReadFile(filepath.Join(cfg.Content, "test.note.md"))
+			disk, err := os.ReadFile(filepath.Join(cfg.Content, "test.md"))
 			if err != nil {
 				t.Fatal(err)
 			}

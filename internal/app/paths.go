@@ -18,7 +18,7 @@ func (a *App) EditorPath(ctx context.Context, ref model.Ref) (string, error) {
 	var path string
 	err := a.store.WithLock(ctx, func() error {
 		if ref.Path != "" {
-			if _, err := a.typedSource(ctx, ref.Path); err != nil {
+			if _, err := a.explicitSource(ctx, ref.Path); err != nil {
 				return err
 			}
 			path = ref.Path
@@ -42,7 +42,7 @@ func (a *App) EditorPath(ctx context.Context, ref model.Ref) (string, error) {
 
 // This is not metadata adoption: return just enough source identity for a
 // deliberate explicit-path deletion, including its actual raw-byte revision.
-func (a *App) typedSource(ctx context.Context, path string) (model.Document, error) {
+func (a *App) explicitSource(ctx context.Context, path string) (model.Document, error) {
 	if err := validatePath(path); err != nil {
 		return model.Document{}, err
 	}

@@ -6,7 +6,7 @@ import { fakeBridge } from "./api/fakeBridge";
 import type { HostAPI, SaveBodyReply } from "./api/types";
 const doc = {
   id: "a",
-  path: "a.note.md",
+  path: "a.md",
   name: "a",
   title: "A",
   body: "old",

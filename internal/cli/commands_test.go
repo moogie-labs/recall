@@ -50,7 +50,7 @@ func TestCRUDAndKeywordFromUnrelatedCWDWithoutInference(t *testing.T) {
 	invoke(t, cfg.Root, "", "folder", "create", "projects")
 	invoke(t, cfg.Root, "", "folder", "create", "projects/sub")
 	note := as[model.Document](t, invoke(t, cfg.Root, "free-form café\r\n", "document", "create", "--folder", "projects", "--name", "guide", "--title", "Guide"))
-	if note.Path != "projects/guide.note.md" || note.Body != "free-form café\r\n" {
+	if note.Path != "projects/guide.md" || note.Body != "free-form café\r\n" {
 		t.Fatalf("%+v", note)
 	}
 	other := as[model.Document](t, invoke(t, cfg.Root, "reset password", "document", "create", "--folder", "projects/sub", "--name", "reset"))
@@ -66,10 +66,10 @@ func TestCRUDAndKeywordFromUnrelatedCWDWithoutInference(t *testing.T) {
 	if code := Run(t.Context(), []string{"--root", cfg.Root, "--json", "document", "update", "--id", note.ID, "--if-revision", note.Revision}, strings.NewReader(note.Raw), &out, &logs); code != 4 || decodeResult(t, &out).Error.Code != "conflict" {
 		t.Fatalf("stale update %d %s", code, &logs)
 	}
-	invoke(t, cfg.Root, "", "document", "move", "--id", note.ID, "--to", "projects/sub/renamed.note.md")
+	invoke(t, cfg.Root, "", "document", "move", "--id", note.ID, "--to", "projects/sub/renamed.md")
 	invoke(t, cfg.Root, "", "folder", "move", "projects", "archive")
 	read := as[model.Document](t, invoke(t, cfg.Root, "", "document", "get", "--id", note.ID))
-	if read.Path != "archive/sub/renamed.note.md" {
+	if read.Path != "archive/sub/renamed.md" {
 		t.Fatal(read)
 	}
 	hits := as[[]model.Hit](t, invoke(t, cfg.Root, "", "search", "updated", "--mode", "keyword", "--folder", "archive"))
@@ -148,7 +148,7 @@ func TestHumanSearchIncludesTheMatchedSourcePassage(t *testing.T) {
 	invoke(t, cfg.Root, "needle useful source passage\n", "document", "create", "--name", "guide")
 	var out, logs bytes.Buffer
 	code := Run(t.Context(), []string{"--root", cfg.Root, "search", "needle", "--mode", "keyword"}, nil, &out, &logs)
-	if code != 0 || !strings.Contains(out.String(), "guide.note.md") || !strings.Contains(out.String(), "needle useful source passage") {
+	if code != 0 || !strings.Contains(out.String(), "guide.md") || !strings.Contains(out.String(), "needle useful source passage") {
 		t.Fatalf("%d stdout=%s stderr=%s", code, &out, &logs)
 	}
 	// The default must stay hybrid, not silently downgrade on inference failure.

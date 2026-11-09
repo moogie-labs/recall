@@ -10,7 +10,7 @@ import (
 )
 
 func TestAdoptionWritesOnlyTheID(t *testing.T) {
-	p, err := Parse("work.note.md", []byte("description\n"))
+	p, err := Parse("work.md", []byte("description\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestNormalizeLeavesRetiredTaskKeysAlone(t *testing.T) {
 		"---\nid: existing\ntype: note\nstate: completed\nstate_history: [{state: planned, at: 2026-10-17T10:00:00Z}]\n---\nbody\n",
 		"---\nid: existing\ntype: task\nstate: not-a-state\nstate_history: nonsense\n---\nbody\n",
 	} {
-		p, err := Parse("work.note.md", []byte(raw))
+		p, err := Parse("work.md", []byte(raw))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -41,7 +41,7 @@ func TestNormalizeLeavesRetiredTaskKeysAlone(t *testing.T) {
 
 func TestNormalizePreservesNoteSourceAndDoesNotMutateInput(t *testing.T) {
 	raw := "\xef\xbb\xbf---\r\n# keep\r\ncustom: &items [café, 7, null]\r\ncopy: *items\r\n---\r\nbody\r\n---\r\n"
-	p, err := Parse("old.note.md", []byte(raw))
+	p, err := Parse("old.md", []byte(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestNormalizePreservesNoteSourceAndDoesNotMutateInput(t *testing.T) {
 }
 
 func TestNormalizeValidatesEditsBeforeAssigningID(t *testing.T) {
-	p, err := Parse("work.note.md", []byte("---\ntitle: original\n---\nbody"))
+	p, err := Parse("work.md", []byte("---\ntitle: original\n---\nbody"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestNormalizeValidatesEditsBeforeAssigningID(t *testing.T) {
 }
 
 func TestNormalizeUsesAuthoritativeBodyAndTypedEdits(t *testing.T) {
-	p, err := Parse("work.note.md", []byte("---\nid: existing\ntitle: planned\n---\nold"))
+	p, err := Parse("work.md", []byte("---\nid: existing\ntitle: planned\n---\nold"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +86,7 @@ func TestNormalizeUsesAuthoritativeBodyAndTypedEdits(t *testing.T) {
 }
 
 func TestNormalizeRejectsEmptyGeneratedID(t *testing.T) {
-	p, err := Parse("old.note.md", nil)
+	p, err := Parse("old.md", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestNormalizePreservesManagedAnchorReferences(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			raw := "---\n" + tt.metadata + "---\ncafé\r\n---\r\n"
-			p, err := Parse("work.note.md", []byte(raw))
+			p, err := Parse("work.md", []byte(raw))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -149,11 +149,11 @@ func TestPreservationComparisonChecksReferencesAndScalarSemantics(t *testing.T) 
 		{"nested scalar tag", "custom: {value: !!int 7}\n", "custom: {value: !!str '7'}\n", false},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			before, err := Parse("old.note.md", []byte("---\n"+tt.before+"---\n"))
+			before, err := Parse("old.md", []byte("---\n"+tt.before+"---\n"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			after, err := Parse("old.note.md", []byte("---\n"+tt.after+"---\n"))
+			after, err := Parse("old.md", []byte("---\n"+tt.after+"---\n"))
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -80,9 +80,9 @@ func indexedIDs(t *testing.T, s *Store) []string {
 
 func TestApplyRebuildRoundTripAndIdempotence(t *testing.T) {
 	s := openTestStore(t)
-	d := fixture(t, "doc", "a/doc.note.md", "Unicode α", "First\r\nSecond\n")
-	n := fixture(t, "note", "note.note.md", "Note", "rebuild keyword")
-	snapshot := model.Snapshot{Documents: []model.Document{d, n}, Diagnostics: []model.Diagnostic{{Code: "invalid_document", Path: "bad.note.md", Message: "invalid metadata"}}}
+	d := fixture(t, "doc", "a/doc.md", "Unicode α", "First\r\nSecond\n")
+	n := fixture(t, "note", "note.md", "Note", "rebuild keyword")
+	snapshot := model.Snapshot{Documents: []model.Document{d, n}, Diagnostics: []model.Diagnostic{{Code: "invalid_document", Path: "bad.md", Message: "invalid metadata"}}}
 	first := apply(t, s, snapshot)
 	if first.Added != 2 || first.Updated != 0 || first.Removed != 0 || !reflect.DeepEqual(first.Diagnostics, snapshot.Diagnostics) {
 		t.Fatalf("report: %+v", first)
@@ -109,12 +109,12 @@ func TestApplyRebuildRoundTripAndIdempotence(t *testing.T) {
 
 func TestApplyRemovesInvalidDuplicateAndAbsentDocuments(t *testing.T) {
 	s := openTestStore(t)
-	a := fixture(t, "a", "a.note.md", "A", "vanishing")
-	b := fixture(t, "b", "b.note.md", "B", "vanishing")
-	c := fixture(t, "c", "c.note.md", "C", "vanishing")
+	a := fixture(t, "a", "a.md", "A", "vanishing")
+	b := fixture(t, "b", "b.md", "B", "vanishing")
+	c := fixture(t, "c", "c.md", "C", "vanishing")
 	apply(t, s, model.Snapshot{Documents: []model.Document{a, b, c}})
 	// Scanner omits invalid and duplicate documents; a missing source is absent too.
-	diagnostics := []model.Diagnostic{{Code: "invalid_document", Path: a.Path}, {Code: "duplicate_id", Path: b.Path}, {Code: "duplicate_id", Path: "copy.note.md"}}
+	diagnostics := []model.Diagnostic{{Code: "invalid_document", Path: a.Path}, {Code: "duplicate_id", Path: b.Path}, {Code: "duplicate_id", Path: "copy.md"}}
 	r := apply(t, s, model.Snapshot{Diagnostics: diagnostics})
 	if r.Removed != 3 || !reflect.DeepEqual(r.Diagnostics, diagnostics) {
 		t.Fatalf("removal report: %+v", r)
@@ -141,8 +141,8 @@ func TestApplyRemovesInvalidDuplicateAndAbsentDocuments(t *testing.T) {
 
 func TestApplyMovesReplacementAndSeparateFingerprints(t *testing.T) {
 	s := openTestStore(t)
-	a := fixture(t, "a", "a.note.md", "Same", "content")
-	b := fixture(t, "b", "b.note.md", "Other", "other")
+	a := fixture(t, "a", "a.md", "Same", "content")
+	b := fixture(t, "b", "b.md", "Other", "other")
 	apply(t, s, model.Snapshot{Documents: []model.Document{a, b}})
 	var revision, before string
 	if err := s.db.QueryRow("SELECT revision, semantic_fingerprint FROM documents WHERE id = ?", "a").Scan(&revision, &before); err != nil || revision != a.Revision || before == "" {
@@ -182,7 +182,7 @@ func TestSemanticFingerprintPreservesInputBytesAndBoundaries(t *testing.T) {
 		{"Same", "content\x80"}, {"Same", "content\x81"},
 		{"ab", "c"}, {"a", "bc"}, {"changed title", "bc"},
 	} {
-		d := fixture(t, "a", "a.note.md", input.title, input.body)
+		d := fixture(t, "a", "a.md", input.title, input.body)
 		apply(t, s, model.Snapshot{Documents: []model.Document{d}})
 		var fingerprint string
 		if err := s.db.QueryRow("SELECT semantic_fingerprint FROM documents WHERE id = ?", "a").Scan(&fingerprint); err != nil {
@@ -207,7 +207,7 @@ func TestTwoConnectionsAndReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer b.Close()
-	d := fixture(t, "a", "a.note.md", "A", "concurrent")
+	d := fixture(t, "a", "a.md", "A", "concurrent")
 	snapshot := model.Snapshot{Documents: []model.Document{d}}
 	var wg sync.WaitGroup
 	errs := make(chan error, 2)
@@ -251,7 +251,7 @@ func TestSQLiteConfigurationAndAtomicFailure(t *testing.T) {
 			t.Fatalf("%s: %s %v", pragma, got, err)
 		}
 	}
-	d := fixture(t, "a", "a.note.md", "A", "kept")
+	d := fixture(t, "a", "a.md", "A", "kept")
 	apply(t, s, model.Snapshot{Documents: []model.Document{d}})
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -266,8 +266,8 @@ func TestSQLiteConfigurationAndAtomicFailure(t *testing.T) {
 	if _, err := s.db.Exec(`CREATE TRIGGER fail_diagnostic BEFORE INSERT ON diagnostics BEGIN SELECT RAISE(ABORT, 'private source content'); END`); err != nil {
 		t.Fatal(err)
 	}
-	newDoc := fixture(t, "b", "b.note.md", "B", "replacement")
-	_, err := s.Apply(t.Context(), model.Snapshot{Documents: []model.Document{newDoc}, Diagnostics: []model.Diagnostic{{Code: "invalid_document", Path: "bad.note.md"}}})
+	newDoc := fixture(t, "b", "b.md", "B", "replacement")
+	_, err := s.Apply(t.Context(), model.Snapshot{Documents: []model.Document{newDoc}, Diagnostics: []model.Diagnostic{{Code: "invalid_document", Path: "bad.md"}}})
 	if model.ErrorCode(err) != "index_unavailable" || strings.Contains(err.Error(), "private source content") {
 		t.Fatalf("failure: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestDeleteDatabaseAndRebuildSamePath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	d := fixture(t, "a", "a.note.md", "A", "rebuildword")
+	d := fixture(t, "a", "a.md", "A", "rebuildword")
 	snapshot := model.Snapshot{Documents: []model.Document{d}}
 	apply(t, s, snapshot)
 	before := indexedDocuments(t, s)
@@ -327,7 +327,7 @@ func TestWALReaderCannotSeeUncommittedMetadataOrKeywords(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer b.Close()
-	d := fixture(t, "a", "a.note.md", "A", "publishedword")
+	d := fixture(t, "a", "a.md", "A", "publishedword")
 	apply(t, a, model.Snapshot{Documents: []model.Document{d}})
 	conn, err := a.db.Conn(t.Context())
 	if err != nil {

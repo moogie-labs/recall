@@ -71,14 +71,14 @@ func TestRejectTraversalAndSymlinks(t *testing.T) {
 	s, cfg := openStore(t)
 	ctx := context.Background()
 	outside := t.TempDir()
-	secret := filepath.Join(outside, "secret.note.md")
+	secret := filepath.Join(outside, "secret.md")
 	if err := os.WriteFile(secret, []byte("external bytes"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(outside, filepath.Join(cfg.Content, "escape")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(secret, filepath.Join(cfg.Content, "link.note.md")); err != nil {
+	if err := os.Symlink(secret, filepath.Join(cfg.Content, "link.md")); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Mkdir(filepath.Join(cfg.Content, "real"), 0700); err != nil {
@@ -87,7 +87,7 @@ func TestRejectTraversalAndSymlinks(t *testing.T) {
 	if err := os.Symlink("real", filepath.Join(cfg.Content, "internal-link")); err != nil {
 		t.Fatal(err)
 	}
-	for _, path := range []string{"../secret.note.md", "real/../../secret.note.md", "/etc/passwd", "escape/secret.note.md", "link.note.md", "internal-link/new.note.md"} {
+	for _, path := range []string{"../secret.md", "real/../../secret.md", "/etc/passwd", "escape/secret.md", "link.md", "internal-link/new.md"} {
 		t.Run(path, func(t *testing.T) {
 			locked(t, s, func() error {
 				checks := []error{s.Write(ctx, path, "", []byte("changed")), s.Mkdir(ctx, path), s.Move(ctx, path, "target"), s.Move(ctx, "real", path), s.Remove(ctx, path, true)}
@@ -128,13 +128,13 @@ func TestWalkAndFolderOperations(t *testing.T) {
 		if err := s.Mkdir(ctx, "folder with spaces/sub"); err != nil {
 			return err
 		}
-		return s.Write(ctx, "folder with spaces/sub/a.note.md", "", []byte("body"))
+		return s.Write(ctx, "folder with spaces/sub/a.md", "", []byte("body"))
 	})
 	if err := os.Symlink(t.TempDir(), filepath.Join(cfg.Content, "unmanaged")); err != nil {
 		t.Fatal(err)
 	}
 	entries, err := s.Walk(ctx)
-	want := []Entry{{Path: "folder with spaces", IsDir: true}, {Path: "folder with spaces/sub", IsDir: true}, {Path: "folder with spaces/sub/a.note.md"}, {Path: "unmanaged", IsSymlink: true}}
+	want := []Entry{{Path: "folder with spaces", IsDir: true}, {Path: "folder with spaces/sub", IsDir: true}, {Path: "folder with spaces/sub/a.md"}, {Path: "unmanaged", IsSymlink: true}}
 	if err != nil || !reflect.DeepEqual(entries, want) {
 		t.Fatalf("walk=%+v err=%v", entries, err)
 	}
@@ -156,7 +156,7 @@ func TestWalkAndFolderOperations(t *testing.T) {
 		}
 		return s.Remove(ctx, "occupied", false)
 	})
-	if _, err := s.Read(ctx, "renamed/sub/a.note.md"); model.ErrorCode(err) != "not_found" {
+	if _, err := s.Read(ctx, "renamed/sub/a.md"); model.ErrorCode(err) != "not_found" {
 		t.Fatalf("removed: %v", err)
 	}
 }
@@ -242,14 +242,14 @@ func TestCanceledOperationsDoNotMutate(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	locked(t, s, func() error {
-		for _, err := range []error{s.Write(ctx, "a.note.md", "", []byte("body")), s.Mkdir(ctx, "folder"), s.Move(ctx, "from", "to"), s.Remove(ctx, "missing", true)} {
+		for _, err := range []error{s.Write(ctx, "a.md", "", []byte("body")), s.Mkdir(ctx, "folder"), s.Move(ctx, "from", "to"), s.Remove(ctx, "missing", true)} {
 			if !errors.Is(err, context.Canceled) {
 				t.Errorf("cancellation: %v", err)
 			}
 		}
 		return nil
 	})
-	if _, err := s.Read(ctx, "a.note.md"); !errors.Is(err, context.Canceled) {
+	if _, err := s.Read(ctx, "a.md"); !errors.Is(err, context.Canceled) {
 		t.Fatal(err)
 	}
 	if _, err := s.Walk(ctx); !errors.Is(err, context.Canceled) {
@@ -275,8 +275,8 @@ func TestStorePinsContentRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	locked(t, s, func() error { return s.Write(ctx, "a.note.md", "", []byte("original root")) })
-	raw, err := os.ReadFile(filepath.Join(retired, "a.note.md"))
+	locked(t, s, func() error { return s.Write(ctx, "a.md", "", []byte("original root")) })
+	raw, err := os.ReadFile(filepath.Join(retired, "a.md"))
 	if err != nil || string(raw) != "original root" {
 		t.Fatalf("unpinned content root: %q %v", raw, err)
 	}
@@ -373,7 +373,7 @@ func TestFlockCoordinatesProcesses(t *testing.T) {
 func TestConcurrentSymlinkSwapsCannotEscape(t *testing.T) {
 	s, cfg := openStore(t)
 	outside := t.TempDir()
-	if err := os.WriteFile(filepath.Join(outside, "outside.note.md"), []byte("external bytes"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(outside, "outside.md"), []byte("external bytes"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	active, parked := filepath.Join(cfg.Content, "active"), filepath.Join(cfg.Content, "parked")
@@ -407,13 +407,13 @@ func TestConcurrentSymlinkSwapsCannotEscape(t *testing.T) {
 		for i := range 64 {
 			// All errors are allowed while a noncooperating editor swaps an
 			// ancestor. No operation may read or mutate the outside directory.
-			if raw, err := s.Read(ctx, "active/outside.note.md"); err == nil {
+			if raw, err := s.Read(ctx, "active/outside.md"); err == nil {
 				t.Errorf("read escaped root: %q", raw)
 			}
-			_ = s.Write(ctx, fmt.Sprintf("active/new-%d.note.md", i), "", []byte("local"))
+			_ = s.Write(ctx, fmt.Sprintf("active/new-%d.md", i), "", []byte("local"))
 			_ = s.Mkdir(ctx, fmt.Sprintf("active/folder-%d", i))
-			_ = s.Move(ctx, "active/outside.note.md", "stolen.note.md")
-			_ = s.Remove(ctx, "active/outside.note.md", true)
+			_ = s.Move(ctx, "active/outside.md", "stolen.md")
+			_ = s.Remove(ctx, "active/outside.md", true)
 		}
 		return nil
 	})
@@ -421,7 +421,7 @@ func TestConcurrentSymlinkSwapsCannotEscape(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	raw, err := os.ReadFile(filepath.Join(outside, "outside.note.md"))
+	raw, err := os.ReadFile(filepath.Join(outside, "outside.md"))
 	if err != nil || string(raw) != "external bytes" {
 		t.Fatalf("external target modified: %q %v", raw, err)
 	}
@@ -454,7 +454,7 @@ func seedAncestorSwap(t *testing.T, cfg config.Config) func() {
 			t.Fatal(err)
 		}
 	}
-	for name, body := range map[string]string{"active/a.note.md": "original", "victim/a.note.md": "victim"} {
+	for name, body := range map[string]string{"active/a.md": "original", "victim/a.md": "victim"} {
 		if err := os.WriteFile(filepath.Join(cfg.Content, name), []byte(body), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -475,14 +475,14 @@ func TestOpenNoFollowRejectsAncestorSwapAfterValidation(t *testing.T) {
 	// Reproduce the exact validation/use gap without timing or a production
 	// hook: first validate real components, then replace the ancestor, then
 	// invoke the opener sharing Read's component resolver.
-	for _, path := range []string{"active", "active/a.note.md"} {
+	for _, path := range []string{"active", "active/a.md"} {
 		info, err := os.Lstat(filepath.Join(cfg.Content, path))
 		if err != nil || info.Mode()&os.ModeSymlink != 0 {
 			t.Fatalf("initial validation: %v", err)
 		}
 	}
 	swap()
-	f, err := openNoFollow(s.content, "active/a.note.md", os.O_RDONLY, 0)
+	f, err := openNoFollow(s.content, "active/a.md", os.O_RDONLY, 0)
 	if err == nil {
 		defer f.Close()
 		raw, readErr := io.ReadAll(f)
@@ -546,7 +546,7 @@ func TestDirectoryOpenRejectsSymlinkInstalledAfterStat(t *testing.T) {
 func TestWalkDoesNotFollowDirectorySwap(t *testing.T) {
 	s, cfg := openStore(t)
 	swap := seedAncestorSwap(t, cfg)
-	if err := os.Remove(filepath.Join(cfg.Content, "active", "a.note.md")); err != nil {
+	if err := os.Remove(filepath.Join(cfg.Content, "active", "a.md")); err != nil {
 		t.Fatal(err)
 	}
 	// In the original implementation, the third checkpoint is the callback
@@ -560,7 +560,7 @@ func TestWalkDoesNotFollowDirectorySwap(t *testing.T) {
 		t.Fatal("swap checkpoint was not reached")
 	}
 	for _, entry := range entries {
-		if entry.Path == "active/a.note.md" {
+		if entry.Path == "active/a.md" {
 			t.Fatal("walk followed replacement into victim")
 		}
 	}
@@ -625,15 +625,15 @@ func TestRemoveKeepsValidatedParentAcrossAncestorSwap(t *testing.T) {
 	// The old recursive removal validates this file and then checks context
 	// in its walk callback. Replace the ancestor at that exact boundary.
 	ctx := &checkpointContext{Context: context.Background(), at: 2, action: swap}
-	locked(t, s, func() error { return s.Remove(ctx, "active/a.note.md", true) })
+	locked(t, s, func() error { return s.Remove(ctx, "active/a.md", true) })
 	if ctx.checks < ctx.at {
 		t.Fatal("swap checkpoint was not reached")
 	}
-	raw, err := os.ReadFile(filepath.Join(cfg.Content, "victim", "a.note.md"))
+	raw, err := os.ReadFile(filepath.Join(cfg.Content, "victim", "a.md"))
 	if err != nil || string(raw) != "victim" {
 		t.Fatalf("removed redirected victim: %q %v", raw, err)
 	}
-	if _, err := os.Stat(filepath.Join(cfg.Content, "parked", "a.note.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(cfg.Content, "parked", "a.md")); !os.IsNotExist(err) {
 		t.Fatalf("original source was not removed: %v", err)
 	}
 }
@@ -643,14 +643,14 @@ func TestMutatorsKeepPinnedParentsAcrossAncestorSwap(t *testing.T) {
 		t.Run(operation, func(t *testing.T) {
 			s, cfg := openStore(t)
 			swap := seedAncestorSwap(t, cfg)
-			if err := os.WriteFile(filepath.Join(cfg.Content, "move.note.md"), []byte("move"), 0600); err != nil {
+			if err := os.WriteFile(filepath.Join(cfg.Content, "move.md"), []byte("move"), 0600); err != nil {
 				t.Fatal(err)
 			}
 			for _, dir := range []string{"active/tree", "victim/tree"} {
 				if err := os.Mkdir(filepath.Join(cfg.Content, dir), 0700); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(filepath.Join(cfg.Content, dir, "child.note.md"), []byte(dir), 0600); err != nil {
+				if err := os.WriteFile(filepath.Join(cfg.Content, dir, "child.md"), []byte(dir), 0600); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -660,9 +660,9 @@ func TestMutatorsKeepPinnedParentsAcrossAncestorSwap(t *testing.T) {
 				case "mkdir":
 					return s.Mkdir(ctx, "active/new")
 				case "move_source":
-					return s.Move(ctx, "active/a.note.md", "moved.note.md")
+					return s.Move(ctx, "active/a.md", "moved.md")
 				case "move_target":
-					return s.Move(ctx, "move.note.md", "active/new.note.md")
+					return s.Move(ctx, "move.md", "active/new.md")
 				default:
 					return s.Remove(ctx, "active/tree", true)
 				}
@@ -670,13 +670,13 @@ func TestMutatorsKeepPinnedParentsAcrossAncestorSwap(t *testing.T) {
 			if ctx.checks < ctx.at {
 				t.Fatal("swap checkpoint was not reached")
 			}
-			for path, want := range map[string]string{"victim/a.note.md": "victim", "victim/tree/child.note.md": "victim/tree"} {
+			for path, want := range map[string]string{"victim/a.md": "victim", "victim/tree/child.md": "victim/tree"} {
 				raw, err := os.ReadFile(filepath.Join(cfg.Content, path))
 				if err != nil || string(raw) != want {
 					t.Fatalf("redirected mutation of %s: %q %v", path, raw, err)
 				}
 			}
-			for _, name := range []string{"new", "new.note.md"} {
+			for _, name := range []string{"new", "new.md"} {
 				if _, err := os.Lstat(filepath.Join(cfg.Content, "victim", name)); !os.IsNotExist(err) {
 					t.Fatalf("created a victim entry %s: %v", name, err)
 				}
@@ -687,9 +687,9 @@ func TestMutatorsKeepPinnedParentsAcrossAncestorSwap(t *testing.T) {
 					t.Fatalf("original directory creation: %v", err)
 				}
 			case "move_source", "move_target":
-				path, want := "moved.note.md", "original"
+				path, want := "moved.md", "original"
 				if operation == "move_target" {
-					path, want = "parked/new.note.md", "move"
+					path, want = "parked/new.md", "move"
 				}
 				raw, err := os.ReadFile(filepath.Join(cfg.Content, path))
 				if err != nil || string(raw) != want {
@@ -711,12 +711,12 @@ func TestRemoveRejectsSymlinkIntroducedAfterPreflight(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, path := range []string{"tree/sub/a.note.md", "victim/a.note.md"} {
+	for _, path := range []string{"tree/sub/a.md", "victim/a.md"} {
 		if err := os.WriteFile(filepath.Join(cfg.Content, path), []byte(path), 0600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	// Checkpoints 3..6 preflight tree/sub/a.note.md; checkpoint 7 is the
+	// Checkpoints 3..6 preflight tree/sub/a.md; checkpoint 7 is the
 	// deletion pass's first child, after that clean preflight has finished.
 	ctx := &checkpointContext{Context: context.Background(), at: 7, action: func() {
 		if err := os.Rename(filepath.Join(cfg.Content, "tree", "sub"), filepath.Join(cfg.Content, "parked")); err != nil {
@@ -735,8 +735,8 @@ func TestRemoveRejectsSymlinkIntroducedAfterPreflight(t *testing.T) {
 	if ctx.checks < ctx.at {
 		t.Fatal("swap checkpoint was not reached")
 	}
-	raw, err := os.ReadFile(filepath.Join(cfg.Content, "victim", "a.note.md"))
-	if err != nil || string(raw) != "victim/a.note.md" {
+	raw, err := os.ReadFile(filepath.Join(cfg.Content, "victim", "a.md"))
+	if err != nil || string(raw) != "victim/a.md" {
 		t.Fatalf("victim deletion after preflight: %q %v", raw, err)
 	}
 }

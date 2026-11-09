@@ -72,7 +72,7 @@ export function fakeBridge(
       const path =
         (input.parent ? input.parent + "/" : "") +
         input.name +
-        (input.kind === "folder" ? "" : ".note.md");
+        (input.kind === "folder" ? "" : ".md");
       if (dirs.has(path) || [...docs.values()].some((d) => d.path === path))
         return {
           entry: null,

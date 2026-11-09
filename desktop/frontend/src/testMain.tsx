@@ -11,7 +11,7 @@ const api = fakeBridge(
   [
     {
       id: "reading",
-      path: "Work/Reading.note.md",
+      path: "Work/Reading.md",
       name: "Reading",
       title: "Reading notes",
       body:

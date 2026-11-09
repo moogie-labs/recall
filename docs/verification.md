@@ -1,6 +1,7 @@
 # Verification — baseline 2026-10-21–22; correction 2026-10-23–24
 
-**Tasks were removed on 2026-11-08** (see the final section). Commands, tool
+**Tasks were removed on 2026-11-08 and `.note.md` replaced by plain `.md` on
+2026-11-09** (see the final sections). Filenames, commands, tool
 counts and note/task coverage in the sections below are historical evidence
 from before that change, not a description of current commands.
 
@@ -341,3 +342,26 @@ files are left untouched and reported as `invalid_document` diagnostics.
 
 Not rerun: native desktop smoke (`scripts/verify-desktop.sh`), packaged offline
 and real-model gates.
+
+## Plain `.md` — 2026-11-09
+
+Any non-hidden `*.md` under `content/` is now a note. The migration steps in
+`operations.md` were run verbatim, in zsh and in bash, on temporary collections
+with a binary built from `1da0221` as the old version and real inference. Notes
+with spaces, multiple spaces and accented names kept their IDs, bytes and
+embedding vectors; no embedding jobs were pending after the upgrade; keyword,
+hybrid and semantic search returned the expected notes. The collision was
+skipped, a stray `.md` was adopted with its body intact, and the rollback block
+restored the old build. The install step was replaced by a binary swap.
+
+| Command / gate | Actual result |
+| --- | --- |
+| `go test ./...`; `go vet ./...`; `gofmt -l` | All pass; no output |
+| `go test` in `desktop/` after `scripts/build-desktop.sh` | Pass |
+| `npm test`; `npm run test:e2e` | 59 unit tests; 4 Playwright tests pass |
+| `scripts/verify-desktop.sh` | Native smoke and conflict fixtures pass; real-model desktop gate not run |
+| `python3 scripts/verify-neovim.py build/recall` | Installed Neovim checks pass |
+| `test_release_macos.py`; actionlint on `release.yml` | Pass |
+
+Not run: a real Command-A keystroke in the native window (unit tests dispatch
+the key event), and a real `.pkg` install.

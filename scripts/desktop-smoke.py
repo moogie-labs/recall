@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix="recall-native-", dir=base) as temporary
         configuration.update(model_id=model["id"], model_sha256=model["sha256"], model_signature="sha256:" + model["sha256"], runtime_id=runtime["id"])
     (root / "config.json").write_text(json.dumps(configuration))
     (root / ".recall-native-fixture").write_text("owned verification fixture")
-    source = root / "content/smoke.note.md"
+    source = root / "content/smoke.md"
     source.write_text('---\nid: native-smoke\ntitle: Native smoke\ncustom: preserve-me\n---\n# Native smoke\n')
     environment = dict(os.environ, HOME=str(home), RECALL_HOME=str(root), RECALL_DESKTOP_VERIFY=mode)
     try:

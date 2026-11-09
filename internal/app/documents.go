@@ -23,6 +23,9 @@ func (a *App) Create(ctx context.Context, input CreateInput) (model.Document, er
 	if strings.ContainsRune(input.Name, filepath.Separator) {
 		return model.Document{}, appError("invalid_argument", "", "name must be one filename component")
 	}
+	if strings.HasSuffix(input.Name, document.Suffix) {
+		return model.Document{}, appError("invalid_argument", "", "name must not include the .md suffix")
+	}
 	if input.Folder != "" && input.Folder != "." {
 		if err := validatePath(input.Folder); err != nil {
 			return model.Document{}, err
@@ -95,7 +98,7 @@ func (a *App) Update(ctx context.Context, ref model.Ref, expectedRevision, raw s
 	})
 }
 
-// Move takes a complete content-relative .note.md destination filename.
+// Move takes a complete content-relative .md destination filename.
 func (a *App) Move(ctx context.Context, ref model.Ref, destination, expectedRevision string) (model.Document, error) {
 	if err := validatePath(destination); err != nil {
 		return model.Document{}, err
@@ -120,7 +123,7 @@ func (a *App) Delete(ctx context.Context, ref model.Ref, expectedRevision string
 		var current model.Document
 		var err error
 		if ref.Path != "" {
-			current, err = a.typedSource(ctx, ref.Path)
+			current, err = a.explicitSource(ctx, ref.Path)
 		} else {
 			current, err = a.resolve(ctx, snapshot, ref)
 		}

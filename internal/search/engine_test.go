@@ -91,7 +91,7 @@ func searchFixture(t *testing.T, docs ...model.Document) (*Engine, *memorySource
 	t.Cleanup(func() { idx.Close() })
 	for i := range docs {
 		if docs[i].Path == "" {
-			docs[i].Path = docs[i].ID + ".note.md"
+			docs[i].Path = docs[i].ID + ".md"
 		}
 		if docs[i].Raw == "" {
 			docs[i].Raw = docs[i].Body
@@ -112,7 +112,7 @@ func TestReciprocalRankFusion(t *testing.T) {
 	}
 }
 func TestHybridProcessesPendingFiltersAndSignatureMismatch(t *testing.T) {
-	e, _, idx, p := searchFixture(t, model.Document{ID: "a", Title: "Needle", Body: strings.Repeat("界", 2000)}, model.Document{ID: "b", Title: "other", Body: "other", Path: "sub/b.note.md"})
+	e, _, idx, p := searchFixture(t, model.Document{ID: "a", Title: "Needle", Body: strings.Repeat("界", 2000)}, model.Document{ID: "b", Title: "other", Body: "other", Path: "sub/b.md"})
 	h, err := e.Search(t.Context(), model.SearchQuery{Text: "Needle", Mode: "keyword"})
 	if err != nil || len(h) != 1 || p.calls != 0 {
 		t.Fatalf("keyword: %v %v calls=%d", h, err, p.calls)

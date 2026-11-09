@@ -219,7 +219,7 @@ func TestRunTracksNewNestedMovedDeletedAndRecreatedFolders(t *testing.T) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, "nested.note.md")
+	path := filepath.Join(dir, "nested.md")
 	write(t, path, "nested body")
 	eventually(t, func() bool { return len(c.documents(t)) == 2 })
 	raw, err := os.ReadFile(path)
@@ -229,7 +229,7 @@ func TestRunTracksNewNestedMovedDeletedAndRecreatedFolders(t *testing.T) {
 	replace(t, path, strings.Replace(string(raw), "nested body", "nested edited", 1))
 	eventually(t, func() bool {
 		for _, d := range c.documents(t) {
-			if d.Path == "new/nested/nested.note.md" && d.Body == "nested edited" {
+			if d.Path == "new/nested/nested.md" && d.Body == "nested edited" {
 				return true
 			}
 		}
@@ -240,13 +240,13 @@ func TestRunTracksNewNestedMovedDeletedAndRecreatedFolders(t *testing.T) {
 	}
 	eventually(t, func() bool {
 		for _, d := range c.documents(t) {
-			if d.Path == "moved/nested/nested.note.md" {
+			if d.Path == "moved/nested/nested.md" {
 				return true
 			}
 		}
 		return false
 	})
-	for _, path := range []string{"moved/nested/nested.note.md", "moved/nested", "moved"} {
+	for _, path := range []string{"moved/nested/nested.md", "moved/nested", "moved"} {
 		if err := os.Remove(filepath.Join(c.cfg.Content, path)); err != nil {
 			t.Fatal(err)
 		}
@@ -256,7 +256,7 @@ func TestRunTracksNewNestedMovedDeletedAndRecreatedFolders(t *testing.T) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	path = filepath.Join(dir, "recreated.note.md")
+	path = filepath.Join(dir, "recreated.md")
 	write(t, path, "recreated")
 	eventually(t, func() bool { return len(c.documents(t)) == 2 })
 	raw, err = os.ReadFile(path)
@@ -459,7 +459,7 @@ func TestRunDoesNotWatchSymlinkDirectories(t *testing.T) {
 	if err := next(t, scans); err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(outside, "outside.note.md"), "outside")
+	write(t, filepath.Join(outside, "outside.md"), "outside")
 	time.Sleep(150 * time.Millisecond)
 	if calls.Load() != 1 {
 		t.Fatalf("followed an unmanaged symlink: %d scans", calls.Load())

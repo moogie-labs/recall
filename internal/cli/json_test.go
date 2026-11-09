@@ -48,10 +48,10 @@ func TestJSONInputErrorsAndExitMapping(t *testing.T) {
 		{[]string{"unknown-command"}, 2, "invalid_argument"},
 		{[]string{"document", "list", "--unknown"}, 2, "invalid_argument"},
 		{[]string{"document", "get"}, 2, "invalid_argument"},
-		{[]string{"document", "get", "--id", "x", "--path", "x.note.md"}, 2, "invalid_argument"},
-		{[]string{"document", "get", "--path", "absent.note.md"}, 3, "not_found"},
-		{[]string{"document", "get", "--path", "../outside.note.md"}, 2, "outside_root"},
-		{[]string{"document", "update", "--path", "absent.note.md"}, 2, "invalid_argument"},
+		{[]string{"document", "get", "--id", "x", "--path", "x.md"}, 2, "invalid_argument"},
+		{[]string{"document", "get", "--path", "absent.md"}, 3, "not_found"},
+		{[]string{"document", "get", "--path", "../outside.md"}, 2, "outside_root"},
+		{[]string{"document", "update", "--path", "absent.md"}, 2, "invalid_argument"},
 		{[]string{"document", "list", "--limit", "201"}, 2, "invalid_argument"},
 		{[]string{"document", "list", "--offset", "-1"}, 2, "invalid_argument"},
 		{[]string{"search", "x", "--mode", "other"}, 2, "invalid_argument"},
@@ -170,7 +170,7 @@ func TestJSONLiteralValuesAndSuccessfulToggles(t *testing.T) {
 			} else if !strings.HasPrefix(out.String(), "---\n") {
 				t.Fatalf("expected human Markdown, got %s", &out)
 			}
-			stored := as[model.Document](t, invoke(t, cfg.Root, "", "document", "get", "--path", tt.name+".note.md"))
+			stored := as[model.Document](t, invoke(t, cfg.Root, "", "document", "get", "--path", tt.name+".md"))
 			if stored.Title != tt.title {
 				t.Fatalf("stored title %q, want %q", stored.Title, tt.title)
 			}

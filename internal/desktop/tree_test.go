@@ -12,7 +12,7 @@ func TestTreeHasManagedEntriesAndEmptyFoldersOnly(t *testing.T) {
 	s, _, cfg, session := fixture(t)
 	s.Create(CreateInput{Session: session, Kind: "folder", Name: "empty"})
 	s.Create(CreateInput{Session: session, Kind: "note", Name: "one"})
-	os.WriteFile(filepath.Join(cfg.Content, "ordinary.md"), []byte("ordinary"), 0600)
+	os.WriteFile(filepath.Join(cfg.Content, "ordinary.txt"), []byte("ordinary"), 0600)
 	r := s.Tree(session)
 	if r.Problem != nil || len(r.Tree.Entries) != 2 {
 		t.Fatalf("tree %+v", r)
@@ -55,7 +55,7 @@ func TestCreateAndDelete(t *testing.T) {
 		t.Fatal(f.Problem)
 	}
 	d := s.Create(CreateInput{Session: session, Kind: "note", Parent: "work", Name: "item"})
-	if d.Problem != nil || d.Document.Path != "work/item.note.md" || d.Entry.Kind != "note" {
+	if d.Problem != nil || d.Document.Path != "work/item.md" || d.Entry.Kind != "note" {
 		t.Fatal(d)
 	}
 	for _, in := range []CreateInput{{Kind: "note", Parent: "work", Name: "item"}, {Kind: "task", Parent: "work", Name: "other"}, {Kind: "folder", Name: "../escape"}, {Kind: "note", Name: "a/b"}, {Kind: "folder", Name: "."}} {
@@ -94,13 +94,22 @@ func TestCreateAndDelete(t *testing.T) {
 func TestDiagnosticsSurviveDiscovery(t *testing.T) {
 	s, _, cfg, session := fixture(t)
 	raw := "---\nid: [broken\n---\nbody"
-	os.WriteFile(filepath.Join(cfg.Content, "bad.note.md"), []byte(raw), 0600)
+	os.WriteFile(filepath.Join(cfg.Content, "bad.md"), []byte(raw), 0600)
 	r := s.Tree(session)
 	if r.Problem != nil || len(r.Tree.Diagnostics) != 1 || len(r.Tree.Entries) != 0 {
 		t.Fatal(r)
 	}
-	b, _ := os.ReadFile(filepath.Join(cfg.Content, "bad.note.md"))
+	b, _ := os.ReadFile(filepath.Join(cfg.Content, "bad.md"))
 	if string(b) != raw {
 		t.Fatal("malformed source repaired")
+	}
+}
+
+func TestLeftoverDottedSuffixIsPartOfTheName(t *testing.T) {
+	s, _, cfg, session := fixture(t)
+	os.WriteFile(filepath.Join(cfg.Content, "x.note.md"), []byte("---\nid: left\n---\nbody\n"), 0600)
+	r := s.Tree(session)
+	if r.Problem != nil || len(r.Tree.Entries) != 1 || r.Tree.Entries[0].Name != "x.note" || r.Tree.Entries[0].Kind != "note" {
+		t.Fatalf("tree %+v", r)
 	}
 }

@@ -20,7 +20,7 @@ func TestExecutableHumanPreviewsAreInertAndRawJSONLossless(t *testing.T) {
 	cfg := prepared(t)
 	controls := "\x1b[2J\x1b]52;c;YWJj\a\u009b31m\u009d0;hidden\u009c\b\r\x7f"
 	folder := "folder" + controls
-	path := folder + "/guide" + controls + ".note.md"
+	path := folder + "/guide" + controls + ".md"
 	title, id := "Title"+controls, "ID"+controls
 	body := "needle first line\nuseful second line " + controls + "\n"
 	raw := "---\nid: " + strconv.Quote(id) + "\ntype: note\ntitle: " + strconv.Quote(title) + "\n---\n" + body
@@ -30,7 +30,7 @@ func TestExecutableHumanPreviewsAreInertAndRawJSONLossless(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(cfg.Content, path), []byte(raw), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(cfg.Content, "bad"+controls+".note.md"), []byte("---\ntitle: [\n---\n"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(cfg.Content, "bad"+controls+".md"), []byte("---\ntitle: [\n---\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	run := func(args ...string) (int, []byte, []byte) {

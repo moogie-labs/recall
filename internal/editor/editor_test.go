@@ -20,7 +20,7 @@ import (
 
 // Catches shell splitting, interpolation, and mutation of the configured argv.
 func TestEditorKeepsPathAsOneArgument(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "a b;echo nope.note.md")
+	path := filepath.Join(t.TempDir(), "a b;echo nope.md")
 	argv := make([]string, 2, 5)
 	copy(argv, []string{"nvim", "--"})
 	cmd, err := Command(argv, path)
@@ -38,13 +38,13 @@ func TestEditorRejectsInvalidArguments(t *testing.T) {
 		argv []string
 		path string
 	}{
-		{nil, "/absolute.note.md"},
-		{[]string{""}, "/absolute.note.md"},
-		{[]string{"nvim\x00"}, "/absolute.note.md"},
-		{[]string{"nvim", "bad\x00arg"}, "/absolute.note.md"},
-		{[]string{"nvim"}, "relative.note.md"},
+		{nil, "/absolute.md"},
+		{[]string{""}, "/absolute.md"},
+		{[]string{"nvim\x00"}, "/absolute.md"},
+		{[]string{"nvim", "bad\x00arg"}, "/absolute.md"},
+		{[]string{"nvim"}, "relative.md"},
 		{[]string{"nvim"}, ""},
-		{[]string{"nvim"}, "/bad\x00.note.md"},
+		{[]string{"nvim"}, "/bad\x00.md"},
 	} {
 		if _, err := Command(tt.argv, tt.path); model.ErrorCode(err) != "invalid_argument" {
 			t.Fatalf("accepted %q %q: %v", tt.argv, tt.path, err)

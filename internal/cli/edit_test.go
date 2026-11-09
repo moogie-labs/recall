@@ -14,7 +14,7 @@ import (
 
 func TestCLIEditCanRepairMalformedTypedFile(t *testing.T) {
 	cfg := prepared(t)
-	path := filepath.Join(cfg.Content, "repair space.note.md")
+	path := filepath.Join(cfg.Content, "repair space.md")
 	if err := os.WriteFile(path, []byte("---\nid: [bad\n---\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +24,7 @@ func TestCLIEditCanRepairMalformedTypedFile(t *testing.T) {
 	}
 	setUserEditor(t, script)
 	var out, logs bytes.Buffer
-	if code := Run(t.Context(), []string{"--root", cfg.Root, "document", "edit", "--path", "repair space.note.md"}, strings.NewReader(""), &out, &logs); code != 0 || !strings.Contains(out.String(), "repaired body") {
+	if code := Run(t.Context(), []string{"--root", cfg.Root, "document", "edit", "--path", "repair space.md"}, strings.NewReader(""), &out, &logs); code != 0 || !strings.Contains(out.String(), "repaired body") {
 		t.Fatalf("%d %s %s", code, &out, &logs)
 	}
 }

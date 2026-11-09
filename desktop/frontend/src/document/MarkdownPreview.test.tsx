@@ -18,7 +18,7 @@ it("keeps unsafe content inert and does not fetch images", () => {
   const { container } = render(
     <MarkdownPreview
       body={
-        '<script>alert(1)</script>\n\n<img src="x" onerror="alert(1)">\n\n[bad](javascript:alert(1)) [local](file:///etc/passwd) [relative](other.note.md)\n\n![remote](https://evil.example/track) ![local image](../secret.png)'
+        '<script>alert(1)</script>\n\n<img src="x" onerror="alert(1)">\n\n[bad](javascript:alert(1)) [local](file:///etc/passwd) [relative](other.md)\n\n![remote](https://evil.example/track) ![local image](../secret.png)'
       }
     />,
   );

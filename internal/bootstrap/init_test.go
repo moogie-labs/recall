@@ -321,7 +321,7 @@ func TestInitializeRetryPreservesSourcesAndUnknownConfiguration(t *testing.T) {
 	if err == nil || !ready.MetadataReady || ready.RuntimeReady || ready.ModelReady {
 		t.Fatalf("first attempt: %+v %v", ready, err)
 	}
-	document := filepath.Join(cfg.Content, "keep.note.md")
+	document := filepath.Join(cfg.Content, "keep.md")
 	writeFile(t, document, []byte("---\ntype: note\ncustom: untouched\n---\nuser bytes\r\n"))
 	writeFile(t, cfg.Database, []byte("existing derived bytes must not be truncated"))
 	configPath := filepath.Join(cfg.Root, "config.json")

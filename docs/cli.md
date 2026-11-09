@@ -18,11 +18,12 @@ one at its old location.
 Layout: `config.json`, `content/`, `index.sqlite`, `models/`, `runtime/`, `run/`.
 Only `content/` holds user folders and documents.
 
-Managed filenames are case-sensitive `<name>.note.md`.
-Plain Markdown and any other file, including `.task.md` files from older
-versions, is untouched and reported as unmanaged, not silently adopted.
-Compliant external files get an ID at reconciliation. Malformed metadata,
-duplicate IDs and symlinked content produce diagnostics;
+Any file under `content/` ending in lowercase `.md` is a note, and its name is
+the filename without `.md`. Paths with a hidden (dot-prefixed) component are not
+notes. Hidden paths and all other files are untouched and reported as unmanaged
+diagnostics, not silently adopted. A Markdown file without an ID gets one
+inserted as frontmatter at reconciliation; its body is unchanged. Malformed
+metadata, duplicate IDs and symlinked content produce diagnostics;
 Recall does not silently overwrite them. IDs are stable, not paths.
 
 ```sh
@@ -32,9 +33,9 @@ recall folder create inbox
 recall folder list
 recall document create --folder inbox --name idea --body-file idea.txt
 recall document list --folder inbox --recursive=false --json
-recall document get --path inbox/idea.note.md --json
-recall document edit --path inbox/idea.note.md
-recall document move --id ID --to inbox/renamed.note.md
+recall document get --path inbox/idea.md --json
+recall document edit --path inbox/idea.md
+recall document move --id ID --to inbox/renamed.md
 recall folder move inbox archive
 ```
 

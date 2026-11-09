@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
@@ -42,7 +41,7 @@ type referenceFlags struct{ id, path, revision string }
 
 func (f *referenceFlags) bind(c *cobra.Command, revision bool) {
 	c.Flags().StringVar(&f.id, "id", "", "Stable document ID (exclusive with --path)")
-	c.Flags().StringVar(&f.path, "path", "", "Content-relative .note.md filename (exclusive with --id)")
+	c.Flags().StringVar(&f.path, "path", "", "Content-relative .md filename (exclusive with --id)")
 	if revision {
 		c.Flags().StringVar(&f.revision, "if-revision", "", "Require this source revision")
 	}
@@ -157,8 +156,8 @@ func pageBounds(limit, offset, maximum int) error {
 }
 
 func bareName(name string) error {
-	if name == "" || strings.HasSuffix(name, ".note.md") {
-		return invalid("--name must be a nonempty bare filename component, without the .note.md suffix")
+	if name == "" {
+		return invalid("--name must be a nonempty bare filename component, without the .md suffix")
 	}
 	return nil
 }
