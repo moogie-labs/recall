@@ -40,8 +40,8 @@ func TestBodySavePreservesHeaderAndID(t *testing.T) {
 	for _, nl := range []string{"\n", "\r\n"} {
 		t.Run(strings.ReplaceAll(nl, "\n", "LF"), func(t *testing.T) {
 			s, a, cfg, session := fixture(t)
-			raw := strings.ReplaceAll("---\nid: stable\ntype: task\ntitle: Title\nstate: planned\nstate_history: [{state: planned, at: 2026-10-20T00:00:00Z}]\n# keep me\ncustom: {x: yes}\n---\nold\n", "\n", nl)
-			if err := os.WriteFile(filepath.Join(cfg.Content, "test.task.md"), []byte(raw), 0600); err != nil {
+			raw := strings.ReplaceAll("---\nid: stable\ntitle: Title\nstate: planned\n# keep me\ncustom: {x: yes}\n---\nold\n", "\n", nl)
+			if err := os.WriteFile(filepath.Join(cfg.Content, "test.md"), []byte(raw), 0600); err != nil {
 				t.Fatal(err)
 			}
 			doc := s.OpenDocument(session, "stable")
@@ -62,7 +62,7 @@ func TestBodySavePreservesHeaderAndID(t *testing.T) {
 			if !r.Saved || r.Problem != nil || r.Generation != 2 {
 				t.Fatalf("save %+v", r)
 			}
-			disk, err := os.ReadFile(filepath.Join(cfg.Content, "test.task.md"))
+			disk, err := os.ReadFile(filepath.Join(cfg.Content, "test.md"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -93,7 +93,7 @@ func TestPostWriteIndexFailureAcknowledgesExactSource(t *testing.T) {
 	for _, mode := range []string{"written", "no-write"} {
 		t.Run(mode, func(t *testing.T) {
 			s, a, cfg, _ := fixture(t)
-			d, err := a.Create(t.Context(), app.CreateInput{Kind: model.Note, Name: "one", Body: "old"})
+			d, err := a.Create(t.Context(), app.CreateInput{Name: "one", Body: "old"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -117,7 +117,7 @@ func TestPostWriteIndexFailureAcknowledgesExactSource(t *testing.T) {
 
 func TestStaleSessionCannotWrite(t *testing.T) {
 	s, a, cfg, old := fixture(t)
-	d, err := a.Create(t.Context(), app.CreateInput{Kind: model.Note, Name: "one", Body: "old"})
+	d, err := a.Create(t.Context(), app.CreateInput{Name: "one", Body: "old"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestOpenDoesNotInitializeOrLoadModel(t *testing.T) {
 }
 func TestPersistentPostWriteIndexFailureAcknowledgesSourceAndRevision(t *testing.T) {
 	s, a, cfg, session := fixture(t)
-	d, err := a.Create(t.Context(), app.CreateInput{Kind: model.Note, Name: "persist", Body: "old"})
+	d, err := a.Create(t.Context(), app.CreateInput{Name: "persist", Body: "old"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -22,7 +22,7 @@ func TestRetrievalPreviewWireBudgets(t *testing.T) {
 			t.Run(mode+"/"+tc.name, func(t *testing.T) {
 				var docs []model.Document
 				for n := 0; n < tc.count; n++ {
-					docs = append(docs, model.Document{ID: fmt.Sprintf("%03d", n) + strings.Repeat("x", tc.idBytes), Path: fmt.Sprintf("%03d.note.md", n), Title: tc.title, Body: "needle"})
+					docs = append(docs, model.Document{ID: fmt.Sprintf("%03d", n) + strings.Repeat("x", tc.idBytes), Path: fmt.Sprintf("%03d.md", n), Title: tc.title, Body: "needle"})
 				}
 				e, source, idx, _ := searchFixture(t, docs...)
 				h, err := e.Search(t.Context(), model.SearchQuery{Text: "needle", Mode: mode, Limit: 20})
@@ -59,7 +59,7 @@ func TestRetrievalPreviewRowBudgetIncludesFinalScore(t *testing.T) {
 	// A fused score has more encoded digits than the vector stream's initial 0.
 	// Exercise identities close to the row boundary, not just wildly huge ones.
 	for size := 3800; size < 3900; size++ {
-		e, _, _, _ := searchFixture(t, model.Document{ID: strings.Repeat("x", size), Path: "a.note.md", Title: "Same", Body: "needle"})
+		e, _, _, _ := searchFixture(t, model.Document{ID: strings.Repeat("x", size), Path: "a.md", Title: "Same", Body: "needle"})
 		h, err := e.Search(t.Context(), model.SearchQuery{Text: "needle", Mode: "semantic", Limit: 1})
 		if err != nil {
 			if model.ErrorCode(err) != "output_too_large" {
@@ -77,7 +77,7 @@ func TestRetrievalPreviewRowBudgetIncludesFinalScore(t *testing.T) {
 func TestHybridBudgetMeasuresReturnedPageNotHiddenEvidence(t *testing.T) {
 	var docs []model.Document
 	for n := 0; n < 20; n++ {
-		docs = append(docs, model.Document{ID: fmt.Sprintf("%03d", n) + strings.Repeat("x", 1800), Path: fmt.Sprintf("%03d.note.md", n), Title: "Same", Body: "needle"})
+		docs = append(docs, model.Document{ID: fmt.Sprintf("%03d", n) + strings.Repeat("x", 1800), Path: fmt.Sprintf("%03d.md", n), Title: "Same", Body: "needle"})
 	}
 	e, _, _, _ := searchFixture(t, docs...)
 	for _, mode := range []string{"keyword", "semantic", "hybrid"} {

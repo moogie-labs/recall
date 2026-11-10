@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"reflect"
 	"strings"
-	"time"
 
 	"go.yaml.in/yaml/v3"
 
@@ -39,8 +37,7 @@ type source struct {
 
 // Parse validates present managed fields but does not insert missing metadata.
 func Parse(path string, raw []byte) (Parsed, error) {
-	kind, err := KindFromPath(path)
-	if err != nil {
+	if err := ValidatePath(path); err != nil {
 		return Parsed{}, err
 	}
 	p := Parsed{Newline: "\n", BOM: bytes.HasPrefix(raw, []byte("\xef\xbb\xbf"))}
@@ -80,7 +77,7 @@ func Parse(path string, raw []byte) (Parsed, error) {
 		p.Metadata.HeadComment = joinComments(root.HeadComment, p.Metadata.HeadComment)
 		p.Metadata.FootComment = joinComments(p.Metadata.FootComment, root.FootComment)
 	}
-	d, err := readMetadata(path, kind, p.Metadata)
+	d, err := readMetadata(path, p.Metadata)
 	if err != nil {
 		return Parsed{}, err
 	}
@@ -91,11 +88,9 @@ func Parse(path string, raw []byte) (Parsed, error) {
 	if err != nil {
 		return Parsed{}, invalid(path, "frontmatter cannot be encoded")
 	}
-	originalDocument := d
-	originalDocument.History = append([]model.Event(nil), d.History...)
 	p.original = &source{
 		raw: bytes.Clone(raw), metadata: encoded, body: bytes.Clone(body),
-		document: originalDocument, newline: p.Newline, bom: p.BOM, frontmatter: frontmatter,
+		document: d, newline: p.Newline, bom: p.BOM, frontmatter: frontmatter,
 	}
 	return p, nil
 }
@@ -103,8 +98,7 @@ func Parse(path string, raw []byte) (Parsed, error) {
 // Encode preserves the exact source when unchanged. On metadata edits it retains
 // YAML values and comments, and never reserializes the Markdown body.
 func Encode(p Parsed) ([]byte, error) {
-	kind, err := KindFromPath(p.Document.Path)
-	if err != nil {
+	if err := ValidatePath(p.Document.Path); err != nil {
 		return nil, err
 	}
 	metadata := cloneNode(p.Metadata, make(map[*yaml.Node]*yaml.Node))
@@ -118,10 +112,8 @@ func Encode(p Parsed) ([]byte, error) {
 	if p.original != nil {
 		before = p.original.document
 	}
-	if err := applyMetadata(metadata, before, p.Document); err != nil {
-		return nil, err
-	}
-	if _, err := readMetadata(p.Document.Path, kind, metadata); err != nil {
+	applyMetadata(metadata, before, p.Document)
+	if _, err := readMetadata(p.Document.Path, metadata); err != nil {
 		return nil, err
 	}
 	encoded, err := marshalMetadata(metadata)
@@ -185,8 +177,8 @@ func sourceLine(text []byte, start int) ([]byte, int) {
 	return text[start:], len(text)
 }
 
-func readMetadata(path string, kind model.Kind, metadata *yaml.Node) (model.Document, error) {
-	d := model.Document{Path: path, Kind: kind, Title: strings.TrimSuffix(filepath.Base(path), "."+string(kind)+".md")}
+func readMetadata(path string, metadata *yaml.Node) (model.Document, error) {
+	d := model.Document{Path: path, Title: strings.TrimSuffix(filepath.Base(path), Suffix)}
 	if metadata.Kind != yaml.MappingNode || !uniqueKeys(metadata) {
 		return d, invalid(path, "frontmatter must be a mapping with unique keys")
 	}
@@ -207,52 +199,7 @@ func readMetadata(path string, kind model.Kind, metadata *yaml.Node) (model.Docu
 			*field.out = node.Value
 		}
 	}
-	if node := fieldValue(fields, "type"); node != nil {
-		if node.Kind != yaml.ScalarNode || node.Tag != "!!str" || (node.Value != string(model.Note) && node.Value != string(model.Task)) {
-			return d, invalid(path, "type must be note or task")
-		}
-		if node.Value != string(kind) {
-			return d, &model.Error{Code: "type_mismatch", Path: path, Message: "frontmatter type conflicts with filename"}
-		}
-	}
-	if node := fieldValue(fields, "state"); node != nil {
-		if !validState(node) {
-			return d, invalid(path, "state must be a supported task state")
-		}
-		d.State = model.State(node.Value)
-	}
-	if history := fieldValue(fields, "state_history"); history != nil {
-		if history.Kind != yaml.SequenceNode {
-			return d, invalid(path, "state_history must be a sequence")
-		}
-		for _, event := range history.Content {
-			eventFields, err := mappingFields(event)
-			if err != nil {
-				return d, invalid(path, "state_history entries must be mappings")
-			}
-			state, at := fieldValue(eventFields, "state"), fieldValue(eventFields, "at")
-			if !validState(state) || at == nil || at.Kind != yaml.ScalarNode || (at.Tag != "!!str" && at.Tag != "!!timestamp") {
-				return d, invalid(path, "state_history entries require a valid state and RFC3339 timestamp")
-			}
-			parsed, err := time.Parse(time.RFC3339Nano, at.Value)
-			if err != nil {
-				return d, invalid(path, "state_history timestamps must be RFC3339 with a timezone")
-			}
-			d.History = append(d.History, model.Event{State: model.State(state.Value), At: parsed})
-		}
-	}
 	return d, nil
-}
-
-func validState(node *yaml.Node) bool {
-	if node == nil || node.Kind != yaml.ScalarNode || node.Tag != "!!str" {
-		return false
-	}
-	switch model.State(node.Value) {
-	case model.Planned, model.InProgress, model.Stalled, model.Completed:
-		return true
-	}
-	return false
 }
 
 func uniqueKeys(node *yaml.Node) bool {
@@ -337,44 +284,15 @@ func resolveAlias(value *yaml.Node) *yaml.Node {
 	return value
 }
 
-func applyMetadata(metadata *yaml.Node, before, after model.Document) error {
+// Only changed managed fields are written, so every other key stays as authored.
+func applyMetadata(metadata *yaml.Node, before, after model.Document) {
 	for _, field := range []struct{ name, before, after string }{
 		{"id", before.ID, after.ID}, {"title", before.Title, after.Title},
-		{"type", string(before.Kind), string(after.Kind)}, {"state", string(before.State), string(after.State)},
 	} {
 		if field.before != field.after {
 			setValue(metadata, field.name, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: field.after})
 		}
 	}
-	if !reflect.DeepEqual(before.History, after.History) {
-		fields, err := mappingFields(metadata)
-		if err != nil {
-			return invalid(after.Path, "frontmatter has invalid mapping keys or merges")
-		}
-		history := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
-		old := fieldValue(fields, "state_history")
-		for i, event := range after.History {
-			entry := emptyMapping()
-			if old != nil && old.Kind == yaml.SequenceNode && i < len(old.Content) {
-				if i < len(before.History) && before.History[i].State == event.State && before.History[i].At.Equal(event.At) {
-					// Keep unchanged events intact, including aliases and extra fields.
-					history.Content = append(history.Content, cloneNode(old.Content[i], make(map[*yaml.Node]*yaml.Node)))
-					continue
-				}
-				if resolved := resolveAlias(old.Content[i]); resolved.Kind == yaml.MappingNode {
-					entry = cloneNode(resolved, make(map[*yaml.Node]*yaml.Node))
-					if old.Content[i].Kind == yaml.AliasNode {
-						entry.Anchor = "" // The original anchor remains elsewhere in metadata.
-					}
-				}
-			}
-			setValue(entry, "state", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: string(event.State)})
-			setValue(entry, "at", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!timestamp", Value: event.At.Format(time.RFC3339Nano)})
-			history.Content = append(history.Content, entry)
-		}
-		setValue(metadata, "state_history", history)
-	}
-	return nil
 }
 
 func setValue(mapping *yaml.Node, key string, value *yaml.Node) {

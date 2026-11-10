@@ -18,10 +18,10 @@ func TestFolderOperationsAndScopedLists(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	root := mustCreate(t, a, CreateInput{Kind: model.Task, Name: "root"})
-	n := mustCreate(t, a, CreateInput{Kind: model.Note, Folder: "shared", Name: "note"})
-	d := mustCreate(t, a, CreateInput{Kind: model.Task, Folder: "shared/sub", Name: "task"})
-	mustCreate(t, a, CreateInput{Kind: model.Task, Folder: "shared2", Name: "other"})
+	root := mustCreate(t, a, CreateInput{Name: "root"})
+	n := mustCreate(t, a, CreateInput{Folder: "shared", Name: "note"})
+	d := mustCreate(t, a, CreateInput{Folder: "shared/sub", Name: "inner"})
+	mustCreate(t, a, CreateInput{Folder: "shared2", Name: "other"})
 	for _, tc := range []struct {
 		folder    string
 		recursive bool
@@ -32,7 +32,7 @@ func TestFolderOperationsAndScopedLists(t *testing.T) {
 			t.Fatalf("list %+v: %+v %v", tc, s, err)
 		}
 		if tc.folder == "." && !tc.recursive && s.Documents[0].ID != root.ID {
-			t.Fatal("root task omitted")
+			t.Fatal("root document omitted")
 		}
 	}
 	wantCode(t, a.DeleteFolder(ctx, "shared", false), "folder_not_empty")
@@ -74,7 +74,7 @@ func TestFolderSymlinkDeletionPreflight(t *testing.T) {
 	if err := a.CreateFolder(ctx, "unsafe"); err != nil {
 		t.Fatal(err)
 	}
-	d := mustCreate(t, a, CreateInput{Kind: model.Note, Folder: "unsafe", Name: "keep"})
+	d := mustCreate(t, a, CreateInput{Folder: "unsafe", Name: "keep"})
 	if err := os.Symlink(t.TempDir(), filepath.Join(cfg.Content, "unsafe/link")); err != nil {
 		t.Fatal(err)
 	}

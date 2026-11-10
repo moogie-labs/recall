@@ -25,7 +25,7 @@ func TestConcurrentClaimsExpiredLeaseAndPublication(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer second.Close()
-	d := fixture(t, "a", "a.note.md", "Title", "body")
+	d := fixture(t, "a", "a.md", "Title", "body")
 	apply(t, s, model.Snapshot{Documents: []model.Document{d}})
 	if err := s.EnsureSignature(t.Context(), "sig"); err != nil {
 		t.Fatal(err)
@@ -64,7 +64,7 @@ func TestConcurrentClaimsExpiredLeaseAndPublication(t *testing.T) {
 	}
 	v := make([]float32, embedding.Dimensions)
 	v[0] = 1
-	cs := []Chunk{{Text: "body", Payload: "Title\n\nbody", EndByte: 4, StartLine: 7, EndLine: 7}}
+	cs := []Chunk{{Text: "body", Payload: "Title\n\nbody", EndByte: 4, StartLine: 6, EndLine: 6}}
 	if ok, err := s.Publish(t.Context(), *old, cs, [][]float32{v}, fixedClock(now.Add(62*time.Second))); err != nil || ok {
 		t.Fatalf("old publication=%v %v", ok, err)
 	}
@@ -77,7 +77,7 @@ func TestConcurrentClaimsExpiredLeaseAndPublication(t *testing.T) {
 	n := 0
 	if err = s.StreamVectors(t.Context(), model.Filter{}, "sig", func(h model.Hit, got []float32) error {
 		n++
-		if len(got) != 768 || got[0] != 1 || h.StartLine != 7 || h.Snippet != "body" {
+		if len(got) != 768 || got[0] != 1 || h.StartLine != 6 || h.Snippet != "body" {
 			t.Fatalf("%+v %v", h, got)
 		}
 		return nil
@@ -94,7 +94,7 @@ func TestConcurrentClaimsExpiredLeaseAndPublication(t *testing.T) {
 }
 func TestVectorValidationAndSignatureInvalidation(t *testing.T) {
 	s := openTestStore(t)
-	d := fixture(t, "a", "a.note.md", "Title", "body")
+	d := fixture(t, "a", "a.md", "Title", "body")
 	apply(t, s, model.Snapshot{Documents: []model.Document{d}})
 	s.EnsureSignature(t.Context(), "one")
 	now := time.Now()
@@ -121,7 +121,7 @@ func TestVectorValidationAndSignatureInvalidation(t *testing.T) {
 
 func TestExpiredLeaseCannotRenewOrPublish(t *testing.T) {
 	s := openTestStore(t)
-	d := fixture(t, "a", "a.note.md", "Title", "body")
+	d := fixture(t, "a", "a.md", "Title", "body")
 	apply(t, s, model.Snapshot{Documents: []model.Document{d}})
 	if err := s.EnsureSignature(t.Context(), "sig"); err != nil {
 		t.Fatal(err)
@@ -153,7 +153,7 @@ func TestLeaseClockIsSampledAfterAcquiringTransaction(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer second.Close()
-	d := fixture(t, "a", "a.note.md", "Title", "body")
+	d := fixture(t, "a", "a.md", "Title", "body")
 	apply(t, s, model.Snapshot{Documents: []model.Document{d}})
 	if err := s.EnsureSignature(t.Context(), "sig"); err != nil {
 		t.Fatal(err)
@@ -185,28 +185,5 @@ func TestLeaseClockIsSampledAfterAcquiringTransaction(t *testing.T) {
 	v[0] = 1
 	if ok, err := s.Publish(t.Context(), *j, []Chunk{{Text: "body"}}, [][]float32{v}, clock); err != nil || ok {
 		t.Fatalf("expired publication %v %v", ok, err)
-	}
-}
-
-func TestSemanticMigrationFromV1PreservesSourceProjection(t *testing.T) {
-	s := openTestStore(t)
-	d := fixture(t, "a", "a.note.md", "Title", "body")
-	apply(t, s, model.Snapshot{Documents: []model.Document{d}})
-	_, err := s.db.Exec(`DROP TRIGGER documents_embedding_insert; DROP TRIGGER documents_embedding_update;
-	DROP TABLE embedding_jobs; DROP TABLE embeddings; DROP TABLE chunks; DROP TABLE vector_meta; PRAGMA user_version=1;`)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = s.initialize(); err != nil {
-		t.Fatal(err)
-	}
-	if h, err := s.Keyword(t.Context(), model.SearchQuery{Text: "body"}); err != nil || len(h) != 1 || h[0].ID != "a" {
-		t.Fatalf("migration lost metadata/FTS %+v %v", h, err)
-	}
-	if err = s.EnsureSignature(t.Context(), "sig"); err != nil {
-		t.Fatal(err)
-	}
-	if n, err := s.Pending(t.Context(), model.Filter{}, "sig"); err != nil || n != 1 {
-		t.Fatalf("migrated pending=%d %v", n, err)
 	}
 }

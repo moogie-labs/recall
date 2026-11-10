@@ -11,14 +11,12 @@ const api = fakeBridge(
   [
     {
       id: "reading",
-      path: "Work/Reading.note.md",
+      path: "Work/Reading.md",
       name: "Reading",
       title: "Reading notes",
       body:
         fixture.__fixtureBody ??
         "# Reading notes\n\nA quieter place to keep useful ideas.\n\n## Next steps\n\n- Read something good\n- Keep a note",
-      kind: "note",
-      state: "",
       revision: "r0",
     },
   ],

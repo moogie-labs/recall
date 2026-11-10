@@ -10,7 +10,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"time"
 
 	"golang.org/x/sys/unix"
 
@@ -28,7 +27,6 @@ type Config struct {
 	ModelSHA256    string `json:"model_sha256"`
 	ModelSignature string `json:"model_signature"`
 	RuntimeID      string `json:"runtime_id"`
-	Timezone       string `json:"timezone"`
 	// IgnoredEditor is a legacy collection `editor` setting. It is reported,
 	// never executed; see UserEditor for the per-user editor setting.
 	IgnoredEditor []string `json:"-"`
@@ -60,7 +58,6 @@ func Resolve(explicit string) (Config, error) {
 		return Config{}, err
 	}
 	cfg := layout(root)
-	cfg.Timezone = "Local"
 	r, err := os.OpenRoot(root)
 	if errors.Is(err, os.ErrNotExist) {
 		return cfg, nil
@@ -93,7 +90,6 @@ func Resolve(explicit string) (Config, error) {
 		ModelSHA256    string   `json:"model_sha256"`
 		ModelSignature string   `json:"model_signature"`
 		RuntimeID      string   `json:"runtime_id"`
-		Timezone       string   `json:"timezone"`
 		Editor         []string `json:"editor"`
 	}
 	decoder := json.NewDecoder(f)
@@ -105,11 +101,8 @@ func Resolve(explicit string) (Config, error) {
 	}
 	cfg.ModelID, cfg.ModelSHA256, cfg.ModelSignature = saved.ModelID, saved.ModelSHA256, saved.ModelSignature
 	cfg.RuntimeID = saved.RuntimeID
-	if saved.Timezone != "" {
-		cfg.Timezone = saved.Timezone
-	}
 	cfg.IgnoredEditor = saved.Editor
-	return cfg, validate(cfg)
+	return cfg, nil
 }
 
 // Prepare creates private directories and durably persists the identities and
@@ -140,12 +133,6 @@ func PrepareIfAbsent(cfg Config) (Config, error) {
 func prepare(cfg Config, replace bool) error {
 	if !filepath.IsAbs(cfg.Root) {
 		return invalid("root must be absolute")
-	}
-	if cfg.Timezone == "" {
-		cfg.Timezone = "Local"
-	}
-	if err := validate(cfg); err != nil {
-		return err
 	}
 	root, err := canonical(cfg.Root)
 	if err != nil {
@@ -203,8 +190,7 @@ func prepare(cfg Config, replace bool) error {
 		ModelSHA256    string `json:"model_sha256"`
 		ModelSignature string `json:"model_signature"`
 		RuntimeID      string `json:"runtime_id"`
-		Timezone       string `json:"timezone"`
-	}{cfg.ModelID, cfg.ModelSHA256, cfg.ModelSignature, cfg.RuntimeID, cfg.Timezone}
+	}{cfg.ModelID, cfg.ModelSHA256, cfg.ModelSignature, cfg.RuntimeID}
 	raw, err := json.MarshalIndent(saved, "", "  ")
 	if err != nil {
 		return err
@@ -249,13 +235,6 @@ func prepare(cfg Config, replace bool) error {
 
 func layout(root string) Config {
 	return Config{Root: root, Content: filepath.Join(root, "content"), Database: filepath.Join(root, "index.sqlite"), RunDir: filepath.Join(root, "run"), ModelsDir: filepath.Join(root, "models"), RuntimeDir: filepath.Join(root, "runtime")}
-}
-
-func validate(cfg Config) error {
-	if _, err := time.LoadLocation(cfg.Timezone); err != nil {
-		return invalid("invalid timezone")
-	}
-	return nil
 }
 
 func invalid(message string) error { return &model.Error{Code: "invalid_argument", Message: message} }

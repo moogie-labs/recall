@@ -130,7 +130,7 @@ export class Workspace {
         id: doc.id,
         path: doc.path,
         name: doc.name,
-        kind: doc.kind,
+        kind: "note",
       },
       mode,
       searchActive: false,
@@ -255,7 +255,7 @@ export class Workspace {
       document: doc,
       treeSelection:
         this.state.treeSelection?.id === doc.id
-          ? { id: doc.id, path: doc.path, name: doc.name, kind: doc.kind }
+          ? { id: doc.id, path: doc.path, name: doc.name, kind: "note" }
           : this.state.treeSelection,
     });
   }

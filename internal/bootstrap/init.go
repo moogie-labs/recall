@@ -62,7 +62,7 @@ func initialize(ctx context.Context, cfg config.Config, assetsDir string, progre
 
 // PrepareMetadata creates (or reloads) the collection layout and configuration
 // with the pinned asset identities. It is local and fast: no runtime extraction,
-// download or inference. Notes, tasks and keyword search work afterwards;
+// download or inference. Notes and keyword search work afterwards;
 // Initialize later completes the semantic assets for the same collection.
 func PrepareMetadata(ctx context.Context, cfg config.Config) (config.Config, error) {
 	if err := ctx.Err(); err != nil {

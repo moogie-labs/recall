@@ -12,9 +12,9 @@ import (
 
 func TestKeywordFTS5SearchesSourceFields(t *testing.T) {
 	s := openTestStore(t)
-	d := fixture(t, "a", "commands/unique-path.note.md", "Café titleterm", "first\nidentifier_thing C++ foo-bar \"quoted\"\nlast")
-	task := fixture(t, "b", "b.task.md", "Task", "body", model.Event{State: model.InProgress, At: instant("2026-01-01T00:00:00Z")})
-	apply(t, s, model.Snapshot{Documents: []model.Document{d, task}})
+	d := fixture(t, "a", "commands/unique-path.md", "Café titleterm", "first\nidentifier_thing C++ foo-bar \"quoted\"\nlast")
+	other := fixture(t, "b", "b.md", "Other", "body")
+	apply(t, s, model.Snapshot{Documents: []model.Document{d, other}})
 	for _, text := range []string{"café", "titleterm", "unique-path", "identifier_thing", "C++", "foo-bar", "\"quoted\""} {
 		hits, err := s.Keyword(t.Context(), model.SearchQuery{Text: text})
 		if err != nil || len(hits) != 1 || hits[0].ID != "a" {
@@ -26,20 +26,14 @@ func TestKeywordFTS5SearchesSourceFields(t *testing.T) {
 		t.Fatalf("hits: %+v %v", hits, err)
 	}
 	h := hits[0]
-	if h.Path != d.Path || h.Title != d.Title || h.Kind != model.Note || h.IndexState != "current" || !strings.Contains(h.Snippet, "identifier_thing") || h.Score <= 0 {
+	if h.Path != d.Path || h.Title != d.Title || h.IndexState != "current" || !strings.Contains(h.Snippet, "identifier_thing") || h.Score <= 0 {
 		t.Fatalf("hit metadata: %+v", h)
-	}
-	for _, text := range []string{"task in_progress", "note"} {
-		hits, err := s.Keyword(t.Context(), model.SearchQuery{Text: text})
-		if err != nil || len(hits) != 1 {
-			t.Fatalf("metadata %q: %+v %v", text, hits, err)
-		}
 	}
 }
 
 func TestKeywordCarriesReturnedSourceRevision(t *testing.T) {
 	s := openTestStore(t)
-	d := fixture(t, "a", "work.note.md", "Work", "needle original")
+	d := fixture(t, "a", "work.md", "Work", "needle original")
 	apply(t, s, model.Snapshot{Documents: []model.Document{d}})
 	hits, err := s.Keyword(t.Context(), model.SearchQuery{Text: "needle"})
 	if err != nil || len(hits) != 1 || hits[0].Revision != d.Revision {
@@ -56,7 +50,7 @@ func TestKeywordCarriesReturnedSourceRevision(t *testing.T) {
 
 func TestKeywordTreatsQueryAsLiteralTerms(t *testing.T) {
 	s := openTestStore(t)
-	apply(t, s, model.Snapshot{Documents: []model.Document{fixture(t, "literal", "literal.note.md", "Literal", "alpha OR beta state:completed"), fixture(t, "other", "other.note.md", "Other", "alpha gamma")}})
+	apply(t, s, model.Snapshot{Documents: []model.Document{fixture(t, "literal", "literal.md", "Literal", "alpha OR beta state:completed"), fixture(t, "other", "other.md", "Other", "alpha gamma")}})
 	for _, tc := range []struct {
 		text string
 		want []string
@@ -75,17 +69,17 @@ func TestKeywordTreatsQueryAsLiteralTerms(t *testing.T) {
 	}
 }
 
-func TestKeywordSharesFolderStateAndDateFilters(t *testing.T) {
+func TestKeywordSharesFolderFilters(t *testing.T) {
 	s := openTestStore(t)
 	apply(t, s, model.Snapshot{Documents: []model.Document{
-		fixture(t, "root", "root.note.md", "Same", "needle"),
-		fixture(t, "a", "a%_/a.task.md", "Same", "needle", model.Event{State: model.Completed, At: instant("2026-01-01T00:00:00Z")}, model.Event{State: model.Planned, At: instant("2026-02-01T00:00:00Z")}),
-		fixture(t, "b", "axx/b.task.md", "Same", "needle"),
+		fixture(t, "root", "root.md", "Same", "needle"),
+		fixture(t, "a", "a%_/a.md", "Same", "needle"),
+		fixture(t, "b", "axx/b.md", "Same", "needle"),
 	}})
 	for _, tc := range []struct {
 		f    model.Filter
 		want []string
-	}{{model.Filter{Folder: ".", Recursive: false}, []string{"root"}}, {model.Filter{Folder: "a%_", Recursive: true}, []string{"a"}}, {model.Filter{States: []model.State{model.Completed}}, []string{}}, {model.Filter{DateField: "transition", EventState: model.Completed}, []string{"a"}}, {model.Filter{Kinds: []model.Kind{model.Note}}, []string{"root"}}} {
+	}{{model.Filter{Folder: ".", Recursive: false}, []string{"root"}}, {model.Filter{Folder: "a%_", Recursive: true}, []string{"a"}}} {
 		hits, err := s.Keyword(t.Context(), model.SearchQuery{Text: "needle", Filter: tc.f})
 		if err != nil {
 			t.Fatal(err)
@@ -105,7 +99,7 @@ func TestKeywordLimitsTiesAndStaleText(t *testing.T) {
 	var docs []model.Document
 	for i := range 105 {
 		id := fmt.Sprintf("%03d", i)
-		docs = append(docs, fixture(t, id, id+".note.md", "Same", "limitword"))
+		docs = append(docs, fixture(t, id, id+".md", "Same", "limitword"))
 	}
 	apply(t, s, model.Snapshot{Documents: docs})
 	for _, tc := range []struct{ limit, want int }{{0, 20}, {100, 100}} {
@@ -143,7 +137,7 @@ func TestKeywordPreviewBoundsLongPassages(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := openTestStore(t)
-			d := fixture(t, "a", "a.note.md", "Needle", tc.body)
+			d := fixture(t, "a", "a.md", "Needle", tc.body)
 			apply(t, s, model.Snapshot{Documents: []model.Document{d}})
 			hits, err := s.Keyword(t.Context(), model.SearchQuery{Text: "needle"})
 			if err != nil || len(hits) != 1 {
@@ -194,7 +188,7 @@ func TestKeywordPreviewUTF8Boundaries(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := openTestStore(t)
-			d := fixture(t, "a", "a.note.md", "Needle", tc.body)
+			d := fixture(t, "a", "a.md", "Needle", tc.body)
 			apply(t, s, model.Snapshot{Documents: []model.Document{d}})
 			hits, err := s.Keyword(t.Context(), model.SearchQuery{Text: "needle"})
 			if err != nil || len(hits) != 1 {

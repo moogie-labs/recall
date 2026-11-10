@@ -1,5 +1,10 @@
 # Verification — baseline 2026-10-21–22; correction 2026-10-23–24
 
+**Tasks were removed on 2026-11-08 and `.note.md` replaced by plain `.md` on
+2026-11-09** (see the final sections). Filenames, commands, tool
+counts and note/task coverage in the sections below are historical evidence
+from before that change, not a description of current commands.
+
 ## Environment and scope
 
 Apple M1 **Pro**, 16 GiB, Darwin/arm64, macOS 26.6.2 (25G83); Go 1.27.1;
@@ -318,3 +323,45 @@ The run exited 0 and verified that HEAD did not change while tests ran:
 
 The subsequent documentation-only checkpoint records this evidence; it does not
 change the tested product source or turn the unrun limits into passed checks.
+
+## Task removal — 2026-11-08
+
+Tasks were removed from the model, codec, index, CLI, MCP tools and desktop UI.
+The index schema moved from version 2 to 3; `removeTaskColumns` upgrades v1/v2
+databases in place and keeps embeddings. `.task.md` and other non-`.note.md`
+files are left untouched and reported as `invalid_document` diagnostics.
+
+| Command / gate | Actual result |
+| --- | --- |
+| `go test ./... -count=1`; `go test` in `desktop/` | All packages pass |
+| Race run on model, index, search, app, CLI, MCP, document, scanner | Pass, no race report |
+| `go vet ./...`; `gofmt -l`; `git diff --check` | Exit 0; no output |
+| `npm test`; `npm run build`; `npm run test:e2e` | 43 unit tests; build; 4 Playwright tests pass |
+| `python3 scripts/verify-neovim.py <binary>` | Installed Neovim 0.12.6 path, atomic save, W12 keep/reload pass |
+| Previous-commit binary → this build on a temporary collection | Index v2 upgraded to v3; task row removed; `.task.md` and a note with `state`/`state_history` byte-identical |
+
+Not rerun: native desktop smoke (`scripts/verify-desktop.sh`), packaged offline
+and real-model gates.
+
+## Plain `.md` — 2026-11-09
+
+Any non-hidden `*.md` under `content/` is now a note. The migration steps in
+`operations.md` were run verbatim, in zsh and in bash, on temporary collections
+with a binary built from `1da0221` as the old version and real inference. Notes
+with spaces, multiple spaces and accented names kept their IDs, bytes and
+embedding vectors; no embedding jobs were pending after the upgrade; keyword,
+hybrid and semantic search returned the expected notes. The collision was
+skipped, a stray `.md` was adopted with its body intact, and the rollback block
+restored the old build. The install step was replaced by a binary swap.
+
+| Command / gate | Actual result |
+| --- | --- |
+| `go test ./...`; `go vet ./...`; `gofmt -l` | All pass; no output |
+| `go test` in `desktop/` after `scripts/build-desktop.sh` | Pass |
+| `npm test`; `npm run test:e2e` | 59 unit tests; 4 Playwright tests pass |
+| `scripts/verify-desktop.sh` | Native smoke and conflict fixtures pass; real-model desktop gate not run |
+| `python3 scripts/verify-neovim.py build/recall` | Installed Neovim checks pass |
+| `test_release_macos.py`; actionlint on `release.yml` | Pass |
+
+Not run: a real Command-A keystroke in the native window (unit tests dispatch
+the key event), and a real `.pkg` install.

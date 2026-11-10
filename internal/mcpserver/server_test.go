@@ -96,7 +96,7 @@ func TestDiscoverySchemasAndProtocolVersionsWithoutInference(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			want := map[string]bool{"search": true, "documents_list": true, "document_get": true, "document_create": true, "document_update": true, "document_move": true, "document_delete": true, "folders_list": true, "folder_create": true, "folder_move": true, "folder_delete": true, "tasks_list": true, "task_set_state": true, "task_history": true}
+			want := map[string]bool{"search": true, "documents_list": true, "document_get": true, "document_create": true, "document_update": true, "document_move": true, "document_delete": true, "folders_list": true, "folder_create": true, "folder_move": true, "folder_delete": true}
 			if len(result.Tools) != len(want) {
 				t.Fatalf("tools=%+v", result.Tools)
 			}
@@ -122,13 +122,13 @@ func TestDiscoverySchemasAndProtocolVersionsWithoutInference(t *testing.T) {
 				if tool.Name == "document_update" && (!slices.Contains(input.Required, "if_revision") || !slices.Contains(input.Required, "raw") || input.Properties["id"] == nil || input.Properties["path"] == nil) {
 					t.Fatalf("update schema: %s", inputJSON)
 				}
-				if tool.Name == "tasks_list" || tool.Name == "documents_list" {
-					for _, forbidden := range []string{`"body"`, `"raw"`, `"history"`} {
+				if tool.Name == "documents_list" {
+					for _, forbidden := range []string{`"body"`, `"raw"`} {
 						if bytes.Contains(b, []byte(forbidden)) {
 							t.Fatalf("list output schema exposes %s: %s", forbidden, b)
 						}
 					}
-					if !bytes.Contains(b, []byte(`"revision"`)) || !bytes.Contains(b, []byte(`"created_at"`)) || !bytes.Contains(b, []byte(`"state_changed_at"`)) {
+					if !bytes.Contains(b, []byte(`"revision"`)) {
 						t.Fatalf("incomplete metadata schema: %s", b)
 					}
 				}

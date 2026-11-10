@@ -4,7 +4,7 @@ import { useState } from "react";
 import { Tree } from "./Tree";
 const entries = [
   { id: "folder:Work", path: "Work", name: "Work", kind: "folder" },
-  { id: "a", path: "Work/a.note.md", name: "a", kind: "note" },
+  { id: "a", path: "Work/a.md", name: "a", kind: "note" },
 ];
 function Fixture() {
   const [expanded, setExpanded] = useState(new Set<string>());

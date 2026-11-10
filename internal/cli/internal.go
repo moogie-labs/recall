@@ -7,15 +7,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
-	"time"
 
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
 	"recall/internal/config"
 	"recall/internal/embedding"
 	"recall/internal/model"
-	"recall/internal/tasks"
 )
 
 func (r Runner) runWorker(ctx context.Context, args []string, logs io.Writer) int {
@@ -44,7 +41,7 @@ type referenceFlags struct{ id, path, revision string }
 
 func (f *referenceFlags) bind(c *cobra.Command, revision bool) {
 	c.Flags().StringVar(&f.id, "id", "", "Stable document ID (exclusive with --path)")
-	c.Flags().StringVar(&f.path, "path", "", "Content-relative typed filename (exclusive with --id)")
+	c.Flags().StringVar(&f.path, "path", "", "Content-relative .md filename (exclusive with --id)")
 	if revision {
 		c.Flags().StringVar(&f.revision, "if-revision", "", "Require this source revision")
 	}
@@ -58,69 +55,17 @@ func (f referenceFlags) ref() (model.Ref, error) {
 }
 
 type filterFlags struct {
-	folder                               string
-	recursive                            bool
-	states, kinds                        []string
-	dateField, eventState, from, through string
+	folder    string
+	recursive bool
 }
 
-func (f *filterFlags) bindFolder(c *cobra.Command) {
+func (f *filterFlags) bind(c *cobra.Command) {
 	c.Flags().StringVar(&f.folder, "folder", "", "Folder filter (empty is global; . selects content root)")
 	c.Flags().BoolVar(&f.recursive, "recursive", true, "Include descendant folders")
 }
 
-func (f *filterFlags) bind(c *cobra.Command, kinds bool) {
-	f.bindFolder(c)
-	if kinds {
-		c.Flags().StringSliceVar(&f.kinds, "type", nil, "Filter note/task types (repeat or comma-separate)")
-	}
-	c.Flags().StringSliceVar(&f.states, "state", nil, "Current task states (repeat or comma-separate)")
-	c.Flags().StringVar(&f.dateField, "date-field", "", "Task date field: created, state_changed, transition")
-	c.Flags().StringVar(&f.eventState, "event-state", "", "Historical state required for transition filtering")
-	c.Flags().StringVar(&f.from, "from", "", "Inclusive local date, YYYY-MM-DD")
-	c.Flags().StringVar(&f.through, "through", "", "Inclusive local date, YYYY-MM-DD")
-}
-
-func (f filterFlags) parse(cfg config.Config) (model.Filter, error) {
-	q := model.Filter{Folder: f.folder, Recursive: f.recursive, DateField: model.DateField(f.dateField), EventState: model.State(f.eventState)}
-	for _, state := range f.states {
-		if !validState(state) {
-			return q, invalid("unsupported task state")
-		}
-		q.States = append(q.States, model.State(state))
-	}
-	for _, kind := range f.kinds {
-		if kind != "note" && kind != "task" {
-			return q, invalid("type must be note or task")
-		}
-		q.Kinds = append(q.Kinds, model.Kind(kind))
-	}
-	switch f.dateField {
-	case "":
-		if f.from != "" || f.through != "" || f.eventState != "" {
-			return q, invalid("date bounds and event state require --date-field")
-		}
-	case "created", "state_changed":
-		if f.eventState != "" {
-			return q, invalid("--event-state requires --date-field transition")
-		}
-	case "transition":
-		if !validState(f.eventState) {
-			return q, invalid("transition filtering requires a valid --event-state")
-		}
-	default:
-		return q, invalid("date field must be created, state_changed, or transition")
-	}
-	loc, err := time.LoadLocation(cfg.Timezone)
-	if err != nil {
-		return q, invalid("invalid collection timezone")
-	}
-	q.From, q.Until, err = tasks.DateRange(f.from, f.through, loc)
-	return q, err
-}
-
-func validState(state string) bool {
-	return state == "planned" || state == "in_progress" || state == "stalled" || state == "completed"
+func (f filterFlags) filter() model.Filter {
+	return model.Filter{Folder: f.folder, Recursive: f.recursive}
 }
 
 const maxInputBytes = 16 << 20
@@ -211,8 +156,8 @@ func pageBounds(limit, offset, maximum int) error {
 }
 
 func bareName(name string) error {
-	if name == "" || strings.HasSuffix(name, ".note.md") || strings.HasSuffix(name, ".task.md") {
-		return invalid("--name must be a nonempty bare filename component, without the type suffix")
+	if name == "" {
+		return invalid("--name must be a nonempty bare filename component, without the .md suffix")
 	}
 	return nil
 }

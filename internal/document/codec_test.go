@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"testing"
-	"time"
 
 	"go.yaml.in/yaml/v3"
 
@@ -15,7 +14,7 @@ import (
 
 func TestCodecPreservesBody(t *testing.T) {
 	raw := []byte("---\r\ntype: note\r\ncustom: [a, b]\r\n---\r\n# café\r\n---\r\n")
-	p, err := Parse("ideas.note.md", raw)
+	p, err := Parse("ideas.md", raw)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,7 +38,7 @@ func TestCodecRoundTrip(t *testing.T) {
 		"---\ntype: note\n---\nbody without trailing newline",
 	} {
 		t.Run(fmt.Sprintf("%q", raw), func(t *testing.T) {
-			p, err := Parse("ideas.note.md", []byte(raw))
+			p, err := Parse("ideas.md", []byte(raw))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -54,18 +53,15 @@ func TestCodecRoundTrip(t *testing.T) {
 	}
 }
 
-func TestParseProjectsTypedDocument(t *testing.T) {
-	raw := "---\ntype: task\nid: existing-id\ntitle: Write café guide\nstate: in_progress\nstate_history:\n  - state: planned\n    at: 2026-10-17T12:00:00+02:00\n  - state: in_progress\n    at: 2026-10-18T09:00:00Z\ncustom: anything\n---\nDescription\n---\n"
-	p, err := Parse("folder/guide.task.md", []byte(raw))
+func TestParseProjectsDocument(t *testing.T) {
+	raw := "---\nid: existing-id\ntitle: Write café guide\ncustom: anything\n---\nDescription\n---\n"
+	p, err := Parse("folder/guide.md", []byte(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
 	d := p.Document
-	if d.Kind != model.Task || d.ID != "existing-id" || d.Title != "Write café guide" || d.Path != "folder/guide.task.md" || d.State != model.InProgress {
-		t.Fatalf("unexpected typed metadata: %+v", d)
-	}
-	if len(d.History) != 2 || d.History[0].State != model.Planned || !d.History[0].At.Equal(time.Date(2026, 10, 17, 10, 0, 0, 0, time.UTC)) {
-		t.Fatalf("history = %+v", d.History)
+	if d.ID != "existing-id" || d.Title != "Write café guide" || d.Path != "folder/guide.md" {
+		t.Fatalf("unexpected metadata: %+v", d)
 	}
 	if d.Body != "Description\n---\n" || string(p.Body) != d.Body || d.Raw != raw {
 		t.Fatal("source/body projection differs")
@@ -77,13 +73,43 @@ func TestParseProjectsTypedDocument(t *testing.T) {
 
 func TestParseAllowsMissingManagedFields(t *testing.T) {
 	for _, raw := range []string{"", "free-form body", "---\ncustom: value\n---\n"} {
-		p, err := Parse("work.task.md", []byte(raw))
+		p, err := Parse("work.md", []byte(raw))
 		if err != nil {
 			t.Fatal(err)
 		}
-		if p.Document.Kind != model.Task || p.Document.ID != "" || p.Document.State != "" || len(p.Document.History) != 0 {
+		if p.Document.ID != "" {
 			t.Fatalf("missing fields were normalized: %+v", p.Document)
 		}
+	}
+}
+
+// Notes written before tasks were removed can carry these keys; they are now
+// ordinary unknown frontmatter, whatever their values are.
+func TestRetiredTaskKeysRoundTripByteForByte(t *testing.T) {
+	for _, raw := range []string{
+		"---\nid: legacy\ntype: note\ntitle: Old\nstate: completed\nstate_history:\n  - state: planned\n    at: 2026-10-17T10:00:00Z\n---\nbody\n",
+		"---\r\nid: legacy # keep\r\ntype : 'task'\r\nstate: SECRET\r\nstate_history: {not: a sequence}\r\n---\r\nbody\r\n",
+		"---\nid: legacy\nstate: null\nstate_history: null\n---\n",
+	} {
+		t.Run(fmt.Sprintf("%q", raw), func(t *testing.T) {
+			p, err := Parse("old.md", []byte(raw))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if p.Document.ID != "legacy" {
+				t.Fatalf("id = %q", p.Document.ID)
+			}
+			out, err := Encode(p)
+			if err != nil || string(out) != raw {
+				t.Fatalf("round-trip = %q, want %q (%v)", out, raw, err)
+			}
+			p.Body = []byte("edited")
+			out, err = Encode(p)
+			header := raw[:len(raw)-len(p.Document.Body)]
+			if err != nil || string(out) != header+"edited" {
+				t.Fatalf("body edit changed header: %q (%v)", out, err)
+			}
+		})
 	}
 }
 
@@ -91,34 +117,22 @@ func TestParseRejectsInvalidDocuments(t *testing.T) {
 	tests := []struct {
 		name, path, raw, code string
 	}{
-		{"untyped filename", "ideas.md", "---\ntype: note\n---\n", "invalid_document"},
-		{"untyped body", "ideas.md", "plain body", "invalid_document"},
-		{"empty name", ".note.md", "body", "invalid_document"},
-		{"uppercase suffix", "ideas.NOTE.md", "body", "invalid_document"},
-		{"type mismatch", "ideas.note.md", "---\ntype: task\n---\n", "type_mismatch"},
-		{"reverse mismatch", "work.task.md", "---\ntype: note\n---\n", "type_mismatch"},
-		{"unknown type", "ideas.note.md", "---\ntype: memo\n---\n", "invalid_document"},
-		{"type array", "ideas.note.md", "---\ntype: [note]\n---\n", "invalid_document"},
-		{"type null", "ideas.note.md", "---\ntype: null\n---\n", "invalid_document"},
-		{"malformed YAML", "ideas.note.md", "---\nprivate: [SECRET\n---\n", "invalid_document"},
-		{"trailing YAML after end", "ideas.note.md", "---\ntype: note\n...\nSECRET\n---\n", "invalid_document"},
-		{"missing delimiter", "ideas.note.md", "---\ntype: note\n", "invalid_document"},
-		{"sequence metadata", "ideas.note.md", "---\n- note\n---\n", "invalid_document"},
-		{"scalar metadata", "ideas.note.md", "---\nSECRET\n---\n", "invalid_document"},
-		{"duplicate type", "ideas.note.md", "---\ntype: note\ntype: note\n---\n", "invalid_document"},
-		{"duplicate unknown key", "ideas.note.md", "---\ncustom: one\ncustom: two\n---\n", "invalid_document"},
-		{"duplicate aliased key", "ideas.note.md", "---\n&key custom: one\n*key: two\n---\n", "invalid_document"},
-		{"nested duplicate key", "ideas.note.md", "---\ncustom: {x: one, x: two}\n---\n", "invalid_document"},
-		{"merged type mismatch", "ideas.note.md", "---\nbase: &base {type: task}\n<<: *base\n---\n", "type_mismatch"},
-		{"invalid merge", "ideas.note.md", "---\n<<: SECRET\n---\n", "invalid_document"},
-		{"id number", "ideas.note.md", "---\nid: 42\n---\n", "invalid_document"},
-		{"title map", "ideas.note.md", "---\ntitle: {SECRET: value}\n---\n", "invalid_document"},
-		{"invalid state", "work.task.md", "---\nstate: SECRET\n---\n", "invalid_document"},
-		{"history map", "work.task.md", "---\nstate_history: {}\n---\n", "invalid_document"},
-		{"history null", "work.task.md", "---\nstate_history: null\n---\n", "invalid_document"},
-		{"history missing state", "work.task.md", "---\nstate_history: [{at: 2026-10-18T09:00:00Z}]\n---\n", "invalid_document"},
-		{"history missing timestamp", "work.task.md", "---\nstate_history: [{state: planned}]\n---\n", "invalid_document"},
-		{"history date only", "work.task.md", "---\nstate_history: [{state: planned, at: 2026-10-18}]\n---\n", "invalid_document"},
+		{"not markdown", "ideas.txt", "---\ntype: note\n---\n", "invalid_document"},
+		{"not markdown body", "ideas.txt", "plain body", "invalid_document"},
+		{"empty name", ".md", "body", "invalid_document"},
+		{"uppercase suffix", "ideas.MD", "body", "invalid_document"},
+		{"malformed YAML", "ideas.md", "---\nprivate: [SECRET\n---\n", "invalid_document"},
+		{"trailing YAML after end", "ideas.md", "---\ntype: note\n...\nSECRET\n---\n", "invalid_document"},
+		{"missing delimiter", "ideas.md", "---\ntype: note\n", "invalid_document"},
+		{"sequence metadata", "ideas.md", "---\n- note\n---\n", "invalid_document"},
+		{"scalar metadata", "ideas.md", "---\nSECRET\n---\n", "invalid_document"},
+		{"duplicate type", "ideas.md", "---\ntype: note\ntype: note\n---\n", "invalid_document"},
+		{"duplicate unknown key", "ideas.md", "---\ncustom: one\ncustom: two\n---\n", "invalid_document"},
+		{"duplicate aliased key", "ideas.md", "---\n&key custom: one\n*key: two\n---\n", "invalid_document"},
+		{"nested duplicate key", "ideas.md", "---\ncustom: {x: one, x: two}\n---\n", "invalid_document"},
+		{"invalid merge", "ideas.md", "---\n<<: SECRET\n---\n", "invalid_document"},
+		{"id number", "ideas.md", "---\nid: 42\n---\n", "invalid_document"},
+		{"title map", "ideas.md", "---\ntitle: {SECRET: value}\n---\n", "invalid_document"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -135,7 +149,7 @@ func TestParseRejectsInvalidDocuments(t *testing.T) {
 
 func TestEncodePreservesUnknownMetadataAndCommentsWhenEdited(t *testing.T) {
 	raw := "\xef\xbb\xbf---\r\n# user comment\r\ntype: note # type comment\r\ncustom: {nested: [a, 7, null]} # custom comment\r\n---\r\n# café\r\n---\r\n"
-	p, err := Parse("ideas.note.md", []byte(raw))
+	p, err := Parse("ideas.md", []byte(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +169,7 @@ func TestEncodePreservesUnknownMetadataAndCommentsWhenEdited(t *testing.T) {
 			t.Fatalf("lost %q: %q", comment, out)
 		}
 	}
-	q, err := Parse("ideas.note.md", out)
+	q, err := Parse("ideas.md", out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +191,7 @@ func TestEncodePreservesUnknownMetadataAndCommentsWhenEdited(t *testing.T) {
 }
 
 func TestEncodeUsesMetadataAndBodyEdits(t *testing.T) {
-	p, err := Parse("ideas.note.md", []byte("---\ntype: note\ncustom: old\n---\nold body\n"))
+	p, err := Parse("ideas.md", []byte("---\ntype: note\ncustom: old\n---\nold body\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -191,7 +205,7 @@ func TestEncodeUsesMetadataAndBodyEdits(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	q, err := Parse("ideas.note.md", out)
+	q, err := Parse("ideas.md", out)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +219,7 @@ func TestEncodeUsesMetadataAndBodyEdits(t *testing.T) {
 }
 
 func TestEncodeAddsFrontmatterWithoutNormalizingMissingFields(t *testing.T) {
-	p, err := Parse("work.task.md", []byte("description\n"))
+	p, err := Parse("work.md", []byte("description\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,29 +228,29 @@ func TestEncodeAddsFrontmatterWithoutNormalizingMissingFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	q, err := Parse("work.task.md", out)
+	q, err := Parse("work.md", out)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if q.Document.ID != "new-id" || q.Document.State != "" || len(q.Document.History) != 0 || string(q.Body) != "description\n" {
+	if q.Document.ID != "new-id" || string(q.Body) != "description\n" {
 		t.Fatalf("unexpected metadata after encode: %+v", q.Document)
 	}
 }
 
 func TestEncodeRejectsInvalidMetadataChanges(t *testing.T) {
-	p, err := Parse("ideas.note.md", []byte("---\ntype: note\n---\n"))
+	p, err := Parse("ideas.md", []byte("---\ntype: note\n---\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.Document.Kind = model.Task
-	if _, err := Encode(p); err == nil || model.ErrorCode(err) != "type_mismatch" {
-		t.Fatalf("Encode error = %v, want type_mismatch", err)
+	setValue(p.Metadata, "id", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!int", Value: "7"})
+	if _, err := Encode(p); err == nil || model.ErrorCode(err) != "invalid_document" {
+		t.Fatalf("Encode error = %v, want invalid_document", err)
 	}
 }
 
 func TestEncodePreservesBodyOnlyHeaderFormatting(t *testing.T) {
 	raw := "---\r\ntype : 'note' # keep exact layout\r\ncustom:    [  a, b  ]\r\n---\r\nold body"
-	p, err := Parse("ideas.note.md", []byte(raw))
+	p, err := Parse("ideas.md", []byte(raw))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +272,7 @@ func TestEncodeAddsBodyAfterEOFClosingDelimiter(t *testing.T) {
 		{"CRLF", "---\r\ntype: note\r\n---", "---\r\ntype: note\r\n---\r\nnew body\n"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			p, err := Parse("ideas.note.md", []byte(tt.raw))
+			p, err := Parse("ideas.md", []byte(tt.raw))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -274,7 +288,7 @@ func TestEncodeAddsBodyAfterEOFClosingDelimiter(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			q, err := Parse("ideas.note.md", out)
+			q, err := Parse("ideas.md", out)
 			if err != nil {
 				t.Fatalf("encoded document cannot be reparsed: %v; source = %q", err, out)
 			}
@@ -286,17 +300,17 @@ func TestEncodeAddsBodyAfterEOFClosingDelimiter(t *testing.T) {
 }
 
 func TestParseReadsAliasedManagedFields(t *testing.T) {
-	p, err := Parse("work.task.md", []byte("---\nbase: &base {type: task, id: existing-id}\n<<: *base\nstatus: &status planned\nstate: *status\n---\n"))
+	p, err := Parse("work.md", []byte("---\nbase: &base {id: existing-id}\n<<: *base\nname: &name Aliased\ntitle: *name\n---\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Document.ID != "existing-id" || p.Document.State != model.Planned {
+	if p.Document.ID != "existing-id" || p.Document.Title != "Aliased" {
 		t.Fatalf("aliased metadata ignored: %+v", p.Document)
 	}
 }
 
 func TestEncodeRetainsAnchorsWhenManagedFieldsChange(t *testing.T) {
-	p, err := Parse("ideas.note.md", []byte("---\ntype: note\nid: &identity old-id\ncustom: *identity\n---\n"))
+	p, err := Parse("ideas.md", []byte("---\ntype: note\nid: &identity old-id\ncustom: *identity\n---\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -305,7 +319,7 @@ func TestEncodeRetainsAnchorsWhenManagedFieldsChange(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	q, err := Parse("ideas.note.md", out)
+	q, err := Parse("ideas.md", out)
 	if err != nil {
 		t.Fatalf("encoded invalid aliases: %v", err)
 	}
@@ -319,7 +333,7 @@ func TestEncodeRetainsAnchorsWhenManagedFieldsChange(t *testing.T) {
 }
 
 func TestEncodePreservesCommentOnlyFrontmatter(t *testing.T) {
-	p, err := Parse("ideas.note.md", []byte("---\n# keep me\n---\nbody\n"))
+	p, err := Parse("ideas.md", []byte("---\n# keep me\n---\nbody\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,28 +347,8 @@ func TestEncodePreservesCommentOnlyFrontmatter(t *testing.T) {
 	}
 }
 
-func TestEncodeTaskMetadataPreservesHistoryExtras(t *testing.T) {
-	p, err := Parse("work.task.md", []byte("---\ntype: task\nstate: planned\nstate_history:\n  - state: planned\n    at: 2026-10-17T10:00:00Z\n    custom: keep # event comment\n---\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	p.Document.State = model.Completed
-	p.Document.History = append(p.Document.History, model.Event{State: model.Completed, At: time.Date(2026, 10, 18, 10, 0, 0, 0, time.UTC)})
-	out, err := Encode(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	q, err := Parse("work.task.md", out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if q.Document.State != model.Completed || len(q.Document.History) != 2 || q.Document.History[1].State != model.Completed || !bytes.Contains(out, []byte("custom: keep # event comment")) {
-		t.Fatalf("history update lost metadata: %q", out)
-	}
-}
-
 func TestEncodeUpdatesAnAliasedMetadataKey(t *testing.T) {
-	p, err := Parse("ideas.note.md", []byte("---\nkey: &key id\n*key: old-id\n---\n"))
+	p, err := Parse("ideas.md", []byte("---\nkey: &key id\n*key: old-id\n---\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -363,40 +357,12 @@ func TestEncodeUpdatesAnAliasedMetadataKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	q, err := Parse("ideas.note.md", out)
+	q, err := Parse("ideas.md", out)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if q.Document.ID != "new-id" {
 		t.Fatalf("aliased key was not updated: %q", out)
-	}
-}
-
-func TestEncodePreservesAliasedHistoryExtras(t *testing.T) {
-	p, err := Parse("work.task.md", []byte("---\ntype: task\ninitial: &initial\n  state: planned\n  at: 2026-10-17T10:00:00Z\n  custom: keep\nstate: planned\nstate_history: [*initial]\n---\n"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	p.Document.History = append(p.Document.History, model.Event{State: model.Completed, At: time.Date(2026, 10, 18, 10, 0, 0, 0, time.UTC)})
-	out, err := Encode(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	q, err := Parse("work.task.md", out)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var fields map[string]any
-	if err := q.Metadata.Decode(&fields); err != nil {
-		t.Fatal(err)
-	}
-	history, ok := fields["state_history"].([]any)
-	if !ok || len(history) != 2 {
-		t.Fatalf("history = %#v", fields["state_history"])
-	}
-	first, ok := history[0].(map[string]any)
-	if !ok || first["custom"] != "keep" {
-		t.Fatalf("history extras lost: %#v", history[0])
 	}
 }
 
@@ -422,7 +388,7 @@ func TestEncodePreservesTimestampSemanticTypes(t *testing.T) {
 					metadata = "custom: [" + tt.scalar + "]\r\n"
 				}
 				raw := "\xef\xbb\xbf---\r\n" + metadata + "---\r\ncafé\r\n---\r\n"
-				p, err := Parse("old.note.md", []byte(raw))
+				p, err := Parse("old.md", []byte(raw))
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -435,7 +401,7 @@ func TestEncodePreservesTimestampSemanticTypes(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				q, err := Parse("old.note.md", out)
+				q, err := Parse("old.md", out)
 				if err != nil {
 					t.Fatal(err)
 				}

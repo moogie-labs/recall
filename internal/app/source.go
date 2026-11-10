@@ -7,7 +7,7 @@ import (
 	"recall/internal/model"
 )
 
-// ReadSource verifies an explicitly known typed source independently of the
+// ReadSource verifies an explicitly known source independently of the
 // rebuildable index. It does not adopt metadata or resolve ambiguous IDs.
 // Callers must compare its identity/revision with the operation being verified.
 func (a *App) ReadSource(ctx context.Context, path string) (model.Document, error) {

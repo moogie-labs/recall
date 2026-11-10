@@ -26,7 +26,7 @@ with tempfile.TemporaryDirectory(prefix="recall-native-", dir=base) as temporary
     root = home / "collection"
     for name in ["content", "run", "models", "runtime"]:
         (root / name).mkdir(parents=True, mode=0o700)
-    configuration = {"timezone": "UTC"}
+    configuration = {}
     if mode == "real":
         repository = Path(__file__).resolve().parent.parent
         model = json.loads((repository / "assets/model.lock.json").read_text())
@@ -43,8 +43,8 @@ with tempfile.TemporaryDirectory(prefix="recall-native-", dir=base) as temporary
         configuration.update(model_id=model["id"], model_sha256=model["sha256"], model_signature="sha256:" + model["sha256"], runtime_id=runtime["id"])
     (root / "config.json").write_text(json.dumps(configuration))
     (root / ".recall-native-fixture").write_text("owned verification fixture")
-    source = root / "content/smoke.note.md"
-    source.write_text('---\nid: native-smoke\ntype: note\ntitle: Native smoke\ncustom: preserve-me\n---\n# Native smoke\n')
+    source = root / "content/smoke.md"
+    source.write_text('---\nid: native-smoke\ntitle: Native smoke\ncustom: preserve-me\n---\n# Native smoke\n')
     environment = dict(os.environ, HOME=str(home), RECALL_HOME=str(root), RECALL_DESKTOP_VERIFY=mode)
     try:
         try:

@@ -20,8 +20,6 @@ import (
 	"recall/internal/model"
 )
 
-var scanTime = time.Date(2026, 10, 18, 9, 0, 0, 0, time.UTC)
-
 func newCollection(t *testing.T) (*fsstore.Store, config.Config) {
 	t.Helper()
 	cfg, err := config.Resolve(filepath.Join(t.TempDir(), "Recall collection with spaces"))
@@ -87,26 +85,29 @@ func readSource(t *testing.T, cfg config.Config, path string) string {
 	return string(raw)
 }
 
-func TestFilenameGatedAdoption(t *testing.T) {
+func TestMarkdownAdoptionAndUnmanagedFiles(t *testing.T) {
 	s, cfg := newCollection(t)
 	unmanaged := "---\ntype: note\n---\nold café\r\n"
-	saveExternal(t, cfg, "old.md", unmanaged)
-	saveExternal(t, cfg, "old.note.md", "old café\r\n---\r\n")
-	scanner := New(s, func() time.Time { return scanTime }, func() string { return "fixed-id" })
+	saveExternal(t, cfg, "old.txt", unmanaged)
+	saveExternal(t, cfg, "other.MD", unmanaged)
+	saveExternal(t, cfg, "old.md", "old café\r\n---\r\n")
+	scanner := New(s, func() string { return "fixed-id" })
 	got := reconcileLocked(t, s, scanner)
-	if len(got.Documents) != 1 || got.Documents[0].Path != "old.note.md" || got.Documents[0].ID != "fixed-id" || got.Documents[0].Body != "old café\r\n---\r\n" {
+	if len(got.Documents) != 1 || got.Documents[0].Path != "old.md" || got.Documents[0].ID != "fixed-id" || got.Documents[0].Body != "old café\r\n---\r\n" {
 		t.Fatalf("adoption: %+v", got)
 	}
-	if readSource(t, cfg, "old.md") != unmanaged {
-		t.Fatal("untyped file was rewritten")
+	for _, path := range []string{"old.txt", "other.MD"} {
+		if readSource(t, cfg, path) != unmanaged {
+			t.Fatalf("%s was rewritten", path)
+		}
 	}
-	if len(got.Diagnostics) != 1 || got.Diagnostics[0].Path != "old.md" {
+	if len(got.Diagnostics) != 2 || got.Diagnostics[0].Path != "old.txt" || got.Diagnostics[1].Path != "other.MD" {
 		t.Fatalf("unmanaged file is invisible: %+v", got.Diagnostics)
 	}
 	assertProjection(t, cfg, got.Documents[0])
-	first := readSource(t, cfg, "old.note.md")
+	first := readSource(t, cfg, "old.md")
 	again := reconcileLocked(t, s, scanner)
-	if readSource(t, cfg, "old.note.md") != first || !reflect.DeepEqual(got, again) {
+	if readSource(t, cfg, "old.md") != first || !reflect.DeepEqual(got, again) {
 		t.Fatalf("repeat scan changed source/snapshot: %+v", again)
 	}
 }
@@ -123,60 +124,91 @@ func assertProjection(t *testing.T, cfg config.Config, d model.Document) {
 	}
 }
 
-func TestDirectSavedStateChangeAppendsOnlyOneObservedEvent(t *testing.T) {
-	s, cfg := newCollection(t)
-	saveExternal(t, cfg, "work.task.md", "description\n")
-	scanner := New(s, func() time.Time { return scanTime }, func() string { return "fixed-id" })
-	initial := reconcileLocked(t, s, scanner)
-	if len(initial.Documents) != 1 || initial.Documents[0].State != model.Planned || len(initial.Documents[0].History) != 1 || !initial.Documents[0].History[0].At.Equal(scanTime) {
-		t.Fatalf("initial task: %+v", initial)
-	}
-	raw := readSource(t, cfg, "work.task.md")
-	raw = strings.Replace(raw, "state: planned", "state: completed", 1)
-	saveExternal(t, cfg, "work.task.md", raw)
-	got := reconcileLocked(t, s, scanner)
-	if len(got.Documents) != 1 || got.Documents[0].State != model.Completed || len(got.Documents[0].History) != 2 || got.Documents[0].History[1].State != model.Completed || !got.Documents[0].History[1].At.Equal(scanTime) {
-		t.Fatalf("observed transition: %+v", got)
-	}
-	assertProjection(t, cfg, got.Documents[0])
-	again := reconcileLocked(t, s, scanner)
-	if !reflect.DeepEqual(got, again) {
-		t.Fatalf("repeat appended an event: %+v", again)
-	}
-}
-
 func TestRapidSavesKeepFinalBody(t *testing.T) {
 	s, cfg := newCollection(t)
-	scanner := New(s, func() time.Time { return scanTime }, func() string { return "fixed-id" })
-	saveExternal(t, cfg, "work.task.md", "---\nid: fixed-id\ntype: task\nstate: planned\nstate_history: [{state: planned, at: 2026-10-17T10:00:00Z}]\n---\ninitial\n")
+	scanner := New(s, func() string { return "fixed-id" })
+	saveExternal(t, cfg, "work.md", "---\nid: fixed-id\n---\ninitial\n")
 	reconcileLocked(t, s, scanner)
-	for _, state := range []string{"in_progress", "stalled", "completed"} {
-		saveExternal(t, cfg, "work.task.md", "---\nid: fixed-id\ntype: task\nstate: "+state+"\ncustom: {latest: café}\nstate_history: [{state: planned, at: 2026-10-17T10:00:00Z, extra: keep}]\n---\nfinal "+state+"\r\n---\r\n")
+	for _, save := range []string{"one", "two", "completed"} {
+		saveExternal(t, cfg, "work.md", "---\nid: fixed-id\ncustom: {latest: café}\n---\nfinal "+save+"\r\n---\r\n")
 	}
 	got := reconcileLocked(t, s, scanner)
-	if len(got.Documents) != 1 || got.Documents[0].Body != "final completed\r\n---\r\n" || got.Documents[0].State != model.Completed || len(got.Documents[0].History) != 2 {
+	if len(got.Documents) != 1 || got.Documents[0].Body != "final completed\r\n---\r\n" {
 		t.Fatalf("latest save lost: %+v", got)
 	}
-	raw := readSource(t, cfg, "work.task.md")
-	if !strings.Contains(raw, "latest: café") || !strings.Contains(raw, "extra: keep") {
+	raw := readSource(t, cfg, "work.md")
+	if !strings.Contains(raw, "latest: café") {
 		t.Fatalf("unrelated metadata lost: %q", raw)
 	}
 	assertProjection(t, cfg, got.Documents[0])
 }
 
-func TestMalformedHistoryIsNotReplaced(t *testing.T) {
+func TestLeftoverDottedSuffixesAreOrdinaryNotes(t *testing.T) {
 	s, cfg := newCollection(t)
-	scanner := New(s, func() time.Time { return scanTime }, func() string { return "fixed-id" })
-	saveExternal(t, cfg, "work.task.md", "description\n")
-	reconcileLocked(t, s, scanner)
-	bad := "---\nstate: completed\nstate_history: [{state: planned, at: SECRET}]\ncustom: keep\n---\nlatest body\n"
-	saveExternal(t, cfg, "work.task.md", bad)
-	got := reconcileLocked(t, s, scanner)
-	if len(got.Documents) != 0 || len(got.Diagnostics) != 1 || got.Diagnostics[0].Code != "invalid_document" || got.Diagnostics[0].Path != "work.task.md" || strings.Contains(got.Diagnostics[0].Message, "SECRET") {
-		t.Fatalf("bad history not diagnosed: %+v", got)
+	sources := map[string]string{
+		"x.note.md":    "---\nid: left-note\ntype: note\n---\nnote body\n",
+		"work.task.md": "---\nid: left-task\ntype: task\nstate: planned\n---\ntask body\n",
 	}
-	if readSource(t, cfg, "work.task.md") != bad {
-		t.Fatal("malformed history overwritten with saved or invented history")
+	for path, raw := range sources {
+		saveExternal(t, cfg, path, raw)
+	}
+	got := reconcileLocked(t, s, New(s, func() string { t.Fatal("existing ID replaced"); return "" }))
+	if len(got.Documents) != 2 || len(got.Diagnostics) != 0 {
+		t.Fatalf("leftovers: %+v", got)
+	}
+	titles := map[string]string{"x.note.md": "x.note", "work.task.md": "work.task"}
+	for _, d := range got.Documents {
+		if d.Title != titles[d.Path] || readSource(t, cfg, d.Path) != sources[d.Path] {
+			t.Fatalf("%s: title %q source %q", d.Path, d.Title, readSource(t, cfg, d.Path))
+		}
+	}
+}
+
+func TestHiddenPathsAreDiagnosedAndNeverAdopted(t *testing.T) {
+	s, cfg := newCollection(t)
+	paths := []string{".hidden.md", ".git/README.md", ".obsidian/sub/x.md", "visible/.trash/y.md"}
+	for _, path := range paths {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(cfg.Content, path)), 0700); err != nil {
+			t.Fatal(err)
+		}
+		saveExternal(t, cfg, path, "no frontmatter\n")
+	}
+	got := reconcileLocked(t, s, New(s, func() string { t.Fatal("hidden file adopted"); return "" }))
+	if len(got.Documents) != 0 || len(got.Diagnostics) != len(paths) {
+		t.Fatalf("hidden paths: %+v", got)
+	}
+	for _, d := range got.Diagnostics {
+		if d.Code != "invalid_document" {
+			t.Fatalf("diagnostic: %+v", d)
+		}
+	}
+	for _, path := range paths {
+		if readSource(t, cfg, path) != "no frontmatter\n" {
+			t.Fatalf("%s rewritten", path)
+		}
+	}
+}
+
+func TestMalformedFrontmatterInPlainMarkdownIsNeverRewritten(t *testing.T) {
+	for name, raw := range map[string]string{
+		"unterminated": "---\nsome prose after a rule\n",
+		"bad-yaml":     "---\ntitle: [unclosed\n---\nSECRET body\n",
+		"scalar":       "---\nA horizontal rule then prose\n---\nMore prose\n",
+		"bad-id":       "---\nid: 42\n---\nbody\n",
+		"bad-title":    "---\ntitle: {a: b}\n---\nbody\n",
+		"dup-key":      "---\na: 1\na: 2\n---\nbody\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			s, cfg := newCollection(t)
+			saveExternal(t, cfg, "plain.md", raw)
+			got := reconcileLocked(t, s, New(s, func() string { t.Fatal("malformed file adopted"); return "" }))
+			if len(got.Documents) != 0 || len(got.Diagnostics) != 1 || got.Diagnostics[0].Path != "plain.md" || got.Diagnostics[0].Code != "invalid_document" || strings.Contains(got.Diagnostics[0].Message, "SECRET") {
+				t.Fatalf("malformed file: %+v", got)
+			}
+			if readSource(t, cfg, "plain.md") != raw {
+				t.Fatal("malformed file rewritten")
+			}
+		})
 	}
 }
 
@@ -184,51 +216,51 @@ func TestDuplicateIDsDoNotRewriteEitherFile(t *testing.T) {
 	s, cfg := newCollection(t)
 	a := "---\nid: duplicate\n---\nA\n"
 	b := "---\nid: duplicate\nstate: completed\n---\nB\n"
-	saveExternal(t, cfg, "a.note.md", a)
-	saveExternal(t, cfg, "b.task.md", b)
-	saveExternal(t, cfg, "c.note.md", "C\n")
-	scanner := New(s, func() time.Time { return scanTime }, func() string {
-		if readSource(t, cfg, "a.note.md") != a || readSource(t, cfg, "b.task.md") != b {
+	saveExternal(t, cfg, "a.md", a)
+	saveExternal(t, cfg, "b.md", b)
+	saveExternal(t, cfg, "c.md", "C\n")
+	scanner := New(s, func() string {
+		if readSource(t, cfg, "a.md") != a || readSource(t, cfg, "b.md") != b {
 			t.Fatal("duplicate source changed before ID assignment")
 		}
 		return "new-id"
 	})
 	got := reconcileLocked(t, s, scanner)
-	if len(got.Documents) != 1 || got.Documents[0].Path != "c.note.md" || len(got.Diagnostics) != 2 {
+	if len(got.Documents) != 1 || got.Documents[0].Path != "c.md" || len(got.Diagnostics) != 2 {
 		t.Fatalf("duplicates must be excluded, not reassigned: %+v", got)
 	}
-	for i, path := range []string{"a.note.md", "b.task.md"} {
+	for i, path := range []string{"a.md", "b.md"} {
 		if got.Diagnostics[i].Code != "duplicate_id" || got.Diagnostics[i].Path != path {
 			t.Fatalf("duplicate diagnostic: %+v", got.Diagnostics)
 		}
 	}
-	if readSource(t, cfg, "a.note.md") != a || readSource(t, cfg, "b.task.md") != b {
+	if readSource(t, cfg, "a.md") != a || readSource(t, cfg, "b.md") != b {
 		t.Fatal("duplicate source rewritten")
 	}
 }
 
 func TestEditDuringNormalizeRetriesLatestBytes(t *testing.T) {
 	s, cfg := newCollection(t)
-	saveExternal(t, cfg, "work.task.md", "stale body\n")
+	saveExternal(t, cfg, "work.md", "stale body\n")
 	edited := false
-	scanner := New(s, func() time.Time { return scanTime }, func() string {
+	scanner := New(s, func() string {
 		if !edited {
 			edited = true
-			saveExternal(t, cfg, "work.task.md", "---\nstate: completed\ncustom: latest\nstate_history: [{state: stalled, at: 2026-10-17T10:00:00Z}]\n---\nlatest body café\r\n---\r\n")
+			saveExternal(t, cfg, "work.md", "---\ncustom: latest\n---\nlatest body café\r\n---\r\n")
 		}
 		return "fixed-id"
 	})
 	got := reconcileLocked(t, s, scanner)
-	if len(got.Documents) != 1 || got.Documents[0].Body != "latest body café\r\n---\r\n" || got.Documents[0].State != model.Completed || len(got.Documents[0].History) != 2 || got.Documents[0].History[0].State != model.Stalled {
+	if len(got.Documents) != 1 || got.Documents[0].Body != "latest body café\r\n---\r\n" {
 		t.Fatalf("stale normalization overwrote editor save: %+v", got)
 	}
-	if !strings.Contains(readSource(t, cfg, "work.task.md"), "custom: latest") {
+	if !strings.Contains(readSource(t, cfg, "work.md"), "custom: latest") {
 		t.Fatal("latest unknown metadata lost")
 	}
 	assertProjection(t, cfg, got.Documents[0])
 	again := reconcileLocked(t, s, scanner)
 	if !reflect.DeepEqual(got, again) {
-		t.Fatalf("retry produced duplicate history: %+v", again)
+		t.Fatalf("retry changed the snapshot: %+v", again)
 	}
 }
 
@@ -241,29 +273,29 @@ func TestReconcileEnumeratesEmptyFoldersAndRejectsSymlinks(t *testing.T) {
 				return err
 			}
 		}
-		return s.Write(ctx, "nested/a.note.md", "", []byte("nested body"))
+		return s.Write(ctx, "nested/a.md", "", []byte("nested body"))
 	}); err != nil {
 		t.Fatal(err)
 	}
 	outside := t.TempDir()
-	victim := filepath.Join(outside, "victim.note.md")
+	victim := filepath.Join(outside, "victim.md")
 	if err := os.WriteFile(victim, []byte("external"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(outside, filepath.Join(cfg.Content, "link-folder")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(victim, filepath.Join(cfg.Content, "link.note.md")); err != nil {
+	if err := os.Symlink(victim, filepath.Join(cfg.Content, "link.md")); err != nil {
 		t.Fatal(err)
 	}
-	saveExternal(t, cfg, "mismatch.task.md", "---\ntype: note\n---\nkeep\n")
-	scanner := New(s, func() time.Time { return scanTime }, func() string { return "fixed-id" })
+	saveExternal(t, cfg, "malformed.md", "---\nid: [broken\n---\nkeep\n")
+	scanner := New(s, func() string { return "fixed-id" })
 	got := reconcileLocked(t, s, scanner)
-	if !reflect.DeepEqual(got.Folders, []string{".", "empty folder", "nested", "nested/empty"}) || len(got.Documents) != 1 || got.Documents[0].Path != "nested/a.note.md" {
+	if !reflect.DeepEqual(got.Folders, []string{".", "empty folder", "nested", "nested/empty"}) || len(got.Documents) != 1 || got.Documents[0].Path != "nested/a.md" {
 		t.Fatalf("actual folder discovery: %+v", got)
 	}
-	if len(got.Diagnostics) != 3 || got.Diagnostics[0].Code != "outside_root" || got.Diagnostics[1].Code != "outside_root" || got.Diagnostics[2].Code != "type_mismatch" {
-		t.Fatalf("unsafe/mismatched sources invisible: %+v", got.Diagnostics)
+	if len(got.Diagnostics) != 3 || got.Diagnostics[0].Code != "outside_root" || got.Diagnostics[1].Code != "outside_root" || got.Diagnostics[2].Code != "invalid_document" {
+		t.Fatalf("unsafe/invalid sources invisible: %+v", got.Diagnostics)
 	}
 	raw, err := os.ReadFile(victim)
 	if err != nil || string(raw) != "external" {
@@ -275,13 +307,13 @@ func TestReconcileUsesCallerOwnedLockAcrossMutationAndScan(t *testing.T) {
 	s, _ := newCollection(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	scanner := New(s, func() time.Time { return scanTime }, func() string { return "fixed-id" })
+	scanner := New(s, func() string { return "fixed-id" })
 	var got model.Snapshot
 	err := s.WithLock(ctx, func() error {
 		if err := s.Mkdir(ctx, "folder"); err != nil {
 			return err
 		}
-		if err := s.Write(ctx, "folder/work.task.md", "", []byte("body")); err != nil {
+		if err := s.Write(ctx, "folder/work.md", "", []byte("body")); err != nil {
 			return err
 		}
 		var err error
@@ -297,16 +329,16 @@ func TestReconcileUsesCallerOwnedLockAcrossMutationAndScan(t *testing.T) {
 		}
 		return nil
 	})
-	if err != nil || len(got.Documents) != 1 || got.Documents[0].State != model.Planned {
+	if err != nil || len(got.Documents) != 1 {
 		t.Fatalf("caller-owned lock integration: %+v %v", got, err)
 	}
 }
 
 func TestDeleteDuringNormalizeNeverResurrectsSource(t *testing.T) {
 	s, cfg := newCollection(t)
-	saveExternal(t, cfg, "old.note.md", "old body")
-	scanner := New(s, func() time.Time { return scanTime }, func() string {
-		if err := os.Remove(filepath.Join(cfg.Content, "old.note.md")); err != nil {
+	saveExternal(t, cfg, "old.md", "old body")
+	scanner := New(s, func() string {
+		if err := os.Remove(filepath.Join(cfg.Content, "old.md")); err != nil {
 			t.Fatal(err)
 		}
 		return "fixed-id"
@@ -315,22 +347,22 @@ func TestDeleteDuringNormalizeNeverResurrectsSource(t *testing.T) {
 	if len(got.Documents) != 0 {
 		t.Fatalf("deleted source retained: %+v", got)
 	}
-	if _, err := os.Stat(filepath.Join(cfg.Content, "old.note.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(cfg.Content, "old.md")); !os.IsNotExist(err) {
 		t.Fatalf("deleted source resurrected: %v", err)
 	}
 }
 
 func TestReconcileDefaultIDAndCancellation(t *testing.T) {
 	s, cfg := newCollection(t)
-	saveExternal(t, cfg, "old.note.md", "body")
-	scanner := New(s, nil, nil)
+	saveExternal(t, cfg, "old.md", "body")
+	scanner := New(s, nil)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	err := s.WithLock(context.Background(), func() error {
 		_, err := scanner.Reconcile(ctx)
 		return err
 	})
-	if !errors.Is(err, context.Canceled) || readSource(t, cfg, "old.note.md") != "body" {
+	if !errors.Is(err, context.Canceled) || readSource(t, cfg, "old.md") != "body" {
 		t.Fatalf("cancellation mutated source: %v", err)
 	}
 	got := reconcileLocked(t, s, scanner)
@@ -350,13 +382,13 @@ func TestAdoptionPreservesYAMLReferencesAndTimestampTypes(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			s, cfg := newCollection(t)
-			saveExternal(t, cfg, "old.note.md", "---\n"+tt.metadata+"---\ncafé\r\n---\r\n")
-			scanner := New(s, func() time.Time { return scanTime }, func() string { return "fixed-id" })
+			saveExternal(t, cfg, "old.md", "---\n"+tt.metadata+"---\ncafé\r\n---\r\n")
+			scanner := New(s, func() string { return "fixed-id" })
 			got := reconcileLocked(t, s, scanner)
 			if len(got.Documents) != 1 || len(got.Diagnostics) != 0 || got.Documents[0].ID != "fixed-id" || got.Documents[0].Body != "café\r\n---\r\n" {
 				t.Fatalf("valid YAML blocked adoption: %+v", got)
 			}
-			p, err := document.Parse("old.note.md", []byte(readSource(t, cfg, "old.note.md")))
+			p, err := document.Parse("old.md", []byte(readSource(t, cfg, "old.md")))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -390,31 +422,19 @@ func TestAdoptionPreservesYAMLReferencesAndTimestampTypes(t *testing.T) {
 
 func TestUnchangedManagedSourceIsNotRewritten(t *testing.T) {
 	s, cfg := newCollection(t)
-	raw := "---\r\nid : 'existing'\r\ntype: task\r\nstate: stalled\r\nstate_history: [ {state: stalled, at: 2026-10-17T10:00:00+02:00} ]\r\ncustom: [  one, two  ]\r\n---\r\n"
-	saveExternal(t, cfg, "work.task.md", raw)
-	before, err := os.Stat(filepath.Join(cfg.Content, "work.task.md"))
+	raw := "---\r\nid : 'existing'\r\nstate: stalled\r\nstate_history: [ {state: stalled, at: 2026-10-17T10:00:00+02:00} ]\r\ncustom: [  one, two  ]\r\n---\r\n"
+	saveExternal(t, cfg, "work.md", raw)
+	before, err := os.Stat(filepath.Join(cfg.Content, "work.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	scanner := New(s, func() time.Time { return scanTime }, func() string { t.Fatal("existing ID replaced"); return "" })
+	scanner := New(s, func() string { t.Fatal("existing ID replaced"); return "" })
 	got := reconcileLocked(t, s, scanner)
-	after, err := os.Stat(filepath.Join(cfg.Content, "work.task.md"))
-	if err != nil || !os.SameFile(before, after) || readSource(t, cfg, "work.task.md") != raw || len(got.Documents) != 1 {
+	after, err := os.Stat(filepath.Join(cfg.Content, "work.md"))
+	if err != nil || !os.SameFile(before, after) || readSource(t, cfg, "work.md") != raw || len(got.Documents) != 1 {
 		t.Fatalf("unchanged file rewritten: %+v %v", got, err)
 	}
 	assertProjection(t, cfg, got.Documents[0])
-}
-
-func TestManuallyReplacedHistoryRemainsAuthoritative(t *testing.T) {
-	s, cfg := newCollection(t)
-	scanner := New(s, func() time.Time { return scanTime }, func() string { return "fixed-id" })
-	saveExternal(t, cfg, "work.task.md", "description\n")
-	reconcileLocked(t, s, scanner)
-	saveExternal(t, cfg, "work.task.md", "---\nid: fixed-id\ntype: task\nstate_history: [{state: completed, at: 2026-10-16T11:00:00Z, custom: revised}]\n---\nrevised body")
-	got := reconcileLocked(t, s, scanner)
-	if len(got.Documents) != 1 || got.Documents[0].State != model.Completed || len(got.Documents[0].History) != 1 || !got.Documents[0].History[0].At.Equal(time.Date(2026, 10, 16, 11, 0, 0, 0, time.UTC)) || got.Documents[0].Body != "revised body" {
-		t.Fatalf("old history restored: %+v", got)
-	}
 }
 
 func TestGeneratedIDCollisionsDoNotRewriteSources(t *testing.T) {
@@ -425,11 +445,11 @@ func TestGeneratedIDCollisionsDoNotRewriteSources(t *testing.T) {
 			if existing {
 				a = "---\nid: fixed-id\n---\nbody A"
 			}
-			saveExternal(t, cfg, "a.note.md", a)
-			saveExternal(t, cfg, "b.note.md", "body B")
-			scanner := New(s, func() time.Time { return scanTime }, func() string { return "fixed-id" })
+			saveExternal(t, cfg, "a.md", a)
+			saveExternal(t, cfg, "b.md", "body B")
+			scanner := New(s, func() string { return "fixed-id" })
 			got := reconcileLocked(t, s, scanner)
-			if len(got.Documents) != 0 || len(got.Diagnostics) != 2 || readSource(t, cfg, "a.note.md") != a || readSource(t, cfg, "b.note.md") != "body B" {
+			if len(got.Documents) != 0 || len(got.Diagnostics) != 2 || readSource(t, cfg, "a.md") != a || readSource(t, cfg, "b.md") != "body B" {
 				t.Fatalf("ID collision persisted: %+v", got)
 			}
 			for _, d := range got.Diagnostics {
@@ -443,11 +463,11 @@ func TestGeneratedIDCollisionsDoNotRewriteSources(t *testing.T) {
 
 func TestContinuousEditsReturnConflictWithoutOverwritingLatestSave(t *testing.T) {
 	s, cfg := newCollection(t)
-	saveExternal(t, cfg, "old.note.md", "initial")
+	saveExternal(t, cfg, "old.md", "initial")
 	saves := 0
-	scanner := New(s, func() time.Time { return scanTime }, func() string {
+	scanner := New(s, func() string {
 		saves++
-		saveExternal(t, cfg, "old.note.md", fmt.Sprintf("editor save %d", saves))
+		saveExternal(t, cfg, "old.md", fmt.Sprintf("editor save %d", saves))
 		return "fixed-id"
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -458,7 +478,7 @@ func TestContinuousEditsReturnConflictWithoutOverwritingLatestSave(t *testing.T)
 		got, err = scanner.Reconcile(ctx)
 		return err
 	})
-	if model.ErrorCode(err) != "conflict" || saves < 2 || len(got.Documents) != 0 || readSource(t, cfg, "old.note.md") != fmt.Sprintf("editor save %d", saves) {
+	if model.ErrorCode(err) != "conflict" || saves < 2 || len(got.Documents) != 0 || readSource(t, cfg, "old.md") != fmt.Sprintf("editor save %d", saves) {
 		t.Fatalf("continuous edits were overwritten or retry was unbounded: %+v saves=%d err=%v", got, saves, err)
 	}
 }
@@ -474,7 +494,7 @@ func TestConcurrentCallerLockedScansAppendOneEvent(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	saveExternal(t, cfg, "work.task.md", "---\ntype: task\nid: existing\nstate: completed\nstate_history: [{state: planned, at: 2026-10-17T10:00:00Z}]\n---\nbody\n")
+	saveExternal(t, cfg, "work.md", "body\n")
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	start := make(chan struct{})
@@ -482,13 +502,13 @@ func TestConcurrentCallerLockedScansAppendOneEvent(t *testing.T) {
 	for _, store := range []*fsstore.Store{s, other} {
 		go func() {
 			<-start
-			scanner := New(store, func() time.Time { return scanTime }, func() string { return "unused" })
+			scanner := New(store, func() string { return "existing" })
 			errCh <- store.WithLock(ctx, func() error {
 				snapshot, err := scanner.Reconcile(ctx)
 				if err != nil {
 					return err
 				}
-				if len(snapshot.Documents) != 1 || len(snapshot.Documents[0].History) != 2 {
+				if len(snapshot.Documents) != 1 || snapshot.Documents[0].ID != "existing" {
 					return fmt.Errorf("unexpected serialized scan: %+v", snapshot)
 				}
 				return nil
@@ -501,8 +521,8 @@ func TestConcurrentCallerLockedScansAppendOneEvent(t *testing.T) {
 			t.Error(err)
 		}
 	}
-	p, err := document.Parse("work.task.md", []byte(readSource(t, cfg, "work.task.md")))
-	if err != nil || len(p.Document.History) != 2 || p.Document.History[1].State != model.Completed {
-		t.Fatalf("concurrent scan lost/duplicated history: %+v %v", p.Document, err)
+	p, err := document.Parse("work.md", []byte(readSource(t, cfg, "work.md")))
+	if err != nil || p.Document.ID != "existing" {
+		t.Fatalf("concurrent scan lost the assigned ID: %+v %v", p.Document, err)
 	}
 }

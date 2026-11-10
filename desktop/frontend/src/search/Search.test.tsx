@@ -7,13 +7,11 @@ import { Workspace } from "../navigation/workspace";
 import type { SearchReply } from "../api/types";
 const doc = {
   id: "a",
-  path: "Work/a.note.md",
+  path: "Work/a.md",
   name: "a",
   title: "A",
   body: "needle",
   revision: "r0",
-  kind: "note",
-  state: "",
 };
 function setup() {
   const api = fakeBridge([doc], ["Work"]);
@@ -83,6 +81,21 @@ it("uses cmd-f and escape without resetting draft save timers", async () => {
   unmount();
   c.dispose();
 });
+it("leaves ctrl-cmd-f to the native full screen shortcut", () => {
+  const { api, c, w } = setup();
+  const { unmount } = render(
+    <Search api={api} workspace={w} session="test-session" reveal={() => {}} />,
+  );
+  const handled = !fireEvent.keyDown(document, {
+    key: "f",
+    metaKey: true,
+    ctrlKey: true,
+  });
+  expect(handled).toBe(false);
+  expect(screen.getByRole("textbox", { name: "Search" })).not.toHaveFocus();
+  unmount();
+  c.dispose();
+});
 it("offers an explicit keyword retry and flushes before opening results", async () => {
   vi.useFakeTimers();
   const { api, c, w } = setup();
@@ -124,7 +137,7 @@ it("offers an explicit keyword retry and flushes before opening results", async 
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: /A.*Found/ }));
   });
-  expect(revealed).toEqual(["Work/a.note.md"]);
+  expect(revealed).toEqual(["Work/a.md"]);
   expect((await api.openDocument("test-session", "a")).document?.body).toBe(
     "draft",
   );

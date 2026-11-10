@@ -1,56 +1,63 @@
 package index
 
-const schemaVersion = 2
+const schemaVersion = 3
+
+// documentSearch must follow any recreation of the documents table's FTS index.
+const documentSearch = `
+CREATE VIRTUAL TABLE document_fts USING fts5(
+    id UNINDEXED, title, path, body
+);
+CREATE TRIGGER documents_insert AFTER INSERT ON documents BEGIN
+    INSERT INTO document_fts(id, title, path, body)
+    VALUES (new.id, new.title, new.path, new.body);
+END;
+CREATE TRIGGER documents_delete AFTER DELETE ON documents BEGIN
+    DELETE FROM document_fts WHERE id = old.id;
+END;
+CREATE TRIGGER documents_update AFTER UPDATE ON documents BEGIN
+    DELETE FROM document_fts WHERE id = old.id;
+    INSERT INTO document_fts(id, title, path, body)
+    VALUES (new.id, new.title, new.path, new.body);
+END;
+`
 
 const schema = `
-CREATE TABLE IF NOT EXISTS documents (
+CREATE TABLE documents (
     id TEXT PRIMARY KEY NOT NULL,
     path TEXT NOT NULL,
     folder TEXT NOT NULL,
     title TEXT NOT NULL,
-    kind TEXT NOT NULL,
-    state TEXT NOT NULL,
     body TEXT NOT NULL,
     raw TEXT NOT NULL,
     revision TEXT NOT NULL,
-    semantic_fingerprint TEXT NOT NULL,
-    created_at TEXT,
-    state_changed_at TEXT
+    semantic_fingerprint TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS documents_folder ON documents(folder);
-CREATE TABLE IF NOT EXISTS state_events (
-    document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
-    ordinal INTEGER NOT NULL,
-    state TEXT NOT NULL,
-    at TEXT NOT NULL,
-    PRIMARY KEY(document_id, ordinal)
-);
-CREATE INDEX IF NOT EXISTS state_events_transition ON state_events(state, at, document_id);
-CREATE TABLE IF NOT EXISTS diagnostics (
+CREATE INDEX documents_folder ON documents(folder);
+CREATE TABLE diagnostics (
     ordinal INTEGER PRIMARY KEY,
     code TEXT NOT NULL,
     path TEXT NOT NULL,
     message TEXT NOT NULL
 );
-CREATE VIRTUAL TABLE IF NOT EXISTS document_fts USING fts5(
-    id UNINDEXED, title, path, kind, state, body
-);
-CREATE TRIGGER IF NOT EXISTS documents_insert AFTER INSERT ON documents BEGIN
-    INSERT INTO document_fts(id, title, path, kind, state, body)
-    VALUES (new.id, new.title, new.path, new.kind, new.state, new.body);
-END;
-CREATE TRIGGER IF NOT EXISTS documents_delete AFTER DELETE ON documents BEGIN
-    DELETE FROM document_fts WHERE id = old.id;
-END;
-CREATE TRIGGER IF NOT EXISTS documents_update AFTER UPDATE ON documents BEGIN
-    DELETE FROM document_fts WHERE id = old.id;
-    INSERT INTO document_fts(id, title, path, kind, state, body)
-    VALUES (new.id, new.title, new.path, new.kind, new.state, new.body);
-END;
-PRAGMA user_version = 1;
+` + documentSearch
+
+// removeTaskColumns upgrades v1/v2 indexes in place so existing embeddings
+// survive. Rows for .task.md sources disappear at the next reconciliation.
+const removeTaskColumns = `
+DROP TRIGGER documents_insert;
+DROP TRIGGER documents_delete;
+DROP TRIGGER documents_update;
+DROP TABLE document_fts;
+DROP TABLE state_events;
+ALTER TABLE documents DROP COLUMN kind;
+ALTER TABLE documents DROP COLUMN state;
+ALTER TABLE documents DROP COLUMN created_at;
+ALTER TABLE documents DROP COLUMN state_changed_at;
+` + documentSearch + `
+INSERT INTO document_fts(id, title, path, body) SELECT id, title, path, body FROM documents;
 `
 
-// The v1 metadata projection is retained. Semantic data is always disposable.
+// Semantic data is always disposable.
 const vectorSchema = `
 CREATE TABLE IF NOT EXISTS vector_meta (
     singleton INTEGER PRIMARY KEY CHECK(singleton=1),
@@ -98,5 +105,4 @@ WHEN old.semantic_fingerprint != new.semantic_fingerprint BEGIN
 END;
 INSERT OR IGNORE INTO embedding_jobs(document_id, fingerprint, signature, generation)
 SELECT d.id, d.semantic_fingerprint, m.signature, m.generation FROM documents d, vector_meta m;
-PRAGMA user_version = 2;
 `

@@ -91,11 +91,6 @@ export function Tree({
               >
                 {folder ? (
                   <path d="M3 7V5h7l2 3h9v12H3V7Z" />
-                ) : entry.kind === "task" ? (
-                  <>
-                    <rect x="4" y="4" width="16" height="16" rx="2" />
-                    <path d="m8 12 3 3 5-6" />
-                  </>
                 ) : (
                   <>
                     <path d="M5 3h10l4 4v14H5Z" />

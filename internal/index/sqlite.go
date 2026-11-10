@@ -65,16 +65,23 @@ func (s *Store) initialize() error {
 	if err := conn.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		return unavailable(ctx, err)
 	}
-	if version != 0 && version != 1 && version != schemaVersion {
+	if version < 0 || version > schemaVersion {
 		return &model.Error{Code: "index_unavailable", Message: "unsupported index schema version; rebuild the derived index"}
 	}
-	if version == 0 {
-		if _, err := conn.ExecContext(ctx, schema); err != nil {
-			return unavailable(ctx, err)
-		}
+	migrations := []struct {
+		applies bool
+		sql     string
+	}{
+		{version == 0, schema},
+		{version < 2, vectorSchema},
+		{version == 1 || version == 2, removeTaskColumns},
+		{version != schemaVersion, fmt.Sprintf("PRAGMA user_version = %d;", schemaVersion)},
 	}
-	if version < schemaVersion {
-		if _, err := conn.ExecContext(ctx, vectorSchema); err != nil {
+	for _, migration := range migrations {
+		if !migration.applies {
+			continue
+		}
+		if _, err := conn.ExecContext(ctx, migration.sql); err != nil {
 			return unavailable(ctx, err)
 		}
 	}
@@ -87,7 +94,7 @@ func (s *Store) Close() error { return unavailable(context.Background(), s.db.Cl
 // Apply replaces the complete current projection. The caller must hold its
 // collection lock across scanning and Apply: SQL serialization cannot detect an
 // older source snapshot. Documents are already normalized/validated by scanner.
-// Metadata, raw bytes and history are caches only; no source is edited here.
+// Metadata and raw bytes are caches only; no source is edited here.
 func (s *Store) Apply(ctx context.Context, snapshot model.Snapshot) (model.SyncReport, error) {
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
@@ -148,29 +155,15 @@ func applySnapshot(ctx context.Context, conn *sql.Conn, snapshot model.Snapshot)
 		} else {
 			report.Added++
 		}
-		var created, changed any
-		if len(d.History) != 0 {
-			created = stamp(d.History[0].At)
-			changed = stamp(d.History[len(d.History)-1].At)
-		}
 		_, err := conn.ExecContext(ctx, `INSERT INTO documents
-			(id, path, folder, title, kind, state, body, raw, revision, semantic_fingerprint, created_at, state_changed_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			(id, path, folder, title, body, raw, revision, semantic_fingerprint)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(id) DO UPDATE SET path=excluded.path, folder=excluded.folder,
-			title=excluded.title, kind=excluded.kind, state=excluded.state, body=excluded.body,
-			raw=excluded.raw, revision=excluded.revision, semantic_fingerprint=excluded.semantic_fingerprint,
-			created_at=excluded.created_at, state_changed_at=excluded.state_changed_at`,
-			d.ID, d.Path, path.Dir(d.Path), d.Title, d.Kind, d.State, d.Body, d.Raw, d.Revision, semanticFingerprint(d), created, changed)
+			title=excluded.title, body=excluded.body, raw=excluded.raw, revision=excluded.revision,
+			semantic_fingerprint=excluded.semantic_fingerprint`,
+			d.ID, d.Path, path.Dir(d.Path), d.Title, d.Body, d.Raw, d.Revision, semanticFingerprint(d))
 		if err != nil {
 			return model.SyncReport{}, err
-		}
-		if _, err := conn.ExecContext(ctx, "DELETE FROM state_events WHERE document_id = ?", d.ID); err != nil {
-			return model.SyncReport{}, err
-		}
-		for i, event := range d.History {
-			if _, err := conn.ExecContext(ctx, "INSERT INTO state_events(document_id, ordinal, state, at) VALUES (?, ?, ?, ?)", d.ID, i, event.State, stamp(event.At)); err != nil {
-				return model.SyncReport{}, err
-			}
 		}
 	}
 	for id := range previous {

@@ -7,17 +7,24 @@ import (
 	"recall/internal/model"
 )
 
-// KindFromPath recognizes only nonempty, case-sensitive type-bearing filenames.
-// Path confinement and filesystem entry validation belong to the store.
-func KindFromPath(path string) (model.Kind, error) {
-	name := filepath.Base(path)
-	if path != "" && !strings.HasSuffix(path, string(filepath.Separator)) {
-		for _, kind := range []model.Kind{model.Note, model.Task} {
-			suffix := "." + string(kind) + ".md"
-			if strings.HasSuffix(name, suffix) && len(name) > len(suffix) {
-				return kind, nil
-			}
+// Suffix marks a file as a Recall document.
+const Suffix = ".md"
+
+// ValidatePath accepts a case-sensitive .md filename with a nonempty name and
+// no hidden path component. Path confinement and filesystem entry validation
+// belong to the store.
+func ValidatePath(path string) error {
+	if path != "" && !strings.HasSuffix(path, string(filepath.Separator)) && strings.HasSuffix(filepath.Base(path), Suffix) && !hidden(path) {
+		return nil
+	}
+	return &model.Error{Code: "invalid_document", Path: path, Message: "a note must be a .md file outside hidden paths"}
+}
+
+func hidden(path string) bool {
+	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
+		if strings.HasPrefix(part, ".") && part != "." && part != ".." {
+			return true
 		}
 	}
-	return "", &model.Error{Code: "invalid_document", Path: path, Message: "filename must have a nonempty name followed by .note.md or .task.md"}
+	return false
 }

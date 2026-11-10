@@ -45,11 +45,10 @@ uses `mcp.servers`, not server names directly under `mcp`:
 
 Tools: `documents_list`, `document_get`, `document_create`, `document_update`,
 `document_move`, `document_delete`, `folders_list`, `folder_create`,
-`folder_move`, `folder_delete`, `tasks_list`, `task_set_state`, `task_history`,
-`search`. Inspect their published schemas for argument details.
+`folder_move`, `folder_delete`, `search`. Inspect their published schemas for argument details.
 
 - List/search returns bounded summaries/passages; explicitly get a document
-  for full body/raw/history. References require exactly one ID or path.
+  for full body/raw. References require exactly one ID or path.
 - Summary/hit `title` is a UTF-8-safe display preview (256 bytes including any
   ellipsis); `title_truncated` is explicit. Never use it as an identity. IDs,
   paths and captured revisions remain exact. Full get retains the full title.
@@ -61,14 +60,9 @@ Tools: `documents_list`, `document_get`, `document_create`, `document_update`,
   narrow scope; use explicit full get by known path for an oversized identity.
   Oversized error messages/paths return that fixed error with an empty path,
   never a clipped usable reference. Source metadata is not restricted/rewritten.
-- Read `revision`, then use `if_revision` when updating/moving/deleting/changing
-  state. Raw updates require it and complete source Markdown with unchanged ID.
-- MCP create uses `kind` (`note`/`task`); CLI uses `--type`.
-- MCP filters take RFC3339 timezone-bearing `[from, until)` timestamps, unlike
-  human CLI inclusive calendar dates. Folder `recursive` defaults false for
-  MCP; an empty folder remains global.
-- Current-state filters, like date filters, require tasks. Valid note `state`
-  metadata remains in source/index but cannot make a note match those filters.
+- Read `revision`, then use `if_revision` when updating/moving/deleting.
+  Raw updates require it and complete source Markdown with unchanged ID.
+- Folder `recursive` defaults false for MCP; an empty folder remains global.
 - Lists use bounded limit/offset pages; follow `next_offset`. MCP document
   diagnostics share the document page budget (diagnostics first); CLI lists
   return diagnostics alongside a document-only page.

@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"recall/internal/app"
 	"recall/internal/config"
-	"recall/internal/model"
 	"testing"
 )
 
@@ -58,7 +57,7 @@ func (unwritablePreferences) SaveRoot(string) error {
 }
 func TestPreferenceFailurePreservesActiveCollection(t *testing.T) {
 	s, a, _, session := fixture(t)
-	d, err := a.Create(t.Context(), app.CreateInput{Kind: model.Note, Name: "keep", Body: "current"})
+	d, err := a.Create(t.Context(), app.CreateInput{Name: "keep", Body: "current"})
 	if err != nil {
 		t.Fatal(err)
 	}

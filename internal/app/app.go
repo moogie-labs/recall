@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"recall/internal/config"
 	"recall/internal/embedding"
@@ -27,7 +26,6 @@ type App struct {
 	scanner   *scanner.Scanner
 	index     *index.Store
 	search    *search.Engine
-	now       func() time.Time
 	newID     func() string
 	closeOnce sync.Once
 	closeErr  error
@@ -41,8 +39,8 @@ func Open(ctx context.Context, cfg config.Config) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &App{store: store, now: time.Now, newID: randomID}
-	a.scanner = scanner.New(store, func() time.Time { return a.now() }, func() string { return a.newID() })
+	a := &App{store: store, newID: randomID}
+	a.scanner = scanner.New(store, func() string { return a.newID() })
 	err = store.WithLock(ctx, func() error {
 		// Never trust caller-supplied layout paths to redirect the derived index.
 		filename := filepath.Join(cfg.Root, "index.sqlite")

@@ -16,13 +16,14 @@ import (
 
 	"recall/internal/config"
 	"recall/internal/fsstore"
+	"recall/internal/index/indextest"
 	"recall/internal/model"
 )
 
 func TestIndexFailurePreservesSourceAndRecovers(t *testing.T) {
 	a, cfg := newTestApp(t)
 	defer a.Close()
-	d := mustCreate(t, a, CreateInput{Kind: model.Task, Name: "work", Body: "old"})
+	d := mustCreate(t, a, CreateInput{Name: "work", Body: "old"})
 	db, err := sql.Open("sqlite", cfg.Database)
 	if err != nil {
 		t.Fatal(err)
@@ -44,9 +45,8 @@ func TestIndexFailurePreservesSourceAndRecovers(t *testing.T) {
 	if err != nil || report.Updated != 1 {
 		t.Fatalf("recovery: %+v %v", report, err)
 	}
-	page, err := a.Tasks(t.Context(), model.TaskQuery{})
-	if err != nil || len(page.Items) != 1 || page.Items[0].Body != "saved" {
-		t.Fatalf("recovered index: %+v %v", page, err)
+	if docs := indextest.Documents(t, cfg.Database); len(docs) != 1 || docs[0].Body != "saved" {
+		t.Fatalf("recovered index: %+v", docs)
 	}
 }
 
@@ -55,7 +55,7 @@ func TestStartupAndSyncRefreshCompleteSnapshot(t *testing.T) {
 	if err := a.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(cfg.Content, "direct.task.md"), []byte("body"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(cfg.Content, "direct.md"), []byte("body"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	a, err := Open(t.Context(), cfg)
@@ -63,11 +63,10 @@ func TestStartupAndSyncRefreshCompleteSnapshot(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer a.Close()
-	page, err := a.index.Tasks(t.Context(), model.TaskQuery{})
-	if err != nil || len(page.Items) != 1 || page.Items[0].ID == "" {
-		t.Fatalf("startup: %+v %v", page, err)
+	if docs := indextest.Documents(t, cfg.Database); len(docs) != 1 || docs[0].ID == "" {
+		t.Fatalf("startup: %+v", docs)
 	}
-	if err := os.Remove(filepath.Join(cfg.Content, "direct.task.md")); err != nil {
+	if err := os.Remove(filepath.Join(cfg.Content, "direct.md")); err != nil {
 		t.Fatal(err)
 	}
 	report, err := a.Sync(t.Context())
@@ -138,7 +137,7 @@ func helperCommand(t testing.TB, cfg config.Config, mode string) *exec.Cmd {
 func TestIndependentProcessesConflictOnOneRevision(t *testing.T) {
 	a, cfg := newTestApp(t)
 	defer a.Close()
-	d := mustCreate(t, a, CreateInput{Kind: model.Task, Name: "work", Body: "old"})
+	d := mustCreate(t, a, CreateInput{Name: "work", Body: "old"})
 	type child struct {
 		release func()
 		result  func() string
@@ -195,7 +194,7 @@ func TestIndependentProcessesConflictOnOneRevision(t *testing.T) {
 func TestMutationHoldsOuterLockThroughCompleteIndexApply(t *testing.T) {
 	a, cfg := newTestApp(t)
 	defer a.Close()
-	d := mustCreate(t, a, CreateInput{Kind: model.Task, Name: "work", Body: "old"})
+	d := mustCreate(t, a, CreateInput{Name: "work", Body: "old"})
 	db, err := sql.Open("sqlite", cfg.Database)
 	if err != nil {
 		t.Fatal(err)
@@ -234,8 +233,7 @@ func TestMutationHoldsOuterLockThroughCompleteIndexApply(t *testing.T) {
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	page, err := a.index.Tasks(t.Context(), model.TaskQuery{})
-	if err != nil || len(page.Items) != 1 || page.Items[0].Body != "new" {
-		t.Fatalf("post-barrier snapshot: %+v %v", page, err)
+	if docs := indextest.Documents(t, cfg.Database); len(docs) != 1 || docs[0].Body != "new" {
+		t.Fatalf("post-barrier snapshot: %+v", docs)
 	}
 }

@@ -1,7 +1,7 @@
 # Recall
 
-Local-first notes, tasks, and offline hybrid search for Apple Silicon macOS.
-Typed Markdown files are authoritative; SQLite and embeddings are rebuildable.
+Local-first notes and offline hybrid search for Apple Silicon macOS.
+Markdown files are authoritative; SQLite and embeddings are rebuildable.
 No accounts, cloud API, Ollama, launch agent, or generated answers.
 
 To build from source with Go 1.27+, run `go build -o ./build/recall ./cmd/recall` from the repository root; see [developer packaging](docs/operations.md#developer-packaging) for a complete distributable package.
@@ -32,8 +32,8 @@ open /Applications/Recall.app
 
 On first launch the app creates `~/Documents/recall` (if that folder is missing or
 empty) and sets up semantic search in the background: it installs the bundled
-runtime and downloads and verifies the model once (about 274 MB). Notes, tasks and
-keyword search work immediately; the sidebar shows progress and offers **Retry**
+runtime and downloads and verifies the model once (about 274 MB). Notes and keyword
+search work immediately; the sidebar shows progress and offers **Retry**
 if the download fails. Opening a collection after an upgrade installs that
 release's runtime the same way. To initialize from the terminal instead (or for
 another collection), run `recall init` **without sudo**; it also tests real
@@ -41,6 +41,10 @@ inference. The installer itself does not initialize or alter your collections, a
 setup never replaces your configuration or authored files.
 If `/usr/local/bin` is not on your PATH, use `/usr/local/bin/recall` directly.
 Release automation and maintainer setup are described in [releases](docs/releases.md).
+
+Upgrading a collection that still has `*.note.md` files? Follow
+[the migration steps](docs/operations.md#migrating-a-collection-from-notemd-to-plain-md)
+**before** running the new build.
 
 ## First use
 
@@ -76,9 +80,8 @@ continues to take precedence over the new default.
 
 ```sh
 printf 'Reset credentials in account settings.\n' |
-  ./bin/recall document create --type note --name account
-./bin/recall document create --type task --name investigate </dev/null
-./bin/recall task list --json
+  ./bin/recall document create --name account
+./bin/recall document list --json
 ./bin/recall search 'forgot my password'
 ```
 
