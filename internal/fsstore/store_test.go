@@ -740,3 +740,59 @@ func TestRemoveRejectsSymlinkIntroducedAfterPreflight(t *testing.T) {
 		t.Fatalf("victim deletion after preflight: %q %v", raw, err)
 	}
 }
+
+func TestStatAndListDoNotFollowSymlinks(t *testing.T) {
+	s, cfg := openStore(t)
+	ctx := t.Context()
+	dir := filepath.Join(cfg.Content, "plan.assets")
+	if err := os.MkdirAll(filepath.Join(dir, "nested"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "a.png"), []byte("x"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(dir, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(cfg.Content, "linked.assets")); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.List(ctx, "plan.assets")
+	want := []Entry{
+		{Path: "plan.assets/a.png"},
+		{Path: "plan.assets/link", IsSymlink: true},
+		{Path: "plan.assets/nested", IsDir: true},
+	}
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("List = %+v, %v; want %+v", got, err, want)
+	}
+	if _, err := s.List(ctx, "linked.assets"); model.ErrorCode(err) != "outside_root" {
+		t.Fatalf("List through symlink: %v", err)
+	}
+	if _, err := s.List(ctx, "plan.assets/a.png"); model.ErrorCode(err) != "invalid_argument" {
+		t.Fatalf("List of a file: %v", err)
+	}
+	if _, err := s.List(ctx, "missing.assets"); model.ErrorCode(err) != "not_found" {
+		t.Fatalf("List of missing: %v", err)
+	}
+
+	for path, want := range map[string]Entry{
+		"plan.assets":       {Path: "plan.assets", IsDir: true},
+		"plan.assets/a.png": {Path: "plan.assets/a.png"},
+		"linked.assets":     {Path: "linked.assets", IsSymlink: true},
+	} {
+		if got, err := s.Stat(ctx, path); err != nil || got != want {
+			t.Errorf("Stat(%q) = %+v, %v; want %+v", path, got, err, want)
+		}
+	}
+	for _, path := range []string{"missing.assets", "missing/child.png"} {
+		if _, err := s.Stat(ctx, path); model.ErrorCode(err) != "not_found" {
+			t.Errorf("Stat(%q): %v", path, err)
+		}
+	}
+	if _, err := s.Stat(ctx, "../escape"); model.ErrorCode(err) != "outside_root" {
+		t.Errorf("Stat traversal: %v", err)
+	}
+}

@@ -128,6 +128,56 @@ func (s *Store) Read(ctx context.Context, path string) ([]byte, error) {
 	return raw, err
 }
 
+// Stat describes one content path without following a final symlink. A
+// missing path or missing parent is not_found.
+func (s *Store) Stat(ctx context.Context, path string) (Entry, error) {
+	if err := ctx.Err(); err != nil {
+		return Entry{}, err
+	}
+	parent, name, err := parentAt(s.content, path)
+	if err != nil {
+		return Entry{}, err
+	}
+	defer parent.Close()
+	stat, err := statAt(parent, name, path)
+	if err != nil {
+		return Entry{}, err
+	}
+	return Entry{Path: path, IsDir: fileType(stat) == unix.S_IFDIR, IsSymlink: fileType(stat) == unix.S_IFLNK}, nil
+}
+
+// List returns the immediate children of a content folder in lexical order,
+// reporting symlinks without following them.
+func (s *Store) List(ctx context.Context, path string) ([]Entry, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	parent, name, err := parentAt(s.content, path)
+	if err != nil {
+		return nil, err
+	}
+	defer parent.Close()
+	dir, err := openDirectoryAt(parent, name, path)
+	if err != nil {
+		return nil, err
+	}
+	defer dir.Close()
+	names, err := directoryNames(dir)
+	if err != nil {
+		return nil, pathError(path, err)
+	}
+	entries := []Entry{}
+	for _, child := range names {
+		childPath := filepath.Join(path, child)
+		stat, err := statAt(dir, child, childPath)
+		if err != nil {
+			return nil, err
+		}
+		entries = append(entries, Entry{Path: childPath, IsDir: fileType(stat) == unix.S_IFDIR, IsSymlink: fileType(stat) == unix.S_IFLNK})
+	}
+	return entries, nil
+}
+
 // Mkdir creates one directory; its parent must already exist. Caller holds WithLock.
 func (s *Store) Mkdir(ctx context.Context, path string) error {
 	if err := ctx.Err(); err != nil {
