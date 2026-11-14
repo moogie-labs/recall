@@ -387,7 +387,6 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
                   .catch((e) => setError(e.message));
               }}
             />
-            <p className="tree-note">Plain Markdown. Yours to keep.</p>
             <VersionFooter
               info={updates.info}
               update={updates.update}
