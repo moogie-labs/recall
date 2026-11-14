@@ -60,6 +60,11 @@ Tools: `documents_list`, `document_get`, `document_create`, `document_update`,
   narrow scope; use explicit full get by known path for an oversized identity.
   Oversized error messages/paths return that fixed error with an empty path,
   never a clipped usable reference. Source metadata is not restricted/rewritten.
+- `document_delete` also removes the note's `<name>.assets` image folder
+  (`partial_failure` if the note was deleted but the folder could not be);
+  `document_move` carries the folder and renames it with the note. Names ending
+  in `.assets` are reserved for note images: creating or moving a note or
+  folder to one is refused with `invalid_argument`.
 - Read `revision`, then use `if_revision` when updating/moving/deleting.
   Raw updates require it and complete source Markdown with unchanged ID.
 - Folder `recursive` defaults false for MCP; an empty folder remains global.

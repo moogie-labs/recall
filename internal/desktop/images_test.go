@@ -105,6 +105,8 @@ func TestImageHandlerServesOnlyConfinedImages(t *testing.T) {
 		}
 	}
 	// httptest.NewRequest panics on an invalid escape, so build this one by hand.
+	// EscapedPath re-escapes an invalid RawPath, so this exercises the
+	// not-an-attachment path rather than the unescape failure.
 	malformed := httptest.NewRecorder()
 	handler.ServeHTTP(malformed, &http.Request{Method: http.MethodGet, URL: &url.URL{Path: "/note-image/x", RawPath: "/note-image/Ideas/my%zzplan.assets/shot.png"}})
 	if malformed.Code != http.StatusNotFound {

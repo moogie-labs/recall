@@ -54,9 +54,11 @@ func (s *Service) Attachments(session, id string) AttachmentsReply {
 
 // ImageHandler serves note images to the webview at /note-image/<path>. Wails
 // uses it as the asset server's fallback, so it only sees requests the embedded
-// frontend cannot satisfy, and only from the app's own webview. Anything other
-// than a GET for a genuine image directly inside a .assets folder of the open
-// collection is a plain 404.
+// frontend cannot satisfy. Production builds serve it only to the app's own
+// webview; under `wails dev` the dev server also exposes it on localhost
+// (still only images in .assets folders). Anything other than a GET for a
+// genuine image directly inside a .assets folder of the open collection is a
+// plain 404.
 func ImageHandler(s *Service) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		data, format, ok := s.image(r)
