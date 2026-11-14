@@ -227,7 +227,9 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
     if (!deleting) return;
     const target = deleting;
     const r = await api.delete(target.input);
-    if (r.problem) throw new Error(r.problem.message);
+    // partial_failure: the note is gone but its images folder is not.
+    if (r.problem && r.problem.code !== "partial_failure")
+      throw new Error(r.problem.message);
     const doc = workspace.snapshot().document;
     if (
       doc &&
@@ -239,6 +241,7 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
     else workspace.clearSelection();
     setDeleting(null);
     await refresh();
+    if (r.problem) setError(r.problem.message);
   }
   return (
     <div className={"app " + (!sidebar ? "sidebar-hidden" : "")}>
@@ -424,6 +427,17 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
       {deleting && (
         <DeleteDialog
           entry={deleting.entry}
+          attachments={
+            deleting.entry.kind === "folder"
+              ? undefined
+              : () =>
+                  api
+                    .attachments(
+                      workspace.snapshot().session,
+                      deleting.entry.id,
+                    )
+                    .then((r) => r.count)
+          }
           onDelete={remove}
           onCancel={() => setDeleting(null)}
         />
