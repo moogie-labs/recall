@@ -92,3 +92,19 @@ test("conflicting external edits block simulated Quit and retain the draft", asy
   await expect(page.locator(".cm-content")).toContainText("My pending draft");
   expect(await page.evaluate(() => (window as any).__test.quits)).toBe(0);
 });
+test("drag a note to the collection root and back into its folder", async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.goto("/test-app.html");
+  await page.getByRole("treeitem", { name: "Work", exact: true }).click();
+  const note = page.getByRole("treeitem", { name: "Reading", exact: true });
+  await note.dragTo(
+    page.getByRole("button", { name: "Select collection root" }),
+  );
+  await expect(note).toHaveAttribute("data-path", "Reading.md");
+  await expect(page.locator(".app-error")).toHaveCount(0);
+  await note.dragTo(page.getByRole("treeitem", { name: "Work", exact: true }));
+  await expect(note).toHaveAttribute("data-path", "Work/Reading.md");
+  await expect(note).toBeVisible();
+});
