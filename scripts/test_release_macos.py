@@ -519,5 +519,31 @@ class ReleaseTests(unittest.TestCase):
             if other.name != "release.yml":
                 self.assertNotIn("secrets.APPLE_", other.read_text())
 
+    def test_release_binaries_must_report_the_tag_version(self):
+        self.assertEqual(self.release.version_ldflags("0.3.0-rc.1"), "-X recall/internal/version.Version=0.3.0-rc.1")
+        cli, app = self.root / "recall", self.root / "Recall.app"
+        binary = app / "Contents/MacOS/Recall"
+        binary.parent.mkdir(parents=True)
+
+        def tool(path, output):
+            path.write_text(f"#!{sys.executable}\nprint({output!r})\n")
+            path.chmod(0o755)
+
+        tool(cli, "recall 0.3.0")
+        tool(binary, "0.3.0")
+        self.release.require_embedded_version(cli, app, "0.3.0")
+        for stale_cli, stale_app in [("recall dev", "0.3.0"), ("recall 0.3.0", "dev")]:
+            tool(cli, stale_cli)
+            tool(binary, stale_app)
+            with self.subTest(cli=stale_cli, app=stale_app), self.assertRaisesRegex(ValueError, "version"):
+                self.release.require_embedded_version(cli, app, "0.3.0")
+
+    def test_build_stage_injects_and_checks_the_version(self):
+        import inspect
+        source = inspect.getsource(self.release.build_stage)
+        self.assertIn('"-ldflags", ldflags, "-o", cli', source)
+        self.assertIn('"scripts/build-desktop.sh", "-ldflags", ldflags', source)
+        self.assertIn('require_embedded_version(cli, staged / "Recall.app", release)', source)
+
 if __name__ == "__main__":
     unittest.main()
