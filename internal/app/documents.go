@@ -124,13 +124,18 @@ func (a *App) Move(ctx context.Context, ref model.Ref, destination, expectedRevi
 				// Put the note back rather than separate it from its images.
 				return model.Document{}, errors.Join(err, a.store.Move(ctx, destination, current.Path))
 			}
+			// Past this point a failure undoes both moves, newest first.
+			undo := func(err error) error {
+				folderBack := a.store.Move(ctx, to, from)
+				return errors.Join(err, folderBack, a.store.Move(ctx, destination, current.Path))
+			}
 			rewritten, changed, err := rewriteAttachmentLinks(destination, raw, filepath.Base(from), filepath.Base(to))
 			if err != nil {
-				return model.Document{}, err
+				return model.Document{}, undo(err)
 			}
 			if changed {
 				if err := a.store.Write(ctx, destination, current.Revision, rewritten); err != nil {
-					return model.Document{}, err
+					return model.Document{}, undo(err)
 				}
 				raw = rewritten
 			}
