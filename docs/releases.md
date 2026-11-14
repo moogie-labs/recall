@@ -198,11 +198,18 @@ stable tag.
 Channel builds are versioned as the patch after the newest stable `vX.Y.Z` tag
 reachable from `main`, plus the workflow run number: after `v0.1.0`, builds are
 `0.1.1-edge.<run>`. SemVer orders them above the last release and below the next.
-The asset names carry that full version, for example
-`Recall-0.1.1-edge.147-darwin-arm64.pkg`; the app's bundle version shows only the
-numeric part (`0.1.1`). The installer does not version-check the app, so moving
-between edge and stable builds in either direction works; run `recall init`
-afterwards as for any upgrade.
+Both binaries embed that full version (`recall version` prints
+`recall 0.1.1-edge.147`, and the app shows it), as do the asset names, for example
+`Recall-0.1.1-edge.147-darwin-arm64.pkg`; only the macOS bundle and package
+metadata carry the numeric part (`0.1.1`). The installer does not version-check
+the app, so moving between edge and stable builds in either direction works.
+
+In-app and `recall upgrade` updates read only GitHub's latest **stable** release,
+so they never offer an edge build, and an edge install never updates itself to a
+newer edge build: install those manually. An edge install reports itself up to
+date until a stable release outranks it (after `0.1.1-edge.147`, that is `0.1.1`),
+then offers that release, returning testers to the stable line. Edge builds are
+signed by the same Apple team, so that upgrade passes the same-team check.
 
 Find it at **Releases → edge**, or `gh release download edge`. Runs for `main`
 are serialized: while one is building, a newer push queues and replaces any
