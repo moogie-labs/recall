@@ -136,7 +136,10 @@ export function DocumentPane({
         {state.document && (
           <>
             <div ref={preview} hidden={state.mode !== "preview"}>
-              <MarkdownPreview body={save.body} />
+              <MarkdownPreview
+                body={save.body}
+                notePath={state.document.path}
+              />
             </div>
             <div
               className="editor-container"
