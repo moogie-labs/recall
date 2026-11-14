@@ -112,13 +112,25 @@ shows the version with the toggle and **Check now** disabled.
 - ⌘F focuses global **Search**, replacing local editor find. Search is hybrid;
   semantic errors offer an explicit keyword-only retry. Escape clears search
   and restores the open draft. Selecting a result reveals its folder ancestors.
-- Preview renders Markdown/GFM without running raw HTML or fetching images.
-  External http/https links open only on explicit click. Attachments, relative
-  link navigation, and executable embeds are not supported.
+- Preview renders Markdown/GFM without running raw HTML. It shows images stored
+  in a note's attachment folder (below) and never fetches remote images, which
+  appear as placeholders. External http/https links open only on explicit click.
+  Relative link navigation and executable embeds are not supported.
+- In Edit, drop image files onto the text or paste an image with ⌘V. Recall
+  copies each into the note's attachment folder, `<note name>.assets/` beside
+  the note (for `Ideas/plan.md`, `Ideas/plan.assets/`), and inserts
+  `![name](plan.assets/name.png)` where you dropped or at the cursor. PNG, JPEG,
+  GIF and WebP up to 20 MB are accepted, identified by content; other files are
+  refused with a message. Dropped files keep a cleaned-up name; pasted images
+  are named `pasted-YYYY-MM-DD-HHMMSS`. Existing images are never overwritten.
+  Removing a link does not delete its image.
+- Attachment folders (any folder whose name ends in `.assets`) are hidden from
+  the tree, search and every client; a Markdown file placed inside one is not a
+  note.
 - Edit changes only the Markdown body. IDs, YAML comments/custom metadata, title
   metadata and any other frontmatter are preserved. A heading edit does not rename
   the file or its metadata title.
-- The trash icon permanently deletes the selected item after confirmation.
+- The trash icon permanently deletes the selected item after confirmation. Deleting a note also deletes its attachment folder; the confirmation says how many images it holds.
   Folder deletion recursively deletes its contents; this is **not macOS Trash**.
   Keep backups. Do not confuse the active tree selection with the document open
   in the editor; selecting a folder leaves that document open.
@@ -158,7 +170,8 @@ warning, avoiding a false conflict on the next edit after repair.
 
 The existing Darwin watcher polls metadata; large collections retain its
 [documented idle-CPU limitation](operations.md). There is no new low-idle-CPU SLA.
-V1 has no tabs, split pane, rename UI, or drag-and-drop from Finder.
+V1 has no tabs, split pane or rename UI. Dragging from Finder works only for
+images dropped onto the editor (see above); Finder drops onto the tree are ignored.
 
 ## Verification
 

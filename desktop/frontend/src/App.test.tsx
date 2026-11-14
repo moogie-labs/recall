@@ -238,6 +238,26 @@ it("shows background setup progress and lets a failed setup be retried", async (
     ).not.toBeInTheDocument(),
   );
 });
+it("treats a partial attachment failure as a completed delete and shows why", async () => {
+  const api = fakeBridge([doc], ["Work"]);
+  api.delete = async () => ({
+    problem: {
+      code: "partial_failure",
+      message: "note deleted, but its attached images could not be removed",
+      path: "Work/x.assets",
+    },
+  });
+  render(<App api={api} host={host} />);
+  fireEvent.click(await screen.findByRole("treeitem", { name: "Work" }));
+  fireEvent.click(screen.getByRole("button", { name: "Delete selection" }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: "Delete permanently" }),
+  );
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "attached images could not be removed",
+  );
+});
 function drag(source: Element, target: Element) {
   const dataTransfer = {
     setData: () => {},

@@ -526,3 +526,33 @@ func TestConcurrentCallerLockedScansAppendOneEvent(t *testing.T) {
 		t.Fatalf("concurrent scan lost the assigned ID: %+v %v", p.Document, err)
 	}
 }
+
+func TestAttachmentFoldersAreSilentlySkipped(t *testing.T) {
+	s, cfg := newCollection(t)
+	for _, dir := range []string{"plan.assets/nested", "Ideas/plan.assets"} {
+		if err := os.MkdirAll(filepath.Join(cfg.Content, dir), 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	saveExternal(t, cfg, "plan.md", "plan\n")
+	saveExternal(t, cfg, "plan.assets/shot.png", "\x89PNG\r\n\x1a\n")
+	saveExternal(t, cfg, "plan.assets/inside.md", "not a note\n")
+	saveExternal(t, cfg, "plan.assets/nested/deeper.txt", "x")
+	saveExternal(t, cfg, "Ideas/plan.assets/b.png", "\x89PNG\r\n\x1a\n")
+	if err := os.Symlink(t.TempDir(), filepath.Join(cfg.Content, "plan.assets", "link")); err != nil {
+		t.Fatal(err)
+	}
+	got := reconcileLocked(t, s, New(s, func() string { return "fixed-id" }))
+	if len(got.Documents) != 1 || got.Documents[0].Path != "plan.md" {
+		t.Fatalf("documents: %+v", got.Documents)
+	}
+	if len(got.Diagnostics) != 0 {
+		t.Fatalf("attachment contents produced diagnostics: %+v", got.Diagnostics)
+	}
+	if !reflect.DeepEqual(got.Folders, []string{".", "Ideas"}) {
+		t.Fatalf("folders = %v", got.Folders)
+	}
+	if readSource(t, cfg, "plan.assets/inside.md") != "not a note\n" {
+		t.Fatal("a Markdown file inside an attachment folder was adopted")
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"recall/internal/attachment"
 	"recall/internal/document"
 	"recall/internal/fsstore"
 	"recall/internal/model"
@@ -35,8 +36,9 @@ func New(store *fsstore.Store, newID func() string) *Scanner {
 
 // Reconcile returns only current valid, uniquely identified documents, together
 // with actual folders (including ".") and diagnostics for unmanaged/invalid
-// entries. A stale metadata write restarts discovery so duplicate IDs and edits
-// in the latest bytes are revalidated. Continuous edits eventually return a
+// entries. Attachment folders (`*.assets`) and their contents are skipped.
+// A stale metadata write restarts discovery so duplicate IDs and edits in the
+// latest bytes are revalidated. Continuous edits eventually return a
 // conflict rather than overwrite source or hold the caller's lock indefinitely.
 func (s *Scanner) Reconcile(ctx context.Context) (model.Snapshot, error) {
 	for attempt := 0; attempt < 8; attempt++ {
@@ -70,6 +72,11 @@ func (s *Scanner) reconcile(ctx context.Context) (model.Snapshot, error) {
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
 			return model.Snapshot{}, err
+		}
+		// Attachment folders hold a note's images; they are not part of the
+		// note tree and their contents are neither indexed nor diagnosed.
+		if attachment.Within(entry.Path) {
+			continue
 		}
 		if entry.IsSymlink {
 			snapshot.Diagnostics = append(snapshot.Diagnostics, model.Diagnostic{Code: "outside_root", Path: entry.Path, Message: "symlink is unmanaged and will not be followed"})

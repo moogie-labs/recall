@@ -2,9 +2,11 @@ package app
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"strings"
 
+	"recall/internal/attachment"
 	"recall/internal/document"
 	"recall/internal/model"
 )
@@ -32,6 +34,9 @@ func (a *App) Create(ctx context.Context, input CreateInput) (model.Document, er
 		}
 	}
 	path := filepath.Join(input.Folder, input.Name+document.Suffix)
+	if err := reserved(path); err != nil {
+		return model.Document{}, err
+	}
 	return a.mutate(ctx, func(snapshot model.Snapshot) (model.Document, error) {
 		id := a.newID()
 		if id == "" {
@@ -98,19 +103,52 @@ func (a *App) Update(ctx context.Context, ref model.Ref, expectedRevision, raw s
 	})
 }
 
-// Move takes a complete content-relative .md destination filename.
+// Move takes a complete content-relative .md destination filename. The note's
+// attachment folder moves with it; on a rename its body links are repointed.
 func (a *App) Move(ctx context.Context, ref model.Ref, destination, expectedRevision string) (model.Document, error) {
 	if err := validatePath(destination); err != nil {
+		return model.Document{}, err
+	}
+	if err := reserved(destination); err != nil {
 		return model.Document{}, err
 	}
 	return a.mutateDocument(ctx, ref, expectedRevision, func(current model.Document) (model.Document, error) {
 		if err := document.ValidatePath(destination); err != nil {
 			return model.Document{}, err
 		}
+		// Undo moves must run even if the request was cancelled mid-move.
+		undoCtx := context.WithoutCancel(ctx)
+		from, to := attachment.Folder(current.Path), attachment.Folder(destination)
+		carry, err := a.attachmentsToCarry(ctx, from, to)
+		if err != nil {
+			return model.Document{}, err
+		}
 		if err := a.store.Move(ctx, current.Path, destination); err != nil {
 			return model.Document{}, err
 		}
-		p, err := document.Parse(destination, []byte(current.Raw))
+		raw := []byte(current.Raw)
+		if carry {
+			if err := a.store.Move(ctx, from, to); err != nil {
+				// Put the note back rather than separate it from its images.
+				return model.Document{}, errors.Join(err, a.store.Move(undoCtx, destination, current.Path))
+			}
+			// Past this point a failure undoes both moves, newest first.
+			undo := func(err error) error {
+				folderBack := a.store.Move(undoCtx, to, from)
+				return errors.Join(err, folderBack, a.store.Move(undoCtx, destination, current.Path))
+			}
+			rewritten, changed, err := rewriteAttachmentLinks(destination, raw, filepath.Base(from), filepath.Base(to))
+			if err != nil {
+				return model.Document{}, undo(err)
+			}
+			if changed {
+				if err := a.store.Write(ctx, destination, current.Revision, rewritten); err != nil {
+					return model.Document{}, undo(err)
+				}
+				raw = rewritten
+			}
+		}
+		p, err := document.Parse(destination, raw)
 		return p.Document, err
 	})
 }
@@ -119,6 +157,7 @@ func (a *App) Delete(ctx context.Context, ref model.Ref, expectedRevision string
 	if err := validateRef(ref); err != nil {
 		return err
 	}
+	var partial error
 	_, err := a.mutate(ctx, func(snapshot model.Snapshot) (model.Document, error) {
 		var current model.Document
 		var err error
@@ -133,9 +172,16 @@ func (a *App) Delete(ctx context.Context, ref model.Ref, expectedRevision string
 		if expectedRevision != "" && expectedRevision != current.Revision {
 			return model.Document{}, appError("conflict", current.Path, "source revision changed")
 		}
-		return model.Document{}, a.store.Remove(ctx, current.Path, false)
+		if err := a.store.Remove(ctx, current.Path, false); err != nil {
+			return model.Document{}, err
+		}
+		partial = a.removeAttachments(ctx, current.Path)
+		return model.Document{}, nil
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	return partial
 }
 
 func (a *App) mutateDocument(ctx context.Context, ref model.Ref, expectedRevision string, change func(model.Document) (model.Document, error)) (model.Document, error) {

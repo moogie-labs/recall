@@ -5,7 +5,8 @@ export function fakeBridge(
   folders: string[] = [],
 ): DesktopAPI {
   const docs = new Map(documents.map((d) => [d.id, { ...d }])),
-    dirs = new Set(folders);
+    dirs = new Set(folders),
+    images = new Map<string, string[]>();
   let version = 0;
   const issue = (code: string, message: string) => ({
     code,
@@ -107,6 +108,38 @@ export function fakeBridge(
         problem: null,
       };
     },
+    saveImage: async (input) => {
+      const doc = docs.get(input.id);
+      if (!doc)
+        return {
+          name: "",
+          link: "",
+          problem: issue("not_found", "Document not found"),
+        };
+      if (!input.data)
+        return {
+          name: "",
+          link: "",
+          problem: issue(
+            "invalid_argument",
+            "the image data could not be read",
+          ),
+        };
+      const stored = images.get(input.id) ?? [],
+        stem = input.name.replace(/\.[^.]*$/, "") || "image";
+      let name = stem + ".png";
+      for (let n = 2; stored.includes(name); n++) name = `${stem}-${n}.png`;
+      images.set(input.id, [...stored, name]);
+      return {
+        name,
+        link: encodeURIComponent(doc.name) + ".assets/" + name,
+        problem: null,
+      };
+    },
+    attachments: async (_session, id) => ({
+      count: images.get(id)?.length ?? 0,
+      problem: null,
+    }),
     delete: async (input) => {
       if (input.id.startsWith("folder:")) {
         for (const path of dirs)

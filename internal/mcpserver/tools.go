@@ -141,10 +141,10 @@ func registerTools(server *mcp.Server, a *app.App) {
 	addTool(server, "document_update", "Replace complete raw Markdown; requires current revision and preserves ID. Conflicting writes fail.", false, true, false, func(ctx context.Context, in updateInput) (model.Document, error) {
 		return a.Update(ctx, in.ref(), in.Revision, in.Raw)
 	})
-	addTool(server, "document_move", "Move a document to a full content-relative .md filename; preserves ID.", false, true, false, func(ctx context.Context, in moveInput) (model.Document, error) {
+	addTool(server, "document_move", "Move a document to a full content-relative .md filename; preserves ID. Its <name>.assets image folder moves with it, and a rename repoints the note's links to it.", false, true, false, func(ctx context.Context, in moveInput) (model.Document, error) {
 		return a.Move(ctx, in.ref(), in.To, in.Revision)
 	})
-	addTool(server, "document_delete", "Permanently delete a document immediately, without confirmation or trash.", false, true, false, func(ctx context.Context, in revisionInput) (mutationResult, error) {
+	addTool(server, "document_delete", "Permanently delete a document and its <name>.assets image folder immediately, without confirmation or trash.", false, true, false, func(ctx context.Context, in revisionInput) (mutationResult, error) {
 		err := a.Delete(ctx, in.ref(), in.Revision)
 		return mutationResult{OK: err == nil}, err
 	})

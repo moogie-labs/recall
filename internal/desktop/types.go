@@ -109,3 +109,19 @@ type SaveBodyReply struct {
 	Problem         *Problem      `json:"problem"`
 	IndexingWarning *Problem      `json:"indexingWarning"`
 }
+
+type SaveImageInput struct {
+	Session string `json:"session"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Data    string `json:"data"`
+}
+type SaveImageReply struct {
+	Name    string   `json:"name"`
+	Link    string   `json:"link"`
+	Problem *Problem `json:"problem"`
+}
+type AttachmentsReply struct {
+	Count   int      `json:"count"`
+	Problem *Problem `json:"problem"`
+}

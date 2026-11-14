@@ -59,6 +59,17 @@ trash or undo.
 Folder deletion is nonrecursive unless explicitly requested; content root
 cannot be deleted. Absolute/traversal/symlinked content paths are rejected.
 
+`document delete` also removes the note's `<name>.assets/` image folder. If the
+note is deleted but the folder cannot be (for example, it is a symlink, which is
+never followed), the command fails with `partial_failure` naming the folder.
+`document move` carries the folder along; when the filename changes, the folder
+is renamed to match and the note's Markdown links that start with the old folder
+name are repointed. A move whose destination already has an attachment folder
+fails with `conflict` before anything changes. Folders whose names end in
+`.assets` are attachment folders: they are not listed, indexed or diagnosed, and
+creating or moving a note or folder to such a name is refused with
+`invalid_argument`.
+
 ## Search
 
 ```sh
@@ -145,5 +156,6 @@ document operations. The MCP streaming command rejects `--json`; bare
 `recall --json` returns the help text in the normal successful JSON envelope.
 
 Exit 0: success; 2: invalid input/document/type/path; 3: not initialized or not
-found; 4: conflict/already exists/duplicate ID/nonempty folder; 1: other failure.
+found; 4: conflict/already exists/duplicate ID/nonempty folder; 1: other failure,
+including `partial_failure` (an operation that succeeded but left cleanup undone).
 Do not parse human error prose; use stable JSON error codes.

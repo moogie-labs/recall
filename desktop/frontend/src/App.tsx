@@ -10,6 +10,7 @@ import type {
 import { SaveCoordinator } from "./saving/coordinator";
 import { Workspace } from "./navigation/workspace";
 import { DocumentPane } from "./document/DocumentPane";
+import { guardFileDrops } from "./document/dropGuard";
 import { Search } from "./search/Search";
 import { registerShutdown } from "./shutdown";
 import { Tree, parentPath } from "./tree/Tree";
@@ -57,6 +58,7 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
     if (r.problem) throw new Error(r.problem.message);
     setTree(r.tree);
   };
+  useEffect(() => guardFileDrops(), []);
   useEffect(
     () => registerShutdown(host, workspace, coordinator),
     [host, workspace, coordinator],
@@ -279,7 +281,9 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
     if (!deleting) return;
     const target = deleting;
     const r = await api.delete(target.input);
-    if (r.problem) throw new Error(r.problem.message);
+    // partial_failure: the note is gone but its images folder is not.
+    if (r.problem && r.problem.code !== "partial_failure")
+      throw new Error(r.problem.message);
     const doc = workspace.snapshot().document;
     if (
       doc &&
@@ -291,6 +295,7 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
     else workspace.clearSelection();
     setDeleting(null);
     await refresh();
+    if (r.problem) setError(r.problem.message);
   }
   return (
     <div className={"app " + (!sidebar ? "sidebar-hidden" : "")}>
@@ -453,6 +458,7 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
             workspace={workspace}
             coordinator={coordinator}
             copyDraft={host.copyDraft}
+            saveImage={api.saveImage}
             hidden={state.searchActive}
           />
           {(error || state.problem) && (
@@ -476,6 +482,17 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
       {deleting && (
         <DeleteDialog
           entry={deleting.entry}
+          attachments={
+            deleting.entry.kind === "folder"
+              ? undefined
+              : () =>
+                  api
+                    .attachments(
+                      workspace.snapshot().session,
+                      deleting.entry.id,
+                    )
+                    .then((r) => r.count)
+          }
           onDelete={remove}
           onCancel={() => setDeleting(null)}
         />

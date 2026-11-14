@@ -57,7 +57,8 @@ func main() {
 	host.install = func(pkg string) error { return updater.Open(context.Background(), pkg) }
 	service.SetUpdater(updater, version.Version, host.installOnQuit)
 	err = wails.Run(&options.App{Title: "Recall", Width: 1140, Height: 760, MinWidth: 760, MinHeight: 500,
-		AssetServer: &assetserver.Options{Assets: assets},
+		// The fallback handler serves note images only; see dto.ImageHandler.
+		AssetServer: &assetserver.Options{Assets: assets, Handler: dto.ImageHandler(service)},
 		Menu:        applicationMenu(),
 		// Wails disables the green window button unless Mac options are present.
 		Mac: &mac.Options{},

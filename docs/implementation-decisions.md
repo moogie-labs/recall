@@ -44,6 +44,15 @@ Whole-branch output/filter correction: `364862d..a161dc7`. It adds bounded displ
 11. **Permit malformed-file editor/delete recovery by explicit path.** Recognized typed regular files remain repairable/removable with confinement and revision checks; ambiguous ID operations still fail. **Cost if wrong:** explicit path intent can remove a file without parsing its invalid metadata.
 12. **Carry captured source revisions in search hits.** Valid search actions use the revision attached to the displayed result, not a newer selection-time read. **Cost if wrong:** an additive shared/JSON result field and retriever tests; no source schema change.
 13. **Bound authored metadata at output boundaries.** Use 256-byte UTF-8 title previews, 4 KiB serialized preview rows and 32 KiB list/search data. Preserve exact identities or return bounded actionable `output_too_large`; full source stays unchanged. **Cost if wrong:** clipped display titles and narrower/lower-limit requests for oversized pages; additive preview/error fields, not source-schema restrictions.
+14. **Serve note images through a confined asset-server fallback.** The desktop
+    registers a Wails `assetserver.Options.Handler` that answers only
+    `GET /note-image/<path>` for files directly inside `*.assets` folders, read
+    with the no-follow store and accepted only when their bytes match PNG, JPEG,
+    GIF or WebP and their extension; everything else is a plain 404. Preview
+    maps only relative sources that resolve into an attachment folder.
+    **Cost if wrong:** a new webview-reachable file read path; a confinement bug
+    there would expose collection images (never other files, by the format and
+    folder checks) to authored Markdown in the same collection.
 
 ## Verification limits and an execution incident
 

@@ -38,6 +38,21 @@ export interface SaveBodyReply {
   problem: Problem | null;
   indexingWarning: Problem | null;
 }
+export interface SaveImageInput {
+  session: string;
+  id: string;
+  name: string;
+  data: string;
+}
+export interface SaveImageReply {
+  name: string;
+  link: string;
+  problem: Problem | null;
+}
+export interface AttachmentsReply {
+  count: number;
+  problem: Problem | null;
+}
 export interface DesktopAPI {
   openCollection(root: string): Promise<CollectionReply>;
   openDocument(session: string, id: string): Promise<DocumentReply>;
@@ -45,6 +60,8 @@ export interface DesktopAPI {
   tree(session: string): Promise<TreeReply>;
   create(input: CreateInput): Promise<CreateReply>;
   delete(input: DeleteInput): Promise<OperationReply>;
+  saveImage(input: SaveImageInput): Promise<SaveImageReply>;
+  attachments(session: string, id: string): Promise<AttachmentsReply>;
   move(input: MoveInput): Promise<MoveReply>;
   search(input: SearchInput): Promise<SearchReply>;
   refresh(session: string): Promise<TreeReply>;

@@ -13,6 +13,9 @@ func (a *App) CreateFolder(ctx context.Context, path string) error {
 	if err := validatePath(path); err != nil {
 		return err
 	}
+	if err := reserved(path); err != nil {
+		return err
+	}
 	_, err := a.mutate(ctx, func(model.Snapshot) (model.Document, error) { return model.Document{}, a.store.Mkdir(ctx, path) })
 	return err
 }
@@ -22,6 +25,9 @@ func (a *App) MoveFolder(ctx context.Context, from, to string) error {
 		return err
 	}
 	if err := validatePath(to); err != nil {
+		return err
+	}
+	if err := reserved(to); err != nil {
 		return err
 	}
 	if strings.HasPrefix(to, from+"/") {
