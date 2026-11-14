@@ -34,6 +34,9 @@ func (a *App) Create(ctx context.Context, input CreateInput) (model.Document, er
 		}
 	}
 	path := filepath.Join(input.Folder, input.Name+document.Suffix)
+	if err := reserved(path); err != nil {
+		return model.Document{}, err
+	}
 	return a.mutate(ctx, func(snapshot model.Snapshot) (model.Document, error) {
 		id := a.newID()
 		if id == "" {
@@ -106,10 +109,15 @@ func (a *App) Move(ctx context.Context, ref model.Ref, destination, expectedRevi
 	if err := validatePath(destination); err != nil {
 		return model.Document{}, err
 	}
+	if err := reserved(destination); err != nil {
+		return model.Document{}, err
+	}
 	return a.mutateDocument(ctx, ref, expectedRevision, func(current model.Document) (model.Document, error) {
 		if err := document.ValidatePath(destination); err != nil {
 			return model.Document{}, err
 		}
+		// Undo moves must run even if the request was cancelled mid-move.
+		undoCtx := context.WithoutCancel(ctx)
 		from, to := attachment.Folder(current.Path), attachment.Folder(destination)
 		carry, err := a.attachmentsToCarry(ctx, from, to)
 		if err != nil {
@@ -122,12 +130,12 @@ func (a *App) Move(ctx context.Context, ref model.Ref, destination, expectedRevi
 		if carry {
 			if err := a.store.Move(ctx, from, to); err != nil {
 				// Put the note back rather than separate it from its images.
-				return model.Document{}, errors.Join(err, a.store.Move(ctx, destination, current.Path))
+				return model.Document{}, errors.Join(err, a.store.Move(undoCtx, destination, current.Path))
 			}
 			// Past this point a failure undoes both moves, newest first.
 			undo := func(err error) error {
-				folderBack := a.store.Move(ctx, to, from)
-				return errors.Join(err, folderBack, a.store.Move(ctx, destination, current.Path))
+				folderBack := a.store.Move(undoCtx, to, from)
+				return errors.Join(err, folderBack, a.store.Move(undoCtx, destination, current.Path))
 			}
 			rewritten, changed, err := rewriteAttachmentLinks(destination, raw, filepath.Base(from), filepath.Base(to))
 			if err != nil {

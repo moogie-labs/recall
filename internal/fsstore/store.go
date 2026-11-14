@@ -7,6 +7,7 @@ package fsstore
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -126,6 +127,42 @@ func (s *Store) Read(ctx context.Context, path string) ([]byte, error) {
 	defer parent.Close()
 	raw, _, err := readAt(ctx, parent, name, path)
 	return raw, err
+}
+
+// ReadLimited reads a regular file like Read, but refuses one larger than max
+// bytes (invalid_argument) after fstat, before reading its contents.
+func (s *Store) ReadLimited(ctx context.Context, path string, max int64) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	parent, name, err := parentAt(s.content, path)
+	if err != nil {
+		return nil, err
+	}
+	defer parent.Close()
+	f, err := openAt(parent, name, path, os.O_RDONLY, 0)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, appError("invalid_argument", path, "a regular file is required")
+	}
+	if info.Size() > max {
+		return nil, appError("invalid_argument", path, "file is too large")
+	}
+	raw, err := io.ReadAll(io.LimitReader(f, max+1))
+	if err != nil {
+		return nil, pathError(path, err)
+	}
+	if int64(len(raw)) > max {
+		return nil, appError("invalid_argument", path, "file is too large")
+	}
+	return raw, ctx.Err()
 }
 
 // Stat describes one content path without following a final symlink. A

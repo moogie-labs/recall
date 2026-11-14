@@ -258,3 +258,65 @@ func TestMoveRefusesExistingDestinationAttachments(t *testing.T) {
 		}
 	}
 }
+
+func TestAssetsNamesAreReserved(t *testing.T) {
+	a, cfg := newTestApp(t)
+	defer a.Close()
+	ctx := t.Context()
+	exists := func(path string) bool {
+		_, err := os.Stat(filepath.Join(cfg.Content, path))
+		return err == nil
+	}
+	note := newNote(t, a, "Work", "plan", "body\n")
+
+	_, err := a.Create(ctx, CreateInput{Folder: "plan.assets", Name: "x"})
+	wantCode(t, err, "invalid_argument")
+	if exists("plan.assets") {
+		t.Error("Create made a reserved folder")
+	}
+	wantCode(t, a.CreateFolder(ctx, "Notes.assets"), "invalid_argument")
+	if exists("Notes.assets") {
+		t.Error("CreateFolder made a reserved folder")
+	}
+	wantCode(t, a.CreateFolder(ctx, "Work/inner.assets"), "invalid_argument")
+	if exists("Work/inner.assets") {
+		t.Error("CreateFolder made a nested reserved folder")
+	}
+	if err := a.CreateFolder(ctx, "Plain"); err != nil {
+		t.Fatal(err)
+	}
+	_, err = a.Move(ctx, model.Ref{ID: note.ID}, "Plain.assets/plan.md", "")
+	wantCode(t, err, "invalid_argument")
+	if !exists("Work/plan.md") || exists("Plain.assets") {
+		t.Error("Move changed the disk")
+	}
+	wantCode(t, a.MoveFolder(ctx, "Work", "Work.assets"), "invalid_argument")
+	if !exists("Work/plan.md") || exists("Work.assets") {
+		t.Error("MoveFolder changed the disk")
+	}
+}
+
+func TestReadAttachmentRefusesOversizedFiles(t *testing.T) {
+	a, cfg := newTestApp(t)
+	defer a.Close()
+	ctx := t.Context()
+	note := newNote(t, a, "Ideas", "plan", "")
+	if _, err := a.SaveAttachment(ctx, model.Ref{ID: note.ID}, "seed.png", testPNG); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(cfg.Content, "Ideas", "plan.assets", "huge.png")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.Write(testPNG); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Truncate(attachment.MaxBytes + 1); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+	if _, _, err := a.ReadAttachment(t.Context(), "Ideas/plan.assets/huge.png"); err == nil {
+		t.Fatal("oversized image was served")
+	}
+}

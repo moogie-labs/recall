@@ -100,7 +100,7 @@ func (a *App) ReadAttachment(ctx context.Context, path string) ([]byte, attachme
 	if !ok {
 		return nil, attachment.Format{}, notAttachment
 	}
-	data, err := a.store.Read(ctx, path)
+	data, err := a.store.ReadLimited(ctx, path, attachment.MaxBytes)
 	if err != nil {
 		return nil, attachment.Format{}, err
 	}
@@ -108,6 +108,15 @@ func (a *App) ReadAttachment(ctx context.Context, path string) ([]byte, attachme
 		return nil, attachment.Format{}, notAttachment
 	}
 	return data, want, nil
+}
+
+// reserved refuses a path inside an attachment folder name, which the scanner
+// hides, so nothing created there could ever be listed or read.
+func reserved(path string) error {
+	if attachment.Within(path) {
+		return appError("invalid_argument", path, "names ending in .assets are reserved for note images")
+	}
+	return nil
 }
 
 // removeAttachments deletes a deleted note's attachment folder. A missing
