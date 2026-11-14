@@ -142,6 +142,20 @@ export function fakeBridge(
       problem: null,
     }),
     retrySetup: async () => ({ problem: null }),
+    appInfo: async () => ({
+      version: "0.2.0",
+      development: false,
+      checkForUpdates: true,
+    }),
+    setCheckForUpdates: async () => ({ problem: null }),
+    checkForUpdate: async () => ({
+      state: "current",
+      current: "0.2.0",
+      latest: "0.2.0",
+      releaseURL: "",
+      problem: null,
+    }),
+    startUpgrade: async () => ({ problem: null }),
     refresh: async (session) => ({
       tree: {
         session,

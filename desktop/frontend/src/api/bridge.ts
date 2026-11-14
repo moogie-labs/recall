@@ -16,6 +16,10 @@ export const api: DesktopAPI = {
   refresh: (session) => backend().Refresh(session),
   setupStatus: (session) => backend().SetupStatus(session),
   retrySetup: (session) => backend().RetrySetup(session),
+  appInfo: () => backend().AppInfo(),
+  setCheckForUpdates: (enabled) => backend().SetCheckForUpdates(enabled),
+  checkForUpdate: (manual) => backend().CheckForUpdate(manual),
+  startUpgrade: () => backend().StartUpgrade(),
 };
 export const hostAPI: HostAPI = {
   ready: () => host().Ready(),
