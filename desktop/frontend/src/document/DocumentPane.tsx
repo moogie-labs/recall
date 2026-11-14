@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { hostAPI } from "../api/bridge";
-import type { OperationReply } from "../api/types";
+import type {
+  OperationReply,
+  SaveImageInput,
+  SaveImageReply,
+} from "../api/types";
 import { Compartment, EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap, lineNumbers } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
@@ -9,19 +13,23 @@ import { Workspace } from "../navigation/workspace";
 import { SaveCoordinator } from "../saving/coordinator";
 import { MarkdownPreview } from "./MarkdownPreview";
 import { CopyButton } from "./CopyButton";
+import { imageInput } from "./imageInput";
 export function DocumentPane({
   workspace,
   coordinator,
   hidden = false,
   copyDraft = (body: string) => hostAPI.copyDraft!(body),
+  saveImage,
 }: {
   workspace: Workspace;
   coordinator: SaveCoordinator;
   hidden?: boolean;
   copyDraft?: (body: string) => Promise<OperationReply>;
+  saveImage?: (input: SaveImageInput) => Promise<SaveImageReply>;
 }) {
   const state = useSyncExternalStore(workspace.subscribe, workspace.snapshot);
   const [recoveryNotice, setRecoveryNotice] = useState("");
+  const [imageProblem, setImageProblem] = useState("");
   const save = useSyncExternalStore(
     coordinator.subscribe,
     coordinator.snapshot,
@@ -32,6 +40,19 @@ export function DocumentPane({
     preview = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!state.document || !element.current) return;
+    const target = { session: state.session, id: state.document.id };
+    const images = saveImage
+      ? [
+          imageInput({
+            save: async (name, data) => {
+              const r = await saveImage({ ...target, name, data });
+              if (r.problem) throw new Error(r.problem.message);
+              return { name: r.name, link: r.link };
+            },
+            report: setImageProblem,
+          }),
+        ]
+      : [];
     const view = new EditorView({
       parent: element.current,
       state: EditorState.create({
@@ -51,6 +72,7 @@ export function DocumentPane({
             if (update.docChanged)
               coordinator.edit(update.state.doc.toString());
           }),
+          ...images,
         ],
       }),
     });
@@ -59,7 +81,7 @@ export function DocumentPane({
       view.destroy();
       editor.current = null;
     };
-  }, [state.document?.id, state.session, coordinator, workspace]);
+  }, [state.document?.id, state.session, coordinator, workspace, saveImage]);
   useEffect(() => {
     const view = editor.current;
     if (view && view.state.doc.toString() !== save.body && !view.composing)
@@ -205,6 +227,17 @@ export function DocumentPane({
               Close draft…
             </button>
           </div>
+        </div>
+      )}
+      {imageProblem && (
+        <div className="image-error" role="alert">
+          {imageProblem}
+          <button
+            aria-label="Dismiss image error"
+            onClick={() => setImageProblem("")}
+          >
+            ×
+          </button>
         </div>
       )}
       {save.indexingWarning && (

@@ -10,6 +10,7 @@ import type {
 import { SaveCoordinator } from "./saving/coordinator";
 import { Workspace } from "./navigation/workspace";
 import { DocumentPane } from "./document/DocumentPane";
+import { guardFileDrops } from "./document/dropGuard";
 import { Search } from "./search/Search";
 import { registerShutdown } from "./shutdown";
 import { Tree, parentPath } from "./tree/Tree";
@@ -56,6 +57,7 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
     if (r.problem) throw new Error(r.problem.message);
     setTree(r.tree);
   };
+  useEffect(() => guardFileDrops(), []);
   useEffect(
     () => registerShutdown(host, workspace, coordinator),
     [host, workspace, coordinator],
@@ -404,6 +406,7 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
             workspace={workspace}
             coordinator={coordinator}
             copyDraft={host.copyDraft}
+            saveImage={api.saveImage}
             hidden={state.searchActive}
           />
           {(error || state.problem) && (

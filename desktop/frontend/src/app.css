@@ -219,11 +219,17 @@ a:focus-visible {
   background: #c75e51;
 }
 .save-error,
-.index-warning {
+.index-warning,
+.image-error {
   padding: 12px 25px;
   font-size: 12px;
   background: #fff5ed;
   color: #844d38;
+}
+.image-error button {
+  float: right;
+  border: 0;
+  background: none;
 }
 .save-error > div {
   margin-top: 8px;

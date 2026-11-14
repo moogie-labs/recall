@@ -351,3 +351,43 @@ it("leaves Command-A alone in edit mode, when hidden and with no document", asyn
   closed.unmount();
   empty.dispose();
 });
+
+function pasteImage(container: HTMLElement, name: string) {
+  const event = new Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", {
+    value: {
+      files: [new File([new Uint8Array([1])], name, { type: "image/png" })],
+      types: ["Files"],
+      items: [],
+    },
+  });
+  container.querySelector(".cm-content")!.dispatchEvent(event);
+}
+it("pastes an image into the note and reports failures", async () => {
+  const { c, w, api } = await setup();
+  const { container, unmount } = render(
+    <DocumentPane workspace={w} coordinator={c} saveImage={api.saveImage} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  pasteImage(container, "shot.png");
+  // A new editor's cursor starts at 0, so the link goes before the heading.
+  await vi.waitFor(() =>
+    expect(c.snapshot().body).toBe("![shot](a.assets/shot.png)\n# Original"),
+  );
+  const failing = vi.fn(async () => ({
+    name: "",
+    link: "",
+    problem: { code: "not_found", message: "Document not found", path: "" },
+  }));
+  unmount();
+  const second = render(
+    <DocumentPane workspace={w} coordinator={c} saveImage={failing} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  pasteImage(second.container, "again.png");
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "Couldn't add again.png: Document not found",
+  );
+  second.unmount();
+  c.dispose();
+});
