@@ -341,7 +341,7 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
                 </button>
                 {menu && (
                   <div className="create-menu" role="menu">
-                    {["folder", "note", "task"].map((kind) => (
+                    {["folder", "note"].map((kind) => (
                       <button
                         key={kind}
                         role="menuitem"

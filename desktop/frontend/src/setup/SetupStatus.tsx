@@ -1,6 +1,6 @@
 import type { SetupStatus as Status } from "../api/types";
 const megabytes = (bytes: number) => Math.round(bytes / 1_000_000);
-// Semantic-search setup runs in the background; notes, tasks and keyword
+// Semantic-search setup runs in the background; notes and keyword
 // search are usable throughout. Nothing is shown once setup is ready.
 export function SetupStatus({
   status,

@@ -167,7 +167,7 @@ func (s *storeSource) Read(ctx context.Context, ref model.Ref) (model.Document, 
 		if entry.IsDir || entry.IsSymlink {
 			continue
 		}
-		if _, err := document.KindFromPath(entry.Path); err != nil {
+		if err := document.ValidatePath(entry.Path); err != nil {
 			continue
 		}
 		d, err := read(entry.Path)

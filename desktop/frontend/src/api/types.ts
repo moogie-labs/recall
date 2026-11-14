@@ -12,8 +12,6 @@ export interface DocumentView {
   path: string;
   name: string;
   title: string;
-  kind: string;
-  state: string;
   body: string;
   revision: string;
 }
@@ -74,8 +72,6 @@ export interface SearchHit {
   path: string;
   title: string;
   snippet: string;
-  kind: string;
-  state: string;
 }
 export interface SearchReply {
   hits: SearchHit[];

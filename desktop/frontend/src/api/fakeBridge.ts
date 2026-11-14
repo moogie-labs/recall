@@ -57,11 +57,11 @@ export function fakeBridge(
             kind: "folder",
           }))
           .concat(
-            [...docs.values()].map(({ id, path, name, kind }) => ({
+            [...docs.values()].map(({ id, path, name }) => ({
               id,
               path,
               name,
-              kind,
+              kind: "note",
             })),
           ),
         diagnostics: [],
@@ -72,7 +72,7 @@ export function fakeBridge(
       const path =
         (input.parent ? input.parent + "/" : "") +
         input.name +
-        (input.kind === "folder" ? "" : "." + input.kind + ".md");
+        (input.kind === "folder" ? "" : ".md");
       if (dirs.has(path) || [...docs.values()].some((d) => d.path === path))
         return {
           entry: null,
@@ -98,13 +98,11 @@ export function fakeBridge(
         name: input.name,
         title: input.name,
         body: "",
-        kind: input.kind,
-        state: input.kind === "task" ? "planned" : "",
         revision: `revision-${version}`,
       };
       docs.set(doc.id, doc);
       return {
-        entry: { id: doc.id, path, name: doc.name, kind: doc.kind },
+        entry: { id: doc.id, path, name: doc.name, kind: "note" },
         document: doc,
         problem: null,
       };
@@ -167,11 +165,11 @@ export function fakeBridge(
             kind: "folder",
           }))
           .concat(
-            [...docs.values()].map(({ id, path, name, kind }) => ({
+            [...docs.values()].map(({ id, path, name }) => ({
               id,
               path,
               name,
-              kind,
+              kind: "note",
             })),
           ),
         diagnostics: [],

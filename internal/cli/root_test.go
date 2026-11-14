@@ -28,7 +28,6 @@ func prepared(t *testing.T) config.Config {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.Timezone = "America/New_York"
 	if err := config.Prepare(cfg); err != nil {
 		t.Fatal(err)
 	}
@@ -244,14 +243,14 @@ func TestCancellationAndBoundedInput(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	var out, logs bytes.Buffer
-	if code := Run(ctx, []string{"--root", cfg.Root, "document", "create", "--type", "note", "--name", "canceled", "--json"}, strings.NewReader("body"), &out, &logs); code != 1 {
+	if code := Run(ctx, []string{"--root", cfg.Root, "document", "create", "--name", "canceled", "--json"}, strings.NewReader("body"), &out, &logs); code != 1 {
 		t.Fatalf("%d %s", code, &out)
 	}
 	out.Reset()
-	if code := Run(t.Context(), []string{"--root", cfg.Root, "document", "create", "--type", "note", "--name", "large", "--json"}, io.LimitReader(zeroReader{}, 16<<20+1), &out, &logs); code != 2 {
+	if code := Run(t.Context(), []string{"--root", cfg.Root, "document", "create", "--name", "large", "--json"}, io.LimitReader(zeroReader{}, 16<<20+1), &out, &logs); code != 2 {
 		t.Fatalf("%d %s", code, &out)
 	}
-	if _, err := os.Stat(filepath.Join(cfg.Content, "large.note.md")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(cfg.Content, "large.md")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("oversized input mutated source")
 	}
 }
@@ -364,12 +363,12 @@ func TestIdleStdinPipeCanBeCanceled(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 80*time.Millisecond)
 	defer cancel()
 	var out, logs bytes.Buffer
-	code := Run(ctx, []string{"--root", cfg.Root, "--json", "document", "create", "--type", "note", "--name", "idle"}, r, &out, &logs)
+	code := Run(ctx, []string{"--root", cfg.Root, "--json", "document", "create", "--name", "idle"}, r, &out, &logs)
 	got := decodeResult(t, &out)
 	if code != 1 || got.Error == nil || got.Error.Message != "operation timed out" {
 		t.Fatalf("%d %+v", code, got)
 	}
-	if _, err := os.Stat(filepath.Join(cfg.Content, "idle.note.md")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(cfg.Content, "idle.md")); !os.IsNotExist(err) {
 		t.Fatal("canceled input mutated source")
 	}
 }

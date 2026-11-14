@@ -4,6 +4,8 @@ As of 2026-10-24, all fourteen implementation tasks have passed their independen
 
 The owner explicitly authorized local repository initialization and an isolated worktree. Implementation is on `feat/recall-v1`; no merge, push, tag, publication, global installation or OpenCode registration has been performed.
 
+The task feature (`.task.md`, `state`, `state_history`, date filters and the `task_*` MCP tools) was removed on 2026-11-08; `.task.md` files remain on disk as unmanaged files. References below to task behaviour describe the original implementation.
+
 ## Completed task checkpoints
 
 Each range includes the initial implementation and its reviewed corrections.

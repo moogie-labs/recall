@@ -14,7 +14,7 @@ import (
 
 func TestCLIEditCanRepairMalformedTypedFile(t *testing.T) {
 	cfg := prepared(t)
-	path := filepath.Join(cfg.Content, "repair space.note.md")
+	path := filepath.Join(cfg.Content, "repair space.md")
 	if err := os.WriteFile(path, []byte("---\nid: [bad\n---\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -24,7 +24,7 @@ func TestCLIEditCanRepairMalformedTypedFile(t *testing.T) {
 	}
 	setUserEditor(t, script)
 	var out, logs bytes.Buffer
-	if code := Run(t.Context(), []string{"--root", cfg.Root, "document", "edit", "--path", "repair space.note.md"}, strings.NewReader(""), &out, &logs); code != 0 || !strings.Contains(out.String(), "repaired body") {
+	if code := Run(t.Context(), []string{"--root", cfg.Root, "document", "edit", "--path", "repair space.md"}, strings.NewReader(""), &out, &logs); code != 0 || !strings.Contains(out.String(), "repaired body") {
 		t.Fatalf("%d %s %s", code, &out, &logs)
 	}
 }
@@ -56,7 +56,7 @@ func TestCLIEditNeverRunsCollectionSuppliedEditor(t *testing.T) {
 		t.Fatal(err)
 	}
 	// A shared or cloned collection supplies its own editor choice.
-	settings, err := json.Marshal(map[string]any{"timezone": "UTC", "editor": []string{planted}})
+	settings, err := json.Marshal(map[string]any{"editor": []string{planted}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +68,7 @@ func TestCLIEditNeverRunsCollectionSuppliedEditor(t *testing.T) {
 		t.Fatal(err)
 	}
 	setUserEditor(t, script)
-	note := as[model.Document](t, invoke(t, cfg.Root, "", "document", "create", "--type", "note", "--name", "shared"))
+	note := as[model.Document](t, invoke(t, cfg.Root, "", "document", "create", "--name", "shared"))
 	var out, logs bytes.Buffer
 	if code := Run(t.Context(), []string{"--root", cfg.Root, "document", "edit", "--id", note.ID}, strings.NewReader(""), &out, &logs); code != 0 {
 		t.Fatalf("%d %s %s", code, &out, &logs)
@@ -84,7 +84,7 @@ func TestCLIEditNeverRunsCollectionSuppliedEditor(t *testing.T) {
 func TestCLIEditDoesNotWarnAboutAutoWrittenDefaultEditor(t *testing.T) {
 	cfg := prepared(t)
 	// Earlier releases persisted the default editor into every collection.
-	if err := os.WriteFile(filepath.Join(cfg.Root, "config.json"), []byte(`{"timezone":"UTC","editor":["nvim"]}`), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(cfg.Root, "config.json"), []byte(`{"editor":["nvim"]}`), 0600); err != nil {
 		t.Fatal(err)
 	}
 	script := filepath.Join(t.TempDir(), "user editor")
@@ -92,7 +92,7 @@ func TestCLIEditDoesNotWarnAboutAutoWrittenDefaultEditor(t *testing.T) {
 		t.Fatal(err)
 	}
 	setUserEditor(t, script)
-	note := as[model.Document](t, invoke(t, cfg.Root, "", "document", "create", "--type", "note", "--name", "legacy"))
+	note := as[model.Document](t, invoke(t, cfg.Root, "", "document", "create", "--name", "legacy"))
 	var out, logs bytes.Buffer
 	if code := Run(t.Context(), []string{"--root", cfg.Root, "document", "edit", "--id", note.ID}, strings.NewReader(""), &out, &logs); code != 0 {
 		t.Fatalf("%d %s %s", code, &out, &logs)

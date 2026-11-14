@@ -41,7 +41,7 @@ func (s *Service) Search(in SearchInput) SearchReply {
 		return r
 	}
 	for _, h := range hits {
-		r.Hits = append(r.Hits, SearchHit{ID: h.ID, Path: h.Path, Title: h.Title, Snippet: h.Snippet, Kind: string(h.Kind), State: string(h.State)})
+		r.Hits = append(r.Hits, SearchHit{ID: h.ID, Path: h.Path, Title: h.Title, Snippet: h.Snippet})
 	}
 	return r
 }

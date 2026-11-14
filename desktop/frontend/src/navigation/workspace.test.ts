@@ -5,15 +5,13 @@ import { fakeBridge } from "../api/fakeBridge";
 import type { DocumentReply, DocumentView } from "../api/types";
 const a: DocumentView = {
   id: "a",
-  path: "a.note.md",
+  path: "a.md",
   name: "a",
   title: "A",
   body: "old",
   revision: "r0",
-  kind: "note",
-  state: "",
 };
-const b: DocumentView = { ...a, id: "b", path: "b.note.md" };
+const b: DocumentView = { ...a, id: "b", path: "b.md" };
 it("folder selection and preview/search preserve the draft and its save timers", async () => {
   vi.useFakeTimers();
   try {
@@ -100,11 +98,11 @@ it("reloads clean external moves but preserves dirty drafts on changes or deleti
   w.setCollection("test-session");
   await w.openDocument("a");
   api.openDocument = async () => ({
-    document: { ...a, path: "moved.note.md", revision: "r2", body: "external" },
+    document: { ...a, path: "moved.md", revision: "r2", body: "external" },
     problem: null,
   });
   await w.refreshDocument();
-  expect(w.snapshot().document?.path).toBe("moved.note.md");
+  expect(w.snapshot().document?.path).toBe("moved.md");
   expect(c.snapshot().body).toBe("external");
   c.edit("my draft");
   api.openDocument = async () => ({
@@ -287,11 +285,11 @@ it("follows moved document selections without replacing an unrelated selected fo
   w.setCollection("test-session");
   await w.openDocument("a");
   api.openDocument = async () => ({
-    document: { ...a, path: "Other/a.note.md", revision: "moved" },
+    document: { ...a, path: "Other/a.md", revision: "moved" },
     problem: null,
   });
   await w.refreshDocument();
-  expect(w.snapshot().treeSelection?.path).toBe("Other/a.note.md");
+  expect(w.snapshot().treeSelection?.path).toBe("Other/a.md");
   await w.selectTree({
     id: "folder:Work",
     path: "Work",
@@ -299,11 +297,11 @@ it("follows moved document selections without replacing an unrelated selected fo
     kind: "folder",
   });
   api.openDocument = async () => ({
-    document: { ...a, path: "Another/a.note.md", revision: "moved-again" },
+    document: { ...a, path: "Another/a.md", revision: "moved-again" },
     problem: null,
   });
   await w.refreshDocument();
-  expect(w.snapshot().document?.path).toBe("Another/a.note.md");
+  expect(w.snapshot().document?.path).toBe("Another/a.md");
   expect(w.snapshot().treeSelection?.path).toBe("Work");
   c.dispose();
 });
@@ -314,7 +312,7 @@ it("adopts moved IDs returned by a successful save before later creation", async
     const r = await save(input);
     return {
       ...r,
-      document: r.document ? { ...r.document, path: "Moved/a.note.md" } : null,
+      document: r.document ? { ...r.document, path: "Moved/a.md" } : null,
     };
   };
   const c = new SaveCoordinator(api),
@@ -323,7 +321,7 @@ it("adopts moved IDs returned by a successful save before later creation", async
   await w.openDocument("a");
   c.edit("changed");
   await c.flush();
-  expect(w.snapshot().document?.path).toBe("Moved/a.note.md");
-  expect(w.snapshot().treeSelection?.path).toBe("Moved/a.note.md");
+  expect(w.snapshot().document?.path).toBe("Moved/a.md");
+  expect(w.snapshot().treeSelection?.path).toBe("Moved/a.md");
   c.dispose();
 });

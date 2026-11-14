@@ -17,19 +17,11 @@ func (i *invocation) searchCommand() *cobra.Command {
 		if err := pageBounds(limit, 0, 100); err != nil {
 			return nil, err
 		}
-		cfg, err := i.config()
-		if err != nil {
-			return nil, err
-		}
-		filter, err := f.parse(cfg)
-		if err != nil {
-			return nil, err
-		}
 		return i.withApp(func(a *app.App) (any, error) {
-			return a.Search(i.ctx, model.SearchQuery{Filter: filter, Text: args[0], Mode: mode, Limit: limit})
+			return a.Search(i.ctx, model.SearchQuery{Filter: f.filter(), Text: args[0], Mode: mode, Limit: limit})
 		})
 	})
-	f.bind(c, true)
+	f.bind(c)
 	c.Flags().StringVar(&mode, "mode", "hybrid", "keyword, semantic, or hybrid")
 	c.Flags().IntVar(&limit, "limit", 20, "Maximum hits (maximum 100)")
 	return c

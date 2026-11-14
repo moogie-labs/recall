@@ -3,11 +3,9 @@ import { SaveCoordinator } from "./coordinator";
 import type { DocumentView, SaveBodyInput, SaveBodyReply } from "../api/types";
 export const doc: DocumentView = {
   id: "a",
-  path: "one.note.md",
+  path: "one.md",
   name: "one",
   title: "One",
-  kind: "note",
-  state: "",
   body: "old",
   revision: "r0",
 };

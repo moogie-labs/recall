@@ -94,9 +94,8 @@ shows the version with the toggle and **Check now** disabled.
 - Folders start collapsed. Click a folder to select and expand/collapse it; tree
   expansion survives refreshes within the session. The sidebar and folders
   animate, respecting reduced-motion settings.
-- The plus dropdown creates Folder, Note, or Task inside a selected folder,
-  alongside a selected document, or at root with no selection. New tasks start
-  Planned; new documents open in Edit, existing documents in Preview.
+- The plus dropdown creates Folder or Note inside a selected folder,
+  alongside a selected document, or at root with no selection. New documents open in Edit, existing documents in Preview.
   Click the sidebar's **Recall** heading to select root without closing the
   current document or discarding its draft. Moved document IDs keep their
   selection/creation target synchronized with the current path.
@@ -107,8 +106,8 @@ shows the version with the toggle and **Check now** disabled.
   External http/https links open only on explicit click. Attachments, relative
   link navigation, and executable embeds are not supported.
 - Edit changes only the Markdown body. IDs, YAML comments/custom metadata, title
-  metadata, task state and history are preserved. A heading edit does not rename
-  the file or its metadata title. Use CLI/MCP for task state/history controls.
+  metadata and any other frontmatter are preserved. A heading edit does not rename
+  the file or its metadata title.
 - The trash icon permanently deletes the selected item after confirmation.
   Folder deletion recursively deletes its contents; this is **not macOS Trash**.
   Keep backups. Do not confuse the active tree selection with the document open
@@ -149,7 +148,7 @@ warning, avoiding a false conflict on the next edit after repair.
 
 The existing Darwin watcher polls metadata; large collections retain its
 [documented idle-CPU limitation](operations.md). There is no new low-idle-CPU SLA.
-V1 has no tabs, split pane, drag-and-drop moves, rename UI, or task dashboard.
+V1 has no tabs, split pane, drag-and-drop moves, or rename UI.
 
 ## Verification
 
@@ -210,7 +209,7 @@ separate checks; a browser screenshot is not a native visual inspection.
   tests passed; npm audit reported zero vulnerabilities.
 - Production bundle inspection and relocated headless worker dispatch passed.
 - Native WKWebView fixtures passed actual 1s/3s autosave, Markdown modes, source
-  preservation, nested folder/note/task creation and recursive deletion,
+  preservation, nested folder/note creation and recursive deletion,
   keyword fallback, repeated conflict-blocked Quit, and immediate quit flush.
 - A separate native fixture passed real pinned-model hybrid search through a
   manager/guardian launched by the desktop executable. Its lifetime lease was

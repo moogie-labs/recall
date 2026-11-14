@@ -6,41 +6,15 @@ import (
 	"recall/internal/model"
 )
 
-func TestKindFromPath(t *testing.T) {
-	tests := []struct {
-		path string
-		want model.Kind
-	}{
-		{"ideas.note.md", model.Note},
-		{"fix.task.md", model.Task},
-		{"folder with spaces/café.note.md", model.Note},
-		{"folder/dotted.name.task.md", model.Task},
-		{".hidden.note.md", model.Note},
-		{"", ""},
-		{".note.md", ""},
-		{"folder/.task.md", ""},
-		{"ideas.NOTE.md", ""},
-		{"ideas.note.MD", ""},
-		{"fix.TASK.md", ""},
-		{"ideas.md", ""},
-		{"ideas.note.md.bak", ""},
-		{"ideas.note.md/", ""},
+func TestValidatePath(t *testing.T) {
+	for _, path := range []string{"ideas.md", "folder with spaces/café.md", "folder/dotted.name.md", "left.note.md", "old.task.md", "ideas.NOTE.md"} {
+		if err := ValidatePath(path); err != nil {
+			t.Errorf("ValidatePath(%q) = %v", path, err)
+		}
 	}
-	for _, tt := range tests {
-		t.Run(tt.path, func(t *testing.T) {
-			got, err := KindFromPath(tt.path)
-			if tt.want == "" {
-				if err == nil || model.ErrorCode(err) != "invalid_document" {
-					t.Fatalf("KindFromPath(%q) = %q, %v; want invalid_document", tt.path, got, err)
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			if got != tt.want {
-				t.Fatalf("kind = %q, want %q", got, tt.want)
-			}
-		})
+	for _, path := range []string{"", ".md", "folder/.md", ".hidden.md", ".git/README.md", "a/.obsidian/b/c.md", "ideas.MD", "ideas.Md", "ideas.txt", "ideas", "ideas.md.bak", "ideas.md/"} {
+		if err := ValidatePath(path); model.ErrorCode(err) != "invalid_document" {
+			t.Errorf("ValidatePath(%q) = %v; want invalid_document", path, err)
+		}
 	}
 }

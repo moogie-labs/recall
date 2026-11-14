@@ -15,10 +15,10 @@ func TestIndexPreviewWireBudgets(t *testing.T) {
 		name, id, path, revision string
 		wantError                bool
 	}{
-		{"title", "exact", "a.note.md", "exact-revision", false},
-		{"identity", strings.Repeat("x", 8192), "a.note.md", "rev", true},
-		{"unrepresentable-path", "exact", "bad\xff.note.md", "rev", true},
-		{"revision", "exact", "a.note.md", strings.Repeat("r", 8192), true},
+		{"title", "exact", "a.md", "exact-revision", false},
+		{"identity", strings.Repeat("x", 8192), "a.md", "rev", true},
+		{"unrepresentable-path", "exact", "bad\xff.md", "rev", true},
+		{"revision", "exact", "a.md", strings.Repeat("r", 8192), true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := openTestStore(t)

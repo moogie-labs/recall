@@ -16,7 +16,7 @@ func TestSummaryTitlePreviewUTF8Boundaries(t *testing.T) {
 		{"four-byte-split", strings.Repeat("x", 252) + "🙂 tail", strings.Repeat("x", 252) + "…", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			d := Document{ID: "id", Path: "a.note.md", Revision: "revision", Title: tc.title}
+			d := Document{ID: "id", Path: "a.md", Revision: "revision", Title: tc.title}
 			rows, err := Summaries([]Document{d})
 			if err != nil {
 				t.Fatal(err)

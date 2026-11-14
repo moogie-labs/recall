@@ -14,13 +14,13 @@ import (
 	"recall/internal/app"
 	"recall/internal/config"
 	"recall/internal/document"
-	"recall/internal/index"
+	"recall/internal/index/indextest"
 	"recall/internal/model"
 )
 
 // Catches shell splitting, interpolation, and mutation of the configured argv.
 func TestEditorKeepsPathAsOneArgument(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "a b;echo nope.task.md")
+	path := filepath.Join(t.TempDir(), "a b;echo nope.md")
 	argv := make([]string, 2, 5)
 	copy(argv, []string{"nvim", "--"})
 	cmd, err := Command(argv, path)
@@ -38,13 +38,13 @@ func TestEditorRejectsInvalidArguments(t *testing.T) {
 		argv []string
 		path string
 	}{
-		{nil, "/absolute.task.md"},
-		{[]string{""}, "/absolute.task.md"},
-		{[]string{"nvim\x00"}, "/absolute.task.md"},
-		{[]string{"nvim", "bad\x00arg"}, "/absolute.task.md"},
-		{[]string{"nvim"}, "relative.task.md"},
+		{nil, "/absolute.md"},
+		{[]string{""}, "/absolute.md"},
+		{[]string{"nvim\x00"}, "/absolute.md"},
+		{[]string{"nvim", "bad\x00arg"}, "/absolute.md"},
+		{[]string{"nvim"}, "relative.md"},
 		{[]string{"nvim"}, ""},
-		{[]string{"nvim"}, "/bad\x00.task.md"},
+		{[]string{"nvim"}, "/bad\x00.md"},
 	} {
 		if _, err := Command(tt.argv, tt.path); model.ErrorCode(err) != "invalid_argument" {
 			t.Fatalf("accepted %q %q: %v", tt.argv, tt.path, err)
@@ -70,7 +70,7 @@ func TestEditorProcessHelper(t *testing.T) {
 		if err != nil {
 			os.Exit(91)
 		}
-		raw = []byte(strings.ReplaceAll(strings.Replace(string(raw), "state: planned", "state: completed", 1), "old body", "saved body 自由\r\n"))
+		raw = []byte(strings.ReplaceAll(string(raw), "old body", "saved body 自由\r\n"))
 		if err := os.WriteFile(args[0], raw, 0600); err != nil {
 			os.Exit(92)
 		}
@@ -101,7 +101,7 @@ func TestEditorCompletionReconcilesActualSourceOnEitherExitStatus(t *testing.T) 
 				t.Fatal(err)
 			}
 			defer a.Close()
-			d, err := a.Create(t.Context(), app.CreateInput{Kind: model.Task, Name: "a b;echo $(nope)", Body: "old body"})
+			d, err := a.Create(t.Context(), app.CreateInput{Name: "a b;echo $(nope)", Body: "old body"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -124,29 +124,23 @@ func TestEditorCompletionReconcilesActualSourceOnEitherExitStatus(t *testing.T) 
 			if (exitErr == nil && err != nil) || (exitErr != nil && !errors.Is(err, exitErr)) {
 				t.Fatalf("completion lost exit status: %v", err)
 			}
-			idx, err := index.Open(cfg.Database)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer idx.Close()
-			page, err := idx.Tasks(t.Context(), model.TaskQuery{})
-			if err != nil || len(page.Items) != 1 || page.Items[0].Body != "saved body 自由\r\n" || page.Items[0].State != model.Completed || len(page.Items[0].History) != 2 {
-				t.Fatalf("indexed completion: %+v %v", page, err)
+			docs := indextest.Documents(t, cfg.Database)
+			if len(docs) != 1 || docs[0].Body != "saved body 自由\r\n" {
+				t.Fatalf("indexed completion: %+v", docs)
 			}
 			raw, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatal(err)
 			}
 			p, err := document.Parse(d.Path, raw)
-			if err != nil || p.Document.Body != "saved body 自由\r\n" || len(p.Document.History) != 2 || p.Document.History[1].State != model.Completed {
+			if err != nil || p.Document.Body != "saved body 自由\r\n" {
 				t.Fatalf("actual source: %+v %v", p.Document, err)
 			}
 			if err := Complete(t.Context(), nil, sync); err != nil {
 				t.Fatal(err)
 			}
-			page, err = idx.Tasks(t.Context(), model.TaskQuery{})
-			if err != nil || len(page.Items) != 1 || len(page.Items[0].History) != 2 {
-				t.Fatalf("repeat completion duplicated history: %+v %v", page, err)
+			if docs := indextest.Documents(t, cfg.Database); len(docs) != 1 || docs[0].Body != "saved body 自由\r\n" {
+				t.Fatalf("repeat completion changed the index: %+v", docs)
 			}
 		})
 	}

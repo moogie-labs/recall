@@ -17,6 +17,7 @@ import (
 	"recall/internal/config"
 	"recall/internal/document"
 	"recall/internal/index"
+	"recall/internal/index/indextest"
 	"recall/internal/model"
 )
 
@@ -41,7 +42,7 @@ func newCollection(t *testing.T) collection {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { a.Close() })
-	d, err := a.Create(t.Context(), app.CreateInput{Kind: model.Task, Name: "work", Body: "old body"})
+	d, err := a.Create(t.Context(), app.CreateInput{Name: "work", Body: "old body"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -55,15 +56,11 @@ func newCollection(t *testing.T) collection {
 
 func (c collection) sync(ctx context.Context) error { _, err := c.a.Sync(ctx); return err }
 
-// This reads the derived index directly. app.Read/Tasks/List would perform their
-// own Sync and could conceal a watcher that never reconciled anything.
-func (c collection) tasks(t *testing.T) []model.Document {
+// This reads the derived index directly. app.Read/List would perform their own
+// Sync and could conceal a watcher that never reconciled anything.
+func (c collection) documents(t *testing.T) []model.Document {
 	t.Helper()
-	page, err := c.idx.Tasks(t.Context(), model.TaskQuery{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	return page.Items
+	return indextest.Documents(t, c.cfg.Database)
 }
 
 func eventually(t *testing.T, check func() bool) {
@@ -151,8 +148,7 @@ func fastSettings() settings {
 	return settings{quietPeriod: 25 * time.Millisecond, rescanInterval: time.Hour, newWatcher: newWatchSource}
 }
 
-// Catches missing startup scans, inode-only watching, premature reconciliation,
-// and duplicate final history after the scanner's own normalization events.
+// Catches missing startup scans, inode-only watching and premature reconciliation.
 func TestRunStartupAndAtomicReplacement(t *testing.T) {
 	c := newCollection(t)
 	path := filepath.Join(c.cfg.Content, c.doc.Path)
@@ -161,12 +157,11 @@ func TestRunStartupAndAtomicReplacement(t *testing.T) {
 	if err := next(t, scans); err != nil {
 		t.Fatal(err)
 	}
-	if got := c.tasks(t); len(got) != 1 || got[0].Body != "offline body" {
+	if got := c.documents(t); len(got) != 1 || got[0].Body != "offline body" {
 		t.Fatalf("startup did not recover offline edit: %+v", got)
 	}
-	for _, state := range []string{"in_progress", "stalled", "completed"} {
-		raw := strings.Replace(c.doc.Raw, "state: planned", "state: "+state, 1)
-		replace(t, path, strings.Replace(raw, "old body", "latest body 自由\r\n---\r\n", 1))
+	for range 3 {
+		replace(t, path, strings.Replace(c.doc.Raw, "old body", "latest body 自由\r\n---\r\n", 1))
 	}
 	select {
 	case err := <-scans:
@@ -174,25 +169,22 @@ func TestRunStartupAndAtomicReplacement(t *testing.T) {
 	case <-time.After(150 * time.Millisecond):
 	}
 	eventually(t, func() bool {
-		got := c.tasks(t)
-		return len(got) == 1 && got[0].State == model.Completed && got[0].Body == "latest body 自由\r\n---\r\n"
+		got := c.documents(t)
+		return len(got) == 1 && got[0].Body == "latest body 自由\r\n---\r\n"
 	})
 	time.Sleep(600 * time.Millisecond)
-	got := c.tasks(t)[0]
-	if len(got.History) != 2 || got.History[1].State != model.Completed {
-		t.Fatalf("duplicate or intermediate history: %+v", got.History)
-	}
+	got := c.documents(t)[0]
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	p, err := document.Parse(c.doc.Path, raw)
-	if err != nil || p.Document.Body != got.Body || len(p.Document.History) != 2 {
+	if err != nil || p.Document.Body != got.Body {
 		t.Fatalf("latest source was lost: %+v %v", p.Document, err)
 	}
 	// A second replacement must still be observed after the first inode vanished.
 	replace(t, path, strings.Replace(string(raw), "latest body", "another save", 1))
-	eventually(t, func() bool { return strings.HasPrefix(c.tasks(t)[0].Body, "another save") })
+	eventually(t, func() bool { return strings.HasPrefix(c.documents(t)[0].Body, "another save") })
 }
 
 func TestRunKeepsInPlaceEditsWithRestoredMtime(t *testing.T) {
@@ -213,10 +205,7 @@ func TestRunKeepsInPlaceEditsWithRestoredMtime(t *testing.T) {
 	if err := os.Chtimes(path, before.ModTime(), before.ModTime()); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, func() bool { return c.tasks(t)[0].Body == "new body" })
-	if got := c.tasks(t)[0]; len(got.History) != 1 {
-		t.Fatalf("body-only save changed history: %+v", got.History)
-	}
+	eventually(t, func() bool { return c.documents(t)[0].Body == "new body" })
 }
 
 func TestRunTracksNewNestedMovedDeletedAndRecreatedFolders(t *testing.T) {
@@ -230,17 +219,17 @@ func TestRunTracksNewNestedMovedDeletedAndRecreatedFolders(t *testing.T) {
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, "nested.task.md")
+	path := filepath.Join(dir, "nested.md")
 	write(t, path, "nested body")
-	eventually(t, func() bool { return len(c.tasks(t)) == 2 })
+	eventually(t, func() bool { return len(c.documents(t)) == 2 })
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	replace(t, path, strings.Replace(string(raw), "nested body", "nested edited", 1))
 	eventually(t, func() bool {
-		for _, d := range c.tasks(t) {
-			if d.Path == "new/nested/nested.task.md" && d.Body == "nested edited" {
+		for _, d := range c.documents(t) {
+			if d.Path == "new/nested/nested.md" && d.Body == "nested edited" {
 				return true
 			}
 		}
@@ -250,33 +239,33 @@ func TestRunTracksNewNestedMovedDeletedAndRecreatedFolders(t *testing.T) {
 		t.Fatal(err)
 	}
 	eventually(t, func() bool {
-		for _, d := range c.tasks(t) {
-			if d.Path == "moved/nested/nested.task.md" {
+		for _, d := range c.documents(t) {
+			if d.Path == "moved/nested/nested.md" {
 				return true
 			}
 		}
 		return false
 	})
-	for _, path := range []string{"moved/nested/nested.task.md", "moved/nested", "moved"} {
+	for _, path := range []string{"moved/nested/nested.md", "moved/nested", "moved"} {
 		if err := os.Remove(filepath.Join(c.cfg.Content, path)); err != nil {
 			t.Fatal(err)
 		}
 	}
-	eventually(t, func() bool { return len(c.tasks(t)) == 1 })
+	eventually(t, func() bool { return len(c.documents(t)) == 1 })
 	dir = filepath.Join(c.cfg.Content, "moved", "nested")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	path = filepath.Join(dir, "recreated.task.md")
+	path = filepath.Join(dir, "recreated.md")
 	write(t, path, "recreated")
-	eventually(t, func() bool { return len(c.tasks(t)) == 2 })
+	eventually(t, func() bool { return len(c.documents(t)) == 2 })
 	raw, err = os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	replace(t, path, strings.Replace(string(raw), "recreated", "watched again", 1))
 	eventually(t, func() bool {
-		for _, d := range c.tasks(t) {
+		for _, d := range c.documents(t) {
 			if d.Body == "watched again" {
 				return true
 			}
@@ -338,10 +327,10 @@ func TestRunRecoversOverflowErrorsAndClosedWatcher(t *testing.T) {
 			if err == nil || (mode != "closed" && !errors.Is(err, injected)) {
 				t.Fatalf("notification error not reported: %v", err)
 			}
-			eventually(t, func() bool { return c.tasks(t)[0].Body == "missed save" })
+			eventually(t, func() bool { return c.documents(t)[0].Body == "missed save" })
 			// Error recovery must restore live watches, not just do one rescan.
 			replace(t, path, strings.Replace(c.doc.Raw, "old body", "after recovery", 1))
-			eventually(t, func() bool { return c.tasks(t)[0].Body == "after recovery" })
+			eventually(t, func() bool { return c.documents(t)[0].Body == "after recovery" })
 		})
 	}
 }
@@ -362,7 +351,7 @@ func TestRunPeriodicScanRecoversWithoutNotification(t *testing.T) {
 		t.Fatal(err)
 	}
 	replace(t, filepath.Join(c.cfg.Content, c.doc.Path), strings.Replace(c.doc.Raw, "old body", "periodic recovery", 1))
-	eventually(t, func() bool { return c.tasks(t)[0].Body == "periodic recovery" })
+	eventually(t, func() bool { return c.documents(t)[0].Body == "periodic recovery" })
 }
 
 // A failed watcher constructor must not suppress startup or periodic Sync.
@@ -388,7 +377,7 @@ func TestRunRecoversWatcherCreationFailure(t *testing.T) {
 	}
 	path := filepath.Join(c.cfg.Content, c.doc.Path)
 	replace(t, path, strings.Replace(c.doc.Raw, "old body", "saved without watcher", 1))
-	eventually(t, func() bool { return c.tasks(t)[0].Body == "saved without watcher" })
+	eventually(t, func() bool { return c.documents(t)[0].Body == "saved without watcher" })
 }
 
 func TestRunRetriesTransientReconcileErrorsAfterQuietPeriod(t *testing.T) {
@@ -439,39 +428,22 @@ func TestRunKeepsEditsMadeDuringReconciliation(t *testing.T) {
 	}
 	defer db.Exec("ROLLBACK")
 	path := filepath.Join(c.cfg.Content, c.doc.Path)
-	replace(t, path, strings.Replace(strings.Replace(c.doc.Raw, "state: planned", "state: stalled", 1), "old body", "intermediate body", 1))
-	var normalized string
-	eventually(t, func() bool {
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			return false
-		}
-		p, err := document.Parse(c.doc.Path, raw)
-		if err == nil && len(p.Document.History) == 2 && p.Document.History[1].State == model.Stalled {
-			normalized = string(raw)
-			return true
-		}
-		return false
-	})
-	replace(t, path, strings.Replace(strings.Replace(normalized, "state: stalled", "state: completed", 1), "intermediate body", "forced latest body", 1))
+	replace(t, path, strings.Replace(c.doc.Raw, "old body", "intermediate body", 1))
+	time.Sleep(150 * time.Millisecond)
+	replace(t, path, strings.Replace(c.doc.Raw, "old body", "forced latest body", 1))
 	if _, err := db.Exec("COMMIT"); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, func() bool {
-		got := c.tasks(t)
-		return len(got) == 1 && got[0].Body == "forced latest body" && got[0].State == model.Completed
+		got := c.documents(t)
+		return len(got) == 1 && got[0].Body == "forced latest body"
 	})
-	time.Sleep(150 * time.Millisecond)
-	got := c.tasks(t)[0]
-	if len(got.History) != 3 || got.History[1].State != model.Stalled || got.History[2].State != model.Completed {
-		t.Fatalf("duplicated or stale history: %+v", got.History)
-	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	p, err := document.Parse(c.doc.Path, raw)
-	if err != nil || p.Document.Body != "forced latest body" || len(p.Document.History) != 3 {
+	if err != nil || p.Document.Body != "forced latest body" {
 		t.Fatalf("forced edit lost: %+v %v", p.Document, err)
 	}
 }
@@ -487,7 +459,7 @@ func TestRunDoesNotWatchSymlinkDirectories(t *testing.T) {
 	if err := next(t, scans); err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(outside, "outside.task.md"), "outside")
+	write(t, filepath.Join(outside, "outside.md"), "outside")
 	time.Sleep(150 * time.Millisecond)
 	if calls.Load() != 1 {
 		t.Fatalf("followed an unmanaged symlink: %d scans", calls.Load())

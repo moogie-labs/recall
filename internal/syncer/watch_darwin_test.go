@@ -24,7 +24,7 @@ func testOutsideActivity(t *testing.T, existingLink bool) {
 	for _, kind := range []string{"directory", "file"} {
 		t.Run(kind, func(t *testing.T) {
 			root, outside := t.TempDir(), t.TempDir()
-			outsideFile := filepath.Join(outside, "outside.task.md")
+			outsideFile := filepath.Join(outside, "outside.md")
 			write(t, outsideFile, "outside body")
 			target := outside
 			if kind == "file" {
@@ -54,7 +54,7 @@ func testOutsideActivity(t *testing.T, existingLink bool) {
 			// The lexically later entry ensures fsnotify has processed "link"
 			// when its CREATE is delivered. A polling fallback may coalesce this
 			// into a root-directory hint instead; either is a responsive save.
-			inside := filepath.Join(root, "zzz.note.md")
+			inside := filepath.Join(root, "zzz.md")
 			write(t, inside, "inside body")
 			timeout := time.NewTimer(2 * time.Second)
 			defer timeout.Stop()
@@ -88,7 +88,7 @@ func testOutsideActivity(t *testing.T, existingLink bool) {
 				}
 			}
 			if kind == "directory" {
-				write(t, filepath.Join(outside, "new.note.md"), "new outside body")
+				write(t, filepath.Join(outside, "new.md"), "new outside body")
 			} else {
 				write(t, outsideFile, "outside body changed")
 			}
@@ -111,7 +111,7 @@ func BenchmarkDarwinMetadataSnapshot1000Files(b *testing.B) {
 			b.Fatal(err)
 		}
 		for file := range 100 {
-			if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("file-%d.note.md", file)), []byte("body"), 0600); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("file-%d.md", file)), []byte("body"), 0600); err != nil {
 				b.Fatal(err)
 			}
 		}

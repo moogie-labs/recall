@@ -18,10 +18,12 @@ one at its old location.
 Layout: `config.json`, `content/`, `index.sqlite`, `models/`, `runtime/`, `run/`.
 Only `content/` holds user folders and documents.
 
-Managed filenames are case-sensitive `<name>.note.md` or `<name>.task.md`.
-Plain Markdown is untouched and reported as unmanaged, not silently adopted.
-Compliant external files get metadata at reconciliation. Conflicting types,
-malformed metadata, duplicate IDs and symlinked content produce diagnostics;
+Any file under `content/` ending in lowercase `.md` is a note, and its name is
+the filename without `.md`. Paths with a hidden (dot-prefixed) component are not
+notes. Hidden paths and all other files are untouched and reported as unmanaged
+diagnostics, not silently adopted. A Markdown file without an ID gets one
+inserted as frontmatter at reconciliation; its body is unchanged. Malformed
+metadata, duplicate IDs and symlinked content produce diagnostics;
 Recall does not silently overwrite them. IDs are stable, not paths.
 
 ```sh
@@ -29,12 +31,11 @@ recall init
 recall status --json
 recall folder create inbox
 recall folder list
-recall document create --type note --folder inbox --name idea --body-file idea.txt
-recall document create --type task --name investigate </dev/null
+recall document create --folder inbox --name idea --body-file idea.txt
 recall document list --folder inbox --recursive=false --json
-recall document get --path inbox/idea.note.md --json
-recall document edit --path inbox/idea.note.md
-recall document move --id ID --to inbox/renamed.note.md
+recall document get --path inbox/idea.md --json
+recall document edit --path inbox/idea.md
+recall document move --id ID --to inbox/renamed.md
 recall folder move inbox archive
 ```
 
@@ -52,24 +53,15 @@ recall document delete --id ID --if-revision REV --json
 recall folder delete archive --recursive
 ```
 
-Move, delete and task state accept optional `--if-revision`; use it for agent
-writes. A stale revision is `conflict`. Deletion is immediate and permanent,
-including source-backed history. There is no deleted state, trash or undo.
+Move and delete accept optional `--if-revision`; use it for agent writes. A
+stale revision is `conflict`. Deletion is immediate and permanent. There is no
+trash or undo.
 Folder deletion is nonrecursive unless explicitly requested; content root
 cannot be deleted. Absolute/traversal/symlinked content paths are rejected.
 
-## Tasks and search
-
-Tasks have `planned`, `in_progress`, `stalled`, `completed` states, plus
-source-backed `created`, `state_changed` and `history` metadata. Same-state
-updates do not add duplicate events. External edits preserve the latest
-content; intermediate state transitions can be missed (best-effort history).
+## Search
 
 ```sh
-recall task state --id ID --state in_progress --if-revision REV
-recall task history --id ID --json
-recall task list --state completed --sort state_changed --desc --limit 50 --offset 0
-recall task list --date-field transition --event-state completed --from 2026-10-01 --through 2026-10-31
 recall search 'forgot my password' --mode hybrid --limit 20 --json
 recall search credentials --mode keyword --folder archive --recursive=false
 recall sync
@@ -83,17 +75,11 @@ inference. Missing/unavailable embeddings are explicit errors, not silently
 downgraded results. One-shot writes need not wait for indexing. `sync --wait`
 finishes pending semantic work; `--rebuild` clears derived state only.
 
-Task/search filters include folder, recursion, states, date field, event state,
-from and through. Search also supports kind filtering (`--type`). Empty folder
-means global; `.` explicitly selects content root. CLI folder filters recurse
-by default; use `--recursive=false` for direct children. Human date inputs are
-local calendar `YYYY-MM-DD`: from includes that day, through includes the entire
-day in the collection timezone (DST-aware). Task sorts: title, created,
-state_changed, with stable ID ties. Task/document lists default 50, maximum
+Search filters are folder and recursion. Empty folder means global; `.`
+explicitly selects content root. CLI folder filters recurse by default; use
+`--recursive=false` for direct children. Document lists default 50, maximum
 200; search defaults 20, maximum 100 (semantic candidate pool is 50 passages).
 Lists paginate via nonnegative offset and `next_offset`.
-Current-state and date filters are task-only, including mixed-document search.
-A note's valid authored `state` metadata is preserved but does not make it a task.
 
 ## Version and upgrades
 
@@ -123,7 +109,7 @@ Other errors are `update_unavailable` (network or release problems) and
 
 ## Preview boundaries
 
-Document/task summaries and all keyword/semantic/hybrid hits expose a display
+Document summaries and all keyword/semantic/hybrid hits expose a display
 `title` of at most **256 UTF-8 bytes**, including `…` when clipped, and an explicit
 `title_truncated` boolean. Full titles remain in source and explicit get results;
 sorting, inference inputs and source revisions do not use the clipped title.
@@ -147,7 +133,7 @@ JSON does not perform this display sanitization: decoding recovers the original
 strings within the preview contract. **Full raw source output is not sanitized**:
 `document get` and other document-returning commands still emit exact raw Markdown
 in non-JSON mode. Redirect untrusted raw source to a file, or use `--json`, rather
-than displaying it directly in a terminal. Full get/raw/history are not subject
+than displaying it directly in a terminal. Full get/raw are not subject
 to discovery budgets.
 
 ## JSON and exit status

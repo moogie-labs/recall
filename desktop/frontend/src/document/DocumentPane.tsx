@@ -8,6 +8,7 @@ import { markdown } from "@codemirror/lang-markdown";
 import { Workspace } from "../navigation/workspace";
 import { SaveCoordinator } from "../saving/coordinator";
 import { MarkdownPreview } from "./MarkdownPreview";
+import { CopyButton } from "./CopyButton";
 export function DocumentPane({
   workspace,
   coordinator,
@@ -27,7 +28,8 @@ export function DocumentPane({
   );
   const element = useRef<HTMLDivElement>(null),
     editor = useRef<EditorView | null>(null),
-    editable = useRef(new Compartment());
+    editable = useRef(new Compartment()),
+    preview = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!state.document || !element.current) return;
     const view = new EditorView({
@@ -74,6 +76,30 @@ export function DocumentPane({
       ]),
     });
   }, [state.busy]);
+  const previewing = !!state.document && state.mode === "preview" && !hidden;
+  useEffect(() => {
+    if (!previewing) return;
+    function selectPreview(event: KeyboardEvent) {
+      if (
+        event.key.toLowerCase() !== "a" ||
+        !event.metaKey ||
+        event.shiftKey ||
+        event.ctrlKey ||
+        event.altKey ||
+        (event.target instanceof Element &&
+          event.target.closest(
+            'input, textarea, [contenteditable]:not([contenteditable="false"])',
+          )) ||
+        document.querySelector("dialog[open]") ||
+        !preview.current
+      )
+        return;
+      event.preventDefault();
+      window.getSelection()?.selectAllChildren(preview.current);
+    }
+    document.addEventListener("keydown", selectPreview);
+    return () => document.removeEventListener("keydown", selectPreview);
+  }, [previewing]);
   const failed = save.status === "error" || save.status === "conflict";
   return (
     <section className="document-pane" hidden={hidden} aria-label="Document">
@@ -92,23 +118,24 @@ export function DocumentPane({
             ))}
           </div>
         )}
+        {state.document && (
+          <CopyButton
+            key={state.document.id}
+            text={save.body}
+            copy={copyDraft}
+          />
+        )}
       </div>
       <div className="document-scroll">
         {!state.document && (
           <div className="empty">
             <h1>Your Recall collection</h1>
-            <p>Select a note or task, or use + to create one.</p>
+            <p>Select a note, or use + to create one.</p>
           </div>
         )}
         {state.document && (
           <>
-            <div className="document-meta">
-              {state.document.kind}
-              {state.document.state
-                ? " · " + state.document.state.replaceAll("_", " ")
-                : ""}
-            </div>
-            <div hidden={state.mode !== "preview"}>
+            <div ref={preview} hidden={state.mode !== "preview"}>
               <MarkdownPreview body={save.body} />
             </div>
             <div

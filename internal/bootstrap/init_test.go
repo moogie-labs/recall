@@ -150,7 +150,7 @@ func TestInitializeLeavesMetadataUnlockedDuringDownload(t *testing.T) {
 		t.Fatalf("metadata blocked by download: %v", err)
 	}
 	defer a.Close()
-	if _, err := a.Create(ctx, app.CreateInput{Kind: model.Note, Name: "while-downloading", Body: "user source"}); err != nil {
+	if _, err := a.Create(ctx, app.CreateInput{Name: "while-downloading", Body: "user source"}); err != nil {
 		t.Fatalf("metadata write blocked by download: %v", err)
 	}
 	configPath := filepath.Join(cfg.Root, "config.json")
@@ -290,7 +290,7 @@ func TestInitializePersistsPinnedIdentitiesBeforeAssetFailure(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	note, err := a.Create(t.Context(), app.CreateInput{Kind: model.Note, Name: "metadata-only", Body: "asset failure does not block writing"})
+	note, err := a.Create(t.Context(), app.CreateInput{Name: "metadata-only", Body: "asset failure does not block writing"})
 	if err != nil || note.Body != "asset failure does not block writing" {
 		t.Fatalf("source operation after asset failure: %+v %v", note, err)
 	}
@@ -321,7 +321,7 @@ func TestInitializeRetryPreservesSourcesAndUnknownConfiguration(t *testing.T) {
 	if err == nil || !ready.MetadataReady || ready.RuntimeReady || ready.ModelReady {
 		t.Fatalf("first attempt: %+v %v", ready, err)
 	}
-	document := filepath.Join(cfg.Content, "keep.note.md")
+	document := filepath.Join(cfg.Content, "keep.md")
 	writeFile(t, document, []byte("---\ntype: note\ncustom: untouched\n---\nuser bytes\r\n"))
 	writeFile(t, cfg.Database, []byte("existing derived bytes must not be truncated"))
 	configPath := filepath.Join(cfg.Root, "config.json")

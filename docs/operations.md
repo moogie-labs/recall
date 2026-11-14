@@ -15,7 +15,7 @@ metadata/body bytes are preserved; malformed files are diagnosed, not repaired
 by force.
 
 Discovery output is not source validation: long titles remain authoritative in
-files, fingerprints, inference inputs and explicit get/raw/history. Summary/hit
+files, fingerprints, inference inputs and explicit get/raw. Summary/hit
 titles use a 256-byte UTF-8 display preview with `title_truncated`; exact IDs,
 paths and revisions are never clipped. Compact JSON discovery data is capped at
 32 KiB (including auxiliary arrays), individual rows at 4 KiB. Oversized pages
@@ -26,16 +26,13 @@ are omitted via a fixed bounded error, not substituted preview references.
 See `cli.md` for budget layers and terminal-display boundaries. Human previews
 escape authored terminal controls; full raw document output deliberately does
 not. Use redirection or JSON when inspecting untrusted raw source.
-Current-state filters apply only to tasks, without deleting note metadata.
 
 Direct editor changes reconcile at startup, explicit sync, and in long-lived
 interfaces after a 250 ms quiet period, periodic 30 s scan, or watcher recovery.
 Darwin uses 100 ms metadata polling, linear in entries; it is not a constant-cost
-watcher. Atomic replacement saves are supported. Best-effort state history
-cannot reconstruct every intermediate external edit. Existing history is in
-the task source, not a database-only audit log.
+watcher. Atomic replacement saves are supported.
 
-Deletion removes managed source and derived rows/history/chunks/vectors/jobs;
+Deletion removes managed source and derived rows/chunks/vectors/jobs;
 there is no application trash/soft-delete record. This is **not secure erasure**
 of SSD blocks, SQLite free pages, WAL snapshots, OS snapshots, backups, copied
 files, editor swap/backup files, or external agent transcripts.
@@ -81,6 +78,179 @@ source locks during editing and reconciles afterward, including saved changes
 on editor error. Neovim dirty-buffer external-change choices belong to Neovim;
 review its warning before reloading or overwriting. Recall cannot protect
 unsaved editor buffers against every external writer.
+
+## Migrating a collection from `.note.md` to plain `.md`
+
+Do this once on each computer, on the release that removes `.note.md`. Use one
+Terminal window throughout, because later steps reuse its variables. Nothing
+here needs `sudo` except the installer.
+
+Why this order: the new build treats every `*.md` file under `content/` as a
+note, and its first sync happens on any `recall` command or app launch. An
+unrenamed `x.note.md` is safe (it simply appears as a note named `x.note`, and
+can still be renamed later without re-embedding). What cannot be undone by a
+later rename is that sync writing an `id:` block into stray plain `.md` files
+and turning `*.task.md` files into notes, so review those **before the new build
+runs**.
+
+### 1. Stop everything that touches the collection
+
+Quit the Recall app, exit every MCP client that runs `recall mcp` (Claude Code,
+OpenCode and similar), and close any editor with a note open. Then check:
+
+```sh
+pgrep -lx 'recall|Recall|llama-server'
+```
+
+It should print nothing. The embedding worker exits by itself within about two
+minutes of its last use, so wait and re-check if only `recall` or `llama-server`
+remains.
+
+### 2. Find the collection
+
+Do not use `recall status` for this if the new build is already installed,
+because it syncs. These commands only read settings:
+
+```sh
+echo "RECALL_HOME: ${RECALL_HOME:-not set}"
+plutil -extract root raw -o - "$HOME/Library/Application Support/recall/desktop.json" 2>/dev/null; echo
+```
+
+The second line prints the collection the desktop app remembers, if any. The CLI
+uses `RECALL_HOME` when set, otherwise `~/Documents/recall`. An older collection
+may be at `~/.local/share/recall`. If two different paths appear, migrate each
+one. Set the path, editing the first line if yours differs:
+
+```sh
+COLLECTION="$HOME/Documents/recall"
+CONTENT="$COLLECTION/content"
+ls -d "$CONTENT"
+```
+
+Only `content/` is touched below. `runtime/`, `models/`, `run/` and the index sit
+beside it and are never scanned for notes.
+
+### 3. Back up the notes
+
+```sh
+BACKUP="$HOME/recall-content-backup-$(date +%Y%m%d-%H%M%S)"
+ditto "$CONTENT" "$BACKUP"
+echo "$BACKUP"
+```
+
+### 4. Pre-flight (read-only)
+
+```sh
+echo "== Notes to rename:"
+find "$CONTENT" -mindepth 1 -name '.*' -prune -o -type f -name '*.note.md' -print | wc -l
+echo "== Collisions (x.note.md and x.md both exist):"
+find "$CONTENT" -mindepth 1 -name '.*' -prune -o -type f -name '*.note.md' -print0 |
+  while IFS= read -r -d '' file; do
+    target="${file%.note.md}.md"
+    if [ -e "$target" ] || [ -L "$target" ]; then printf '%s\n' "$file"; fi
+  done
+echo "== Plain .md files that will be adopted:"
+find "$CONTENT" -mindepth 1 -name '.*' -prune -o -type f -name '*.md' ! -name '*.note.md' ! -name '*.task.md' -print
+echo "== Task files that will become notes named x.task:"
+find "$CONTENT" -mindepth 1 -name '.*' -prune -o -type f -name '*.task.md' -print
+echo "== Notes in hidden paths, which stop being notes:"
+(cd "$CONTENT" && find . -type f -name '*.note.md' -path '*/.*' -print)
+```
+
+Deal with whatever it lists, then run it again until you are satisfied:
+
+| Listed under | What happens if you do nothing | Your options |
+| --- | --- | --- |
+| Collisions | The rename skips that file. It stays a separate note named `x.note`, so nothing is lost. | Compare with `diff`, merge by hand and delete one; or give one a different name first, keeping `.note.md` on the note you want renamed. |
+| Plain `.md` files | Recall inserts an `id:` frontmatter block at first sync. The body is unchanged. A file with malformed frontmatter is left alone and listed as a diagnostic. | Keep them as notes; move them out of `content/`; or rename them to another extension such as `.txt`, which Recall leaves alone and reports as a diagnostic. |
+| Task files | Each becomes a note named `x.task` with its text and old `state` keys intact. There is no task behaviour any more. | Keep them; drop the `.task` from the name with `mv -n -- 'x.task.md' 'x.md'`; move them out of `content/`; or delete them. |
+| Hidden paths | They are left alone and listed as diagnostics. | Move them out of the hidden path if you want them as notes. |
+
+### 5. Rename
+
+This skips hidden paths, handles spaces, and refuses to overwrite. It is safe to
+run twice.
+
+```sh
+find "$CONTENT" -mindepth 1 -name '.*' -prune -o -type f -name '*.md' -exec shasum -a 256 {} + | cut -d ' ' -f 1 | sort > "$BACKUP.sha256"
+find "$CONTENT" -mindepth 1 -name '.*' -prune -o -type f -name '*.note.md' -print0 |
+  while IFS= read -r -d '' file; do
+    target="${file%.note.md}.md"
+    if [ -e "$target" ] || [ -L "$target" ]; then
+      printf 'SKIPPED, target exists: %s\n' "$file"
+    else
+      mv -n -- "$file" "$target"
+    fi
+  done
+```
+
+### 6. Install the new release and initialize
+
+Install it as in the [README](../README.md):
+
+```sh
+shasum -a 256 -c Recall-VERSION-darwin-arm64.pkg.sha256
+open Recall-VERSION-darwin-arm64.pkg
+```
+
+When Installer finishes, run this without `sudo`:
+
+```sh
+recall init
+```
+
+If your collection is not at the default path, add `--root "$COLLECTION"` to
+every `recall` command in this and the next step.
+
+This is the first time the new build opens the collection. It upgrades
+`index.sqlite` in place from schema 2 to 3, keeping existing embeddings; drops
+any index rows for tasks that no longer exist; records the new paths; and tests
+inference. Renames alone do not cause re-embedding, because a note's embeddings
+follow its `id`, title and body rather than its path.
+
+### 7. Verify
+
+```sh
+find "$CONTENT" -mindepth 1 -name '.*' -prune -o -type f -name '*.md' -print | wc -l
+recall status --json | grep -o '"documents":[0-9]*'
+recall status --json | grep -o '"diagnostics":.*'
+find "$CONTENT" -mindepth 1 -name '.*' -prune -o -type f -name '*.note.md' -print
+find "$CONTENT" -mindepth 1 -name '.*' -prune -o -type f -name '*.md' -exec shasum -a 256 {} + | cut -d ' ' -f 1 | sort | diff - "$BACKUP.sha256" && echo "Note bytes unchanged"
+recall sync --wait --json
+recall search 'a phrase from one of your notes' --mode keyword
+recall search 'the same idea in different words' --mode hybrid
+```
+
+Success looks like this:
+
+- The two counts on the first two lines match. A difference means a file is
+  invalid, or has a duplicate ID.
+- `diagnostics` is `[]`, or lists only files you expected, such as `.DS_Store`.
+- The `*.note.md` listing is empty, or shows only collisions you chose to keep.
+- `Note bytes unchanged` is printed. If you kept stray plain `.md` files, the
+  hash comparison shows a changed hash for each, because each gained an `id:`;
+  every other file must match.
+- Both searches return your notes.
+
+### 8. Restart MCP clients
+
+Start your MCP clients again so they launch the new `recall mcp` and pick up the
+reduced tool list. An MCP server or app from an older build still running against
+the upgraded index fails with `index_unavailable`, and an older build refuses a
+schema 3 index with "unsupported index schema version". Do not point an old build
+at a migrated collection.
+
+To roll back, quit everything again, reinstall the old release, then:
+
+```sh
+ditto "$BACKUP" "$COLLECTION/content.restored"
+mv "$COLLECTION/content" "$COLLECTION/content.migrated"
+mv "$COLLECTION/content.restored" "$COLLECTION/content"
+rm -f "$COLLECTION"/index.sqlite "$COLLECTION"/index.sqlite-wal "$COLLECTION"/index.sqlite-shm
+recall sync --rebuild --wait
+```
+
+The rollback rebuilds the index, so that old build re-embeds every note.
 
 ## Developer packaging
 

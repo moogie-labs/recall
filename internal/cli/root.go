@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"text/tabwriter"
-	"time"
 
 	"github.com/spf13/cobra"
 	"recall/internal/app"
@@ -125,7 +124,7 @@ type invocation struct {
 
 func (i *invocation) rootCommand() *cobra.Command {
 	var showVersion bool
-	c := i.command("recall", "Local notes, tasks, and offline search", noArgs, func(c *cobra.Command, _ []string) (any, error) {
+	c := i.command("recall", "Local notes and offline search", noArgs, func(c *cobra.Command, _ []string) (any, error) {
 		if showVersion {
 			return i.versionResult(), nil
 		}
@@ -151,7 +150,7 @@ func (i *invocation) rootCommand() *cobra.Command {
 		cmd.SetOut(i.stdout)
 		i.data = help.String()
 	})
-	c.AddCommand(i.initCommand(), i.syncCommand(), i.statusCommand(), i.documentCommand(), i.folderCommand(), i.taskCommand(), i.searchCommand(), i.versionCommand(), i.upgradeCommand())
+	c.AddCommand(i.initCommand(), i.syncCommand(), i.statusCommand(), i.documentCommand(), i.folderCommand(), i.searchCommand(), i.versionCommand(), i.upgradeCommand())
 	c.AddCommand(i.command("mcp", "Serve Recall tools over local stdio MCP", noArgs, func(*cobra.Command, []string) (any, error) {
 		return nil, i.adapter("MCP", i.runner.MCP)
 	}))
@@ -258,7 +257,7 @@ func (i *invocation) failure(err error) int {
 		}
 	}
 	switch problem.Code {
-	case "invalid_argument", "invalid_document", "type_mismatch", "outside_root":
+	case "invalid_argument", "invalid_document", "outside_root":
 		return 2
 	case "not_initialized", "not_found":
 		return 3
@@ -280,8 +279,6 @@ func (i *invocation) success() error {
 	case model.Document:
 		_, err := io.WriteString(i.stdout, data.Raw)
 		return err
-	case model.Page[model.DocumentSummary]:
-		return writeDocuments(i.stdout, data.Items)
 	case documentList:
 		for _, d := range data.Diagnostics {
 			fmt.Fprintf(i.stderr, "%s: %s: %s\n", terminalText(d.Path, false), terminalText(d.Code, false), terminalText(d.Message, false))
@@ -290,17 +287,6 @@ func (i *invocation) success() error {
 	case []string:
 		for _, value := range data {
 			if _, err := fmt.Fprintln(i.stdout, terminalText(value, false)); err != nil {
-				return err
-			}
-		}
-		return nil
-	case []model.Event:
-		loc := time.Local
-		if i.cfg != nil {
-			loc, _ = time.LoadLocation(i.cfg.Timezone)
-		}
-		for _, e := range data {
-			if _, err := fmt.Fprintf(i.stdout, "%s\t%s\n", e.At.In(loc).Format(time.RFC3339), e.State); err != nil {
 				return err
 			}
 		}
@@ -329,9 +315,9 @@ func (i *invocation) success() error {
 
 func writeDocuments(out io.Writer, documents []model.DocumentSummary) error {
 	w := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
-	fmt.Fprintln(w, "ID\tPATH\tSTATE\tTITLE")
+	fmt.Fprintln(w, "ID\tPATH\tTITLE")
 	for _, d := range documents {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n", terminalText(d.ID, false), terminalText(d.Path, false), terminalText(string(d.State), false), terminalText(d.Title, false))
+		fmt.Fprintf(w, "%s\t%s\t%s\n", terminalText(d.ID, false), terminalText(d.Path, false), terminalText(d.Title, false))
 	}
 	return w.Flush()
 }

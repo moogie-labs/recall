@@ -344,7 +344,7 @@ func TestRuntimeReleaseVariantsInstallAlongsideExistingCollection(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	note := filepath.Join(cfg.Content, "keep.note.md")
+	note := filepath.Join(cfg.Content, "keep.md")
 	writeFile(t, note, []byte("user source unchanged"))
 	for _, body := range []string{"upstream", "first signature", "second signature"} {
 		raw, manifest := runtimeArchive(t, tarEntry{name: "llama-b11669/llama-server", body: body})

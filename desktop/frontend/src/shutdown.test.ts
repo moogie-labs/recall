@@ -6,13 +6,11 @@ import { fakeBridge } from "./api/fakeBridge";
 import type { HostAPI, SaveBodyReply } from "./api/types";
 const doc = {
   id: "a",
-  path: "a.note.md",
+  path: "a.md",
   name: "a",
   title: "A",
   body: "old",
   revision: "r0",
-  kind: "note",
-  state: "",
 };
 it("shutdown waits for source acknowledgement and coalesces repeated requests", async () => {
   const api = fakeBridge([doc]);

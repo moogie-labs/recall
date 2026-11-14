@@ -24,12 +24,12 @@ func TestJSONPreviewWireBudgets(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := prepared(t)
 			for n := 0; n < tc.count; n++ {
-				raw := fmt.Sprintf("---\nid: %03d%s\ntype: task\ntitle: %s\n---\nneedle\n", n, strings.Repeat("x", tc.idBytes), tc.title)
-				if err := os.WriteFile(filepath.Join(cfg.Content, fmt.Sprintf("%03d.task.md", n)), []byte(raw), 0600); err != nil {
+				raw := fmt.Sprintf("---\nid: %03d%s\ntitle: %s\n---\nneedle\n", n, strings.Repeat("x", tc.idBytes), tc.title)
+				if err := os.WriteFile(filepath.Join(cfg.Content, fmt.Sprintf("%03d.md", n)), []byte(raw), 0600); err != nil {
 					t.Fatal(err)
 				}
 			}
-			for _, args := range [][]string{{"document", "list"}, {"task", "list"}, {"search", "needle", "--mode", "keyword"}} {
+			for _, args := range [][]string{{"document", "list"}, {"search", "needle", "--mode", "keyword"}} {
 				var out, logs bytes.Buffer
 				code := Run(t.Context(), append([]string{"--root", cfg.Root, "--json"}, args...), nil, &out, &logs)
 				got := decodeResult(t, &out)
@@ -57,7 +57,7 @@ func TestJSONPreviewWireBudgetsAuxiliaryArrays(t *testing.T) {
 		if err := os.Mkdir(filepath.Join(cfg.Content, folder), 0700); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(cfg.Content, folder, "bad.note.md"), []byte("---\ntitle: [\n---\n"), 0600); err != nil {
+		if err := os.WriteFile(filepath.Join(cfg.Content, folder, "bad.md"), []byte("---\ntitle: [\n---\n"), 0600); err != nil {
 			t.Fatal(err)
 		}
 	}

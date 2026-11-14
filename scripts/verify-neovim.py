@@ -91,7 +91,7 @@ def main():
         root.mkdir()
         for name in ["content", "models", "runtime", "run"]:
             (root / name).mkdir()
-        (root / "config.json").write_text(json.dumps({"timezone": "UTC"}))
+        (root / "config.json").write_text(json.dumps({}))
         # The editor is a per-user setting (beneath the isolated HOME), never a collection setting.
         settings = home / "Library/Application Support/recall/config.json"
         settings.parent.mkdir(parents=True)
@@ -105,8 +105,7 @@ def main():
             assert not p.stderr, p.stderr
             return json.loads(p.stdout)["data"]
 
-        note = cli("document", "create", "--type", "note", "--name", "A note space", body="original note\n")
-        task = cli("document", "create", "--type", "task", "--name", "B task", body="original task\n")
+        doc = cli("document", "create", "--name", "A note space", body="original note\n")
         sessions = []
 
         def session(args):
@@ -121,64 +120,58 @@ def main():
             return p.read_text().splitlines()
 
         try:
-            for doc in [note, task]:
-                s = session(["document", "edit", "--id", doc["id"]])
-                s.until(lambda: ("original " + doc["kind"]).encode() in s.output)
-                path = root / "content" / doc["path"]
-                assert proof(s, doc["kind"] + "-path")[0] == str(path)
-                inode = path.stat().st_ino
-                s.ex("set backupcopy=no writebackup nobackup")
-                if doc["kind"] == "task":
-                    s.ex("%s/^state: planned$/state: in_progress/")
-                marker = "atomic " + doc["kind"] + " save"
-                s.send(b"Go" + marker.encode() + b"\x1b")
-                s.ex("w")
-                s.until(lambda: marker in path.read_text())
-                assert inode != path.stat().st_ino, "Neovim save was not atomic replacement"
-                s.ex("q")
-                s.close()
-            got = cli("document", "get", "--id", task["id"])
-            assert got["state"] == "in_progress" and len(got["history"]) == 2, got
-            assert "atomic note save" in cli("document", "get", "--id", note["id"])["body"]
-            print("PASS explicit CLI edit -> installed Neovim: note/task actual paths, atomic inode replacement, saved content, source history, clean quit and terminal restoration")
+            s = session(["document", "edit", "--id", doc["id"]])
+            s.until(lambda: b"original note" in s.output)
+            path = root / "content" / doc["path"]
+            assert proof(s, "note-path")[0] == str(path)
+            inode = path.stat().st_ino
+            s.ex("set backupcopy=no writebackup nobackup")
+            marker = "atomic note save"
+            s.send(b"Go" + marker.encode() + b"\x1b")
+            s.ex("w")
+            s.until(lambda: marker in path.read_text())
+            assert inode != path.stat().st_ino, "Neovim save was not atomic replacement"
+            s.ex("q")
+            s.close()
+            assert "atomic note save" in cli("document", "get", "--id", doc["id"])["body"]
+            print("PASS explicit CLI edit -> installed Neovim: actual path, atomic inode replacement, saved content, clean quit and terminal restoration")
 
-            for doc in [note, task]:
-                s = session(["document", "edit", "--id", doc["id"]])
-                s.until(lambda: b"atomic " in s.output)
-                s.ex("set noautoread")
-                s.send(b"GoUNSAVED PRIVATE BUFFER\x1b")
-                path = root / "content" / doc["path"]
+            s = session(["document", "edit", "--id", doc["id"]])
+            s.until(lambda: b"atomic " in s.output)
+            s.ex("set noautoread")
+            s.send(b"GoUNSAVED PRIVATE BUFFER\x1b")
+            path = root / "content" / doc["path"]
 
-                def external(marker):
-                    temporary = path.with_suffix(".owned-temp")
-                    temporary.write_text(path.read_text() + marker + "\n")
-                    temporary.replace(path)
+            def external(marker):
+                temporary = path.with_suffix(".owned-temp")
+                temporary.write_text(path.read_text() + marker + "\n")
+                temporary.replace(path)
 
-                external("EXTERNAL ONE")
-                before = len(s.output)
-                s.ex("checktime")
-                s.until(lambda: b"W12" in s.output[before:] or b"has changed" in s.output[before:])
-                s.send(b"o")  # Native Neovim (O)K: keep dirty buffer, cancel reload.
-                data = proof(s, doc["kind"] + "-kept")
-                assert data[0] == str(path) and data[1] == "1", data
-                kept = home / (doc["kind"] + "-buffer")
-                s.ex("call writefile(getline(1,'$'), '" + str(kept) + "')")
-                s.until(kept.exists)
-                assert "UNSAVED PRIVATE BUFFER" in kept.read_text() and "EXTERNAL ONE" not in kept.read_text()
-                assert "EXTERNAL ONE" in path.read_text() and "UNSAVED PRIVATE BUFFER" not in path.read_text()
-                external("EXTERNAL TWO")
-                before = len(s.output)
-                s.ex("checktime")
-                s.until(lambda: b"W12" in s.output[before:] or b"has changed" in s.output[before:])
-                s.send(b"l")  # Native Neovim (L)oad File, discarding dirty buffer.
-                loaded = home / (doc["kind"] + "-loaded")
-                s.ex("call writefile(getline(1,'$'), '" + str(loaded) + "')")
-                s.until(loaded.exists)
-                assert "EXTERNAL TWO" in loaded.read_text() and "UNSAVED PRIVATE BUFFER" not in loaded.read_text(), loaded.read_text()
-                s.ex("q!")
-                s.close()
-                assert "EXTERNAL TWO" in cli("document", "get", "--id", doc["id"])["body"]
-                print("PASS CLI -> installed Neovim:", doc["kind"], "dirty external-change W12; native OK/cancel preserves dirty buffer+disk; native Load reloads; terminal restored")
+            external("EXTERNAL ONE")
+            before = len(s.output)
+            s.ex("checktime")
+            s.until(lambda: b"W12" in s.output[before:] or b"has changed" in s.output[before:])
+            s.send(b"o")  # Native Neovim (O)K: keep dirty buffer, cancel reload.
+            data = proof(s, "note-kept")
+            assert data[0] == str(path) and data[1] == "1", data
+            kept = home / "note-buffer"
+            s.ex("call writefile(getline(1,'$'), '" + str(kept) + "')")
+            s.until(kept.exists)
+            assert "UNSAVED PRIVATE BUFFER" in kept.read_text() and "EXTERNAL ONE" not in kept.read_text()
+            assert "EXTERNAL ONE" in path.read_text() and "UNSAVED PRIVATE BUFFER" not in path.read_text()
+            external("EXTERNAL TWO")
+            before = len(s.output)
+            s.ex("checktime")
+            s.until(lambda: b"W12" in s.output[before:] or b"has changed" in s.output[before:])
+            s.send(b"l")  # Native Neovim (L)oad File, discarding dirty buffer.
+            loaded = home / "note-loaded"
+            s.ex("call writefile(getline(1,'$'), '" + str(loaded) + "')")
+            s.until(loaded.exists)
+            assert "EXTERNAL TWO" in loaded.read_text() and "UNSAVED PRIVATE BUFFER" not in loaded.read_text(), loaded.read_text()
+            s.ex("q!")
+            s.close()
+            assert "EXTERNAL TWO" in cli("document", "get", "--id", doc["id"])["body"]
+            print("PASS CLI -> installed Neovim: dirty external-change W12; native OK/cancel preserves dirty buffer+disk; native Load reloads; terminal restored")
 
         finally:
             for s in sessions:

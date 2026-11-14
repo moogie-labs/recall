@@ -10,7 +10,7 @@ import (
 
 func entry(d model.Document) TreeEntry {
 	v := view(d)
-	return TreeEntry{ID: v.ID, Path: v.Path, Name: v.Name, Kind: v.Kind}
+	return TreeEntry{ID: v.ID, Path: v.Path, Name: v.Name, Kind: "note"}
 }
 func (s *Service) Tree(session string) TreeReply {
 	s.mu.RLock()
@@ -70,7 +70,10 @@ func (s *Service) Create(in CreateInput) CreateReply {
 		}
 		return CreateReply{Entry: &TreeEntry{ID: "folder:" + path, Path: path, Name: in.Name, Kind: "folder"}}
 	}
-	d, err := s.application.Create(s.ctx, app.CreateInput{Kind: model.Kind(in.Kind), Folder: in.Parent, Name: in.Name})
+	if in.Kind != "note" {
+		return CreateReply{Problem: invalid("Kind must be folder or note")}
+	}
+	d, err := s.application.Create(s.ctx, app.CreateInput{Folder: in.Parent, Name: in.Name})
 	if err != nil && d.ID == "" {
 		return CreateReply{Problem: problem(err)}
 	}
