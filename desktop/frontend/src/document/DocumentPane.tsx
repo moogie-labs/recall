@@ -29,7 +29,7 @@ export function DocumentPane({
 }) {
   const state = useSyncExternalStore(workspace.subscribe, workspace.snapshot);
   const [recoveryNotice, setRecoveryNotice] = useState("");
-  const [imageProblem, setImageProblem] = useState("");
+  const [imageProblems, setImageProblems] = useState<string[]>([]);
   const save = useSyncExternalStore(
     coordinator.subscribe,
     coordinator.snapshot,
@@ -38,6 +38,9 @@ export function DocumentPane({
     editor = useRef<EditorView | null>(null),
     editable = useRef(new Compartment()),
     preview = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    setImageProblems([]);
+  }, [state.document?.id, state.session]);
   useEffect(() => {
     if (!state.document || !element.current) return;
     const target = { session: state.session, id: state.document.id };
@@ -49,7 +52,7 @@ export function DocumentPane({
               if (r.problem) throw new Error(r.problem.message);
               return { name: r.name, link: r.link };
             },
-            report: setImageProblem,
+            report: (m) => setImageProblems((p) => [...p, m]),
           }),
         ]
       : [];
@@ -229,12 +232,14 @@ export function DocumentPane({
           </div>
         </div>
       )}
-      {imageProblem && (
+      {imageProblems.length > 0 && (
         <div className="image-error" role="alert">
-          {imageProblem}
+          {imageProblems.map((message, i) => (
+            <p key={i}>{message}</p>
+          ))}
           <button
-            aria-label="Dismiss image error"
-            onClick={() => setImageProblem("")}
+            aria-label="Dismiss image errors"
+            onClick={() => setImageProblems([])}
           >
             ×
           </button>

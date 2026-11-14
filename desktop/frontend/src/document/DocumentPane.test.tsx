@@ -352,11 +352,13 @@ it("leaves Command-A alone in edit mode, when hidden and with no document", asyn
   empty.dispose();
 });
 
-function pasteImage(container: HTMLElement, name: string) {
+function pasteImage(container: HTMLElement, ...names: string[]) {
   const event = new Event("paste", { bubbles: true, cancelable: true });
   Object.defineProperty(event, "clipboardData", {
     value: {
-      files: [new File([new Uint8Array([1])], name, { type: "image/png" })],
+      files: names.map(
+        (name) => new File([new Uint8Array([1])], name, { type: "image/png" }),
+      ),
       types: ["Files"],
       items: [],
     },
@@ -389,5 +391,37 @@ it("pastes an image into the note and reports failures", async () => {
     "Couldn't add again.png: Document not found",
   );
   second.unmount();
+  c.dispose();
+});
+it("keeps every image failure, clears on dismiss and when the document changes", async () => {
+  const api = fakeBridge([doc, { ...doc, id: "b", path: "b.md", name: "b" }]);
+  const c = new SaveCoordinator(api);
+  const w = new Workspace(api, c);
+  w.setCollection("test-session");
+  await w.openDocument("a");
+  const failing = vi.fn(async () => ({
+    name: "",
+    link: "",
+    problem: { code: "not_found", message: "Disk full", path: "" },
+  }));
+  const { container, unmount } = render(
+    <DocumentPane workspace={w} coordinator={c} saveImage={failing} />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  pasteImage(container, "one.png", "two.png");
+  const alert = await screen.findByRole("alert");
+  await vi.waitFor(() => {
+    expect(alert).toHaveTextContent("Couldn't add one.png: Disk full");
+    expect(alert).toHaveTextContent("Couldn't add two.png: Disk full");
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Dismiss image errors" }));
+  expect(screen.queryByRole("alert")).toBeNull();
+  pasteImage(container, "three.png");
+  await screen.findByRole("alert");
+  await act(async () => {
+    await w.openDocument("b");
+  });
+  expect(screen.queryByRole("alert")).toBeNull();
+  unmount();
   c.dispose();
 });
