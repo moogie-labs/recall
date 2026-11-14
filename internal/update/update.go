@@ -213,7 +213,7 @@ func parseRelease(raw apiRelease) (*Release, error) {
 
 // client adds the redirect policy to the configured (or default) client.
 func (u *Updater) client() *http.Client {
-	c := http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, TLSHandshakeTimeout: 15 * time.Second, ResponseHeaderTimeout: 30 * time.Second}}
+	c := http.Client{Transport: &http.Transport{Proxy: http.ProxyFromEnvironment, TLSHandshakeTimeout: 15 * time.Second, ResponseHeaderTimeout: 30 * time.Second, DisableKeepAlives: true}}
 	if u.Client != nil {
 		c = *u.Client
 	}

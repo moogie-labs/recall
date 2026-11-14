@@ -284,3 +284,14 @@ it("disables update controls in development builds", async () => {
     screen.getByText("Updates are only available in release installs."),
   ).toBeInTheDocument();
 });
+
+it("focuses Not now, not Upgrade, when the prompt opens", async () => {
+  const api = fakeBridge();
+  api.checkForUpdate = async () => available;
+  const { host } = eventHost();
+  render(<App api={api} host={host} />);
+  await screen.findByText("Recall 0.3.0 is available. You have 0.2.0.");
+  const notNow = screen.getByRole("button", { name: "Not now" });
+  await waitFor(() => expect(notNow).toHaveFocus());
+  expect(screen.getByRole("button", { name: "Upgrade" })).not.toHaveFocus();
+});

@@ -20,8 +20,10 @@ export function UpgradePrompt({
         </button>
       </p>
       <div className="dialog-buttons">
-        <button onClick={onDismiss}>Not now</button>
-        <button className="primary" autoFocus onClick={onUpgrade}>
+        <button autoFocus data-autofocus onClick={onDismiss}>
+          Not now
+        </button>
+        <button className="primary" onClick={onUpgrade}>
           Upgrade
         </button>
       </div>

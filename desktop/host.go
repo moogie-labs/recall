@@ -114,7 +114,9 @@ func (h *Host) CompleteQuit(token string) dto.OperationReply {
 		h.mu.Unlock()
 	}
 	if h.close != nil {
-		if err := h.close(); err != nil {
+		// Once Installer has opened, quit even if closing fails: the app is
+		// about to be replaced and the collection is already released.
+		if err := h.close(); err != nil && pending == "" {
 			h.mu.Lock()
 			h.completing = false
 			h.mu.Unlock()

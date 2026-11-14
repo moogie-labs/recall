@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { registerShutdown } from "./shutdown";
 import { Workspace } from "./navigation/workspace";
 import { SaveCoordinator } from "./saving/coordinator";
@@ -103,6 +103,47 @@ it("failed shutdown preserves the draft and permits retry after repair", async (
   listener({ token: "one" });
   await new Promise((r) => setTimeout(r, 0));
   expect(completed).toBe(1);
+  stop();
+  c.dispose();
+});
+it("handles a quit request that arrives while cancelQuit is in flight", async () => {
+  const api = fakeBridge([doc]);
+  const c = new SaveCoordinator(api),
+    w = new Workspace(api, c);
+  w.setCollection("test-session");
+  await w.openDocument("a");
+  let listener!: (payload: any) => void;
+  let releaseCancel!: () => void;
+  const cancels: string[] = [];
+  const completes: string[] = [];
+  let fail = true;
+  const host: HostAPI = {
+    ready: async () => {},
+    openExternal: async () => ({ problem: null }),
+    on: (_n, fn) => {
+      listener = fn;
+      return () => {};
+    },
+    completeQuit: async (token) => {
+      completes.push(token);
+      return fail
+        ? { problem: { code: "internal", message: "no", path: "" } }
+        : { problem: null };
+    },
+    cancelQuit: (token) => {
+      cancels.push(token);
+      return new Promise((r) => {
+        releaseCancel = () => r({ problem: null });
+      });
+    },
+  };
+  const stop = registerShutdown(host, w, c);
+  listener({ token: "one" });
+  await vi.waitFor(() => expect(cancels).toEqual(["one"]));
+  fail = false;
+  listener({ token: "two" });
+  await vi.waitFor(() => expect(completes).toEqual(["one", "two"]));
+  releaseCancel();
   stop();
   c.dispose();
 });

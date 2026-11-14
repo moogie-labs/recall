@@ -21,6 +21,7 @@ type fakeUpdater struct {
 	checkErr, fetchErr error
 	checks, fetches    int
 	block              chan struct{}
+	dir                string // when set, Fetch returns a package inside it
 }
 
 func (f *fakeUpdater) Check(context.Context) (update.Check, error) {
@@ -42,6 +43,13 @@ func (f *fakeUpdater) Fetch(_ context.Context, c update.Check, progress func(str
 	}
 	progress("downloading", 50, 100)
 	progress("verifying", 100, 100)
+	if f.dir != "" {
+		pkg := filepath.Join(f.dir, "upgrade-1", update.PackageName(c.Latest))
+		if err := os.MkdirAll(filepath.Dir(pkg), 0o700); err != nil {
+			return "", err
+		}
+		return pkg, os.WriteFile(pkg, []byte("pkg"), 0o600)
+	}
 	return "/cache/upgrade-1/" + update.PackageName(c.Latest), nil
 }
 
@@ -185,7 +193,6 @@ func TestStartUpgradeReportsProgressAndHandsOff(t *testing.T) {
 }
 
 func TestStartUpgradeFailures(t *testing.T) {
-	handoff := func(string) error { t.Fatal("handed off a failed upgrade"); return nil }
 	for name, tc := range map[string]struct {
 		current string
 		u       *fakeUpdater
@@ -197,15 +204,19 @@ func TestStartUpgradeFailures(t *testing.T) {
 		"verification": {"0.2.0", &fakeUpdater{check: availableCheck(), fetchErr: &model.Error{Code: "verification_failed", Message: "Gatekeeper rejected the downloaded installer"}}, "verification_failed"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			s, _ := updateService(t, tc.current, tc.u, handoff)
+			s, _ := updateService(t, tc.current, tc.u, func(string) error { t.Fatal("handed off a failed upgrade"); return nil })
 			if r := s.StartUpgrade(); r.Problem == nil || r.Problem.Code != tc.code {
 				t.Fatal(r.Problem)
 			}
 		})
 	}
-	s, _ := updateService(t, "0.2.0", &fakeUpdater{check: availableCheck()}, func(string) error { return errors.New("not ready") })
+	tmp := t.TempDir()
+	s, _ := updateService(t, "0.2.0", &fakeUpdater{check: availableCheck(), dir: tmp}, func(string) error { return errors.New("not ready") })
 	if r := s.StartUpgrade(); r.Problem == nil || r.Problem.Message != "Could not quit Recall to install the upgrade" {
 		t.Fatal(r.Problem)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "upgrade-1")); !os.IsNotExist(err) {
+		t.Fatal("download directory was not removed after the handoff failed:", err)
 	}
 }
 

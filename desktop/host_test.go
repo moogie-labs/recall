@@ -105,6 +105,25 @@ func TestInstallerFailureKeepsRecallRunning(t *testing.T) {
 	}
 }
 
+func TestCloseFailureAfterInstallerOpensStillQuits(t *testing.T) {
+	var token string
+	quits, installs := 0, 0
+	h := newHost(func(_ string, payload any) {
+		if r, ok := payload.(quitRequest); ok {
+			token = r.Token
+		}
+	}, func() { quits++ }, func(string) {})
+	h.close = func() error { return errors.New("close failed") }
+	h.install = func(string) error { installs++; return nil }
+	h.Ready()
+	if err := h.installOnQuit("/cache/a.pkg"); err != nil {
+		t.Fatal(err)
+	}
+	if r := h.CompleteQuit(token); r.Problem != nil || quits != 1 || installs != 1 {
+		t.Fatal(r.Problem, quits, installs)
+	}
+}
+
 func TestCancelledQuitAbandonsTheUpgrade(t *testing.T) {
 	var tokens, cancelled []string
 	quits, installs := 0, 0
