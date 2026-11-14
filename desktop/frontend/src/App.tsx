@@ -16,6 +16,10 @@ import { Tree, parentPath } from "./tree/Tree";
 import { CreateDialog } from "./tree/CreateDialog";
 import { DeleteDialog } from "./tree/DeleteDialog";
 import { SetupStatus } from "./setup/SetupStatus";
+import { useUpdates } from "./updates/useUpdates";
+import { UpgradePrompt } from "./updates/UpgradePrompt";
+import { VersionFooter } from "./updates/VersionFooter";
+import { SettingsDialog } from "./updates/SettingsDialog";
 export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
   const coordinator = useMemo(() => new SaveCoordinator(api), [api]),
     workspace = useMemo(
@@ -23,6 +27,8 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
       [api, coordinator],
     );
   const state = useSyncExternalStore(workspace.subscribe, workspace.snapshot);
+  const updates = useUpdates(api, host);
+  const [settings, setSettings] = useState(false);
   const [tree, setTree] = useState<TreeSnapshot | null>(null),
     [initializing, setInitializing] = useState(true),
     [sidebar, setSidebar] = useState(true),
@@ -263,6 +269,25 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
         >
           Collection…
         </button>
+        <button
+          className="icon"
+          aria-label="Settings"
+          disabled={!updates.info}
+          onClick={() => setSettings(true)}
+        >
+          <svg
+            width="17"
+            height="17"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            aria-hidden="true"
+          >
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+        </button>
       </header>
       <div className="app-body">
         <aside
@@ -363,6 +388,12 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
               }}
             />
             <p className="tree-note">Plain Markdown. Yours to keep.</p>
+            <VersionFooter
+              info={updates.info}
+              update={updates.update}
+              phase={updates.phase}
+              onUpgrade={updates.start}
+            />
           </div>
         </aside>
         <main>
@@ -395,6 +426,25 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
           entry={deleting.entry}
           onDelete={remove}
           onCancel={() => setDeleting(null)}
+        />
+      )}
+      {updates.prompting && updates.update && (
+        <UpgradePrompt
+          update={updates.update}
+          onUpgrade={updates.start}
+          onDismiss={updates.dismiss}
+          onReleaseNotes={() => {
+            void host.openExternal(updates.update!.releaseURL);
+          }}
+        />
+      )}
+      {settings && updates.info && (
+        <SettingsDialog
+          info={updates.info}
+          onClose={() => setSettings(false)}
+          onCheck={updates.checkNow}
+          onToggle={updates.setCheckOnLaunch}
+          onUpgrade={updates.start}
         />
       )}
     </div>

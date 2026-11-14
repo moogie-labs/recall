@@ -6,6 +6,8 @@ import (
 	"os"
 	"reflect"
 	"testing"
+
+	"recall/internal/version"
 )
 
 func TestWorkerDispatchBeforeGUI(t *testing.T) {
@@ -24,5 +26,19 @@ func TestWorkerDispatchBeforeGUI(t *testing.T) {
 	handled, _ = dispatch(nil, input, output, logs, func([]string, io.Reader, io.Writer, io.Writer) int { t.Fatal("normal launch entered worker"); return 0 })
 	if handled {
 		t.Fatal("normal launch handled as worker")
+	}
+}
+
+func TestVersionDispatchBeforeGUI(t *testing.T) {
+	previous := version.Version
+	version.Version = "1.2.3"
+	t.Cleanup(func() { version.Version = previous })
+	var out bytes.Buffer
+	handled, code := dispatch([]string{"_version"}, nil, &out, io.Discard, func([]string, io.Reader, io.Writer, io.Writer) int {
+		t.Fatal("version entered the worker")
+		return 0
+	})
+	if !handled || code != 0 || out.String() != "1.2.3\n" {
+		t.Fatalf("%v %d %q", handled, code, out.String())
 	}
 }

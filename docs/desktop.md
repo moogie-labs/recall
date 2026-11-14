@@ -64,6 +64,31 @@ Its private worker invocation never opens another GUI window; it can outlive the
 desktop app for the established 120-second idle period. Closing the main window
 quits the desktop app, rather than hiding it in the background.
 
+## Version, updates and settings
+
+The bottom of the sidebar shows the running version (`Recall dev` for source
+builds). The ⚙ **Settings** button in the title bar shows the version, a
+**Check for updates on launch** toggle (on by default, stored as
+`checkForUpdates` in `desktop.json` beside the remembered collection) and
+**Check now**.
+
+With the toggle on, each launch makes one anonymous request to the GitHub
+Releases API. If a newer stable release exists, a pop-up offers **Upgrade**,
+**Not now** and **Release notes**; it appears on every launch until you upgrade
+or turn the check off. After **Not now**, the sidebar footer shows
+**Upgrade available**. Launch-check failures (for example, offline) are silent;
+**Check now** reports them.
+
+Upgrading downloads the installer to `~/Library/Caches/recall/upgrade-*`,
+showing progress in the footer, and verifies its checksum, its notarized
+Developer ID Installer signature (same Apple team as the running app) and
+Gatekeeper's install assessment. The app then quits through the normal ⌘Q
+sequence, saving drafts; macOS Installer opens just before the collection closes.
+If a draft cannot be saved, the upgrade is cancelled and Installer does not open.
+Only `/Applications/Recall.app` installed by the release installer can upgrade
+itself. In development builds the launch check never runs, and Settings
+shows the version with the toggle and **Check now** disabled.
+
 ## Browsing, editing, and deletion
 
 - Folders start collapsed. Click a folder to select and expand/collapse it; tree

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"net/url"
 	dto "recall/internal/desktop"
 	"sync"
@@ -12,6 +13,15 @@ import (
 type quitRequest struct {
 	Token string `json:"token"`
 }
+type upgradeCancelled struct {
+	Problem dto.Problem `json:"problem"`
+}
+
+const (
+	installFailed    = "Could not open Installer for the upgrade"
+	upgradeAbandoned = "Upgrade cancelled: unsaved changes could not be saved."
+)
+
 type Host struct {
 	mu             sync.Mutex
 	ready, allowed bool
@@ -23,6 +33,9 @@ type Host struct {
 	choose         func() (string, error)
 	close          func() error
 	copy           func(string) error
+	install        func(string) error // opens a verified package in Installer
+	pending        string             // package to open when the quit completes
+	installProblem string
 }
 
 func newHost(emit func(string, any), quit func(), browse func(string)) *Host {
@@ -56,6 +69,20 @@ func (h *Host) BeforeClose(ctx context.Context) bool {
 	h.emit("desktop:quit-requested", quitRequest{token})
 	return true
 }
+
+// installOnQuit records a verified installer package and starts the normal
+// draft-protected quit; CompleteQuit opens the package just before exiting.
+func (h *Host) installOnQuit(pkg string) error {
+	h.mu.Lock()
+	if !h.ready || h.allowed || h.completing || h.install == nil {
+		h.mu.Unlock()
+		return errors.New("the app cannot quit to install the upgrade now")
+	}
+	h.pending = pkg
+	h.mu.Unlock()
+	h.BeforeClose(context.Background())
+	return nil
+}
 func (h *Host) CompleteQuit(token string) dto.OperationReply {
 	h.mu.Lock()
 	if h.allowed {
@@ -71,9 +98,25 @@ func (h *Host) CompleteQuit(token string) dto.OperationReply {
 		return dto.OperationReply{}
 	}
 	h.completing = true
+	pending := h.pending
 	h.mu.Unlock()
+	// Open Installer before closing anything, so a failure leaves Recall running.
+	if pending != "" {
+		if err := h.install(pending); err != nil {
+			h.mu.Lock()
+			h.completing = false
+			h.installProblem = installFailed
+			h.mu.Unlock()
+			return dto.OperationReply{Problem: &dto.Problem{Code: "runtime_unavailable", Message: installFailed}}
+		}
+		h.mu.Lock()
+		h.pending = ""
+		h.mu.Unlock()
+	}
 	if h.close != nil {
-		if err := h.close(); err != nil {
+		// Once Installer has opened, quit even if closing fails: the app is
+		// about to be replaced and the collection is already released.
+		if err := h.close(); err != nil && pending == "" {
 			h.mu.Lock()
 			h.completing = false
 			h.mu.Unlock()
@@ -88,9 +131,20 @@ func (h *Host) CompleteQuit(token string) dto.OperationReply {
 }
 func (h *Host) CancelQuit(token string) dto.OperationReply {
 	h.mu.Lock()
-	defer h.mu.Unlock()
+	cancelled := ""
 	if token == h.token && !h.allowed && !h.completing {
 		h.token = ""
+		if h.pending != "" {
+			cancelled = h.installProblem
+			if cancelled == "" {
+				cancelled = upgradeAbandoned
+			}
+			h.pending, h.installProblem = "", ""
+		}
+	}
+	h.mu.Unlock()
+	if cancelled != "" {
+		h.emit("desktop:upgrade-cancelled", upgradeCancelled{Problem: dto.Problem{Code: "conflict", Message: cancelled}})
 	}
 	return dto.OperationReply{}
 }

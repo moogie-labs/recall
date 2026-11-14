@@ -80,6 +80,17 @@ def version(tag):
     return tag[1:]
 
 
+def version_ldflags(release):
+    # Both binaries report this through recall/internal/version.
+    return "-X recall/internal/version.Version=" + release
+
+
+def require_embedded_version(cli, app, release):
+    dist.require(run([cli, "version"]) == f"recall {release}\n", "CLI does not report the release version")
+    dist.require(run([app / "Contents/MacOS/Recall", "_version"]) == release + "\n",
+                 "desktop app does not report the release version")
+
+
 def require_darwin():
     dist.require(platform.system() == "Darwin" and platform.machine() == "arm64", "release requires Darwin arm64")
 
@@ -521,10 +532,11 @@ def build_stage(tag, runtime_dir, archive):
         shutil.copy2(REPO / "assets/model.lock.json", assets / "model.lock.json")
         cli = staged / "recall"
         env = dict(os.environ, CGO_ENABLED="0", GOOS="darwin", GOARCH="arm64")
-        run(["go", "build", "-trimpath", "-o", cli, "./cmd/recall"], cwd=source, env=env)
+        ldflags = version_ldflags(release)
+        run(["go", "build", "-trimpath", "-ldflags", ldflags, "-o", cli, "./cmd/recall"], cwd=source, env=env)
         # Prevent an inherited developer output override from escaping staging.
         env = dict(os.environ, RECALL_DESKTOP_OUTPUT=str(staged / "Recall.app"))
-        run(["sh", "scripts/build-desktop.sh"], cwd=source, env=env)
+        run(["sh", "scripts/build-desktop.sh", "-ldflags", ldflags], cwd=source, env=env)
         set_bundle_version(staged / "Recall.app", release)
         # The desktop app installs its own runtime on first launch, so it
         # carries the same pinned assets as the CLI (sealed by its signature).
@@ -533,6 +545,7 @@ def build_stage(tag, runtime_dir, archive):
         shutil.copytree(assets, bundled)
         run([sys.executable, "scripts/verify-desktop.py", staged / "Recall.app"], cwd=source)
         run([cli, "--help"])
+        require_embedded_version(cli, staged / "Recall.app", release)
         notices = staged / "notices"
         dist.notices(notices)
         desktop_notices(source, notices)

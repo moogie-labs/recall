@@ -20,6 +20,8 @@ import (
 	"recall/internal/embedding"
 	"recall/internal/mcpserver"
 	"recall/internal/model"
+	"recall/internal/update"
+	"recall/internal/version"
 )
 
 // Adapter owns its streaming interface and application lifecycle. Runner allows
@@ -34,6 +36,7 @@ type Runner struct {
 	provider   func(config.Config) embedding.Provider
 	worker     func(context.Context, config.Config) error
 	executable func() (string, error)
+	updater    func() Upgrader
 }
 
 // Run never exits the process. Streaming adapters may close supplied streams
@@ -69,6 +72,9 @@ func (r Runner) Run(ctx context.Context, args []string, stdin io.Reader, stdout,
 	}
 	if r.executable == nil {
 		r.executable = os.Executable
+	}
+	if r.updater == nil {
+		r.updater = func() Upgrader { return update.ForCLI(version.Version) }
 	}
 	if stdin == nil {
 		stdin = strings.NewReader("")
@@ -117,7 +123,17 @@ type invocation struct {
 }
 
 func (i *invocation) rootCommand() *cobra.Command {
-	c := i.group("recall", "Local notes and offline search")
+	var showVersion bool
+	c := i.command("recall", "Local notes and offline search", noArgs, func(c *cobra.Command, _ []string) (any, error) {
+		if showVersion {
+			return i.versionResult(), nil
+		}
+		if err := c.Help(); err != nil {
+			return nil, err
+		}
+		return i.data, nil
+	})
+	c.Flags().BoolVar(&showVersion, "version", false, "Print the Recall version")
 	c.SilenceErrors, c.SilenceUsage = true, true
 	c.CompletionOptions.DisableDefaultCmd = true
 	c.SetIn(i.stdin)
@@ -134,7 +150,7 @@ func (i *invocation) rootCommand() *cobra.Command {
 		cmd.SetOut(i.stdout)
 		i.data = help.String()
 	})
-	c.AddCommand(i.initCommand(), i.syncCommand(), i.statusCommand(), i.documentCommand(), i.folderCommand(), i.searchCommand())
+	c.AddCommand(i.initCommand(), i.syncCommand(), i.statusCommand(), i.documentCommand(), i.folderCommand(), i.searchCommand(), i.versionCommand(), i.upgradeCommand())
 	c.AddCommand(i.command("mcp", "Serve Recall tools over local stdio MCP", noArgs, func(*cobra.Command, []string) (any, error) {
 		return nil, i.adapter("MCP", i.runner.MCP)
 	}))

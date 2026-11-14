@@ -81,6 +81,32 @@ explicitly selects content root. CLI folder filters recurse by default; use
 200; search defaults 20, maximum 100 (semantic candidate pool is 50 passages).
 Lists paginate via nonnegative offset and `next_offset`.
 
+## Version and upgrades
+
+```sh
+recall version            # or: recall --version
+recall upgrade --check    # report only; downloads nothing
+recall upgrade
+```
+
+`version` and `upgrade` never open a collection. `upgrade` asks the GitHub API
+for the latest **stable** release of `moogie-labs/recall` (prereleases are never
+offered). When it is newer, it downloads `Recall-<v>-darwin-arm64.pkg` and its
+`.sha256` into a private `~/Library/Caches/recall/upgrade-*` directory, then
+requires all of: a matching checksum, a notarized **Developer ID Installer**
+signature from the same Apple team as the running copy, and Gatekeeper's install
+assessment. It then opens the package in macOS Installer, which asks for
+administrator authorization; Recall never installs anything itself and has no
+confirmation prompt of its own. Progress goes to stderr; `--json` reports
+`current`, `latest`, `update_available`, `release_url`, and after an upgrade
+`package` and `opened_installer`.
+
+Only the copy installed by the release installer
+(`/usr/local/bin/recall` → `/usr/local/lib/recall/recall`) can upgrade itself.
+Development builds report version `dev` and fail with `upgrade_unsupported`.
+Other errors are `update_unavailable` (network or release problems) and
+`verification_failed`; all exit 1.
+
 ## Preview boundaries
 
 Document summaries and all keyword/semantic/hybrid hits expose a display

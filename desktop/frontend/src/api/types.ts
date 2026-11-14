@@ -49,6 +49,10 @@ export interface DesktopAPI {
   refresh(session: string): Promise<TreeReply>;
   setupStatus(session: string): Promise<SetupStatus>;
   retrySetup(session: string): Promise<OperationReply>;
+  appInfo(): Promise<AppInfo>;
+  setCheckForUpdates(enabled: boolean): Promise<OperationReply>;
+  checkForUpdate(manual: boolean): Promise<UpdateReply>;
+  startUpgrade(): Promise<OperationReply>;
 }
 export interface SetupStatus {
   session: string;
@@ -115,4 +119,22 @@ export interface HostAPI {
   chooseCollection?(): Promise<string>;
   openExternal(url: string): Promise<OperationReply>;
   on(name: string, callback: (payload: any) => void): () => void;
+}
+
+export interface AppInfo {
+  version: string;
+  development: boolean;
+  checkForUpdates: boolean;
+}
+export interface UpdateReply {
+  state: "current" | "available" | "unsupported" | "disabled" | "failed";
+  current: string;
+  latest: string;
+  releaseURL: string;
+  problem: Problem | null;
+}
+export interface UpgradeProgress {
+  stage: "downloading" | "verifying";
+  done: number;
+  total: number;
 }
