@@ -88,14 +88,19 @@ folder by hand is therefore not a note; this is documented.
 ### 4.4 Delete
 
 `App.Delete` keeps its revision check and removes the note, then recursively
-removes `<base>.assets/` if present (confined, no-follow). If the note is
-removed but attachment removal fails, it returns an error stating that the note
-was deleted and its images were not, with the folder path.
+removes `<base>.assets/` if it is a real directory (confined, no-follow; a
+regular file of that name is left alone). If the note is removed but attachment
+removal fails, including because the folder is a symlink, it returns a
+`partial_failure` error stating that the note was deleted and its images were
+not, with the folder path. The index is still resynchronised. The desktop treats
+`partial_failure` as a completed delete and shows the message.
 
-`DocumentView` gains `attachmentCount` (regular files directly inside the
-attachment folder; 0 if absent). The desktop delete confirmation adds "Also
-deletes N attached image(s)." when the count is non-zero. CLI and MCP `delete`
-have the same behaviour via the shared operation.
+A new `App.AttachmentCount(ref)` counts the files directly inside the note's
+attachment folder (0 if absent), exposed to the desktop as an `Attachments(session, id)`
+binding. (A field on `DocumentView` would not work: a note can be deleted from the
+tree without being opened.) The desktop delete confirmation adds "Also deletes N
+attached image(s)." when the count is non-zero. CLI and MCP `delete` have the
+same behaviour via the shared operation.
 
 ### 4.5 Move and rename
 
@@ -152,20 +157,24 @@ Other paths and methods fall through to 404.
 
 ### 5.3 Stray drops
 
-A window-level `dragover`/`drop` handler cancels file drops outside the
-editor, so WKWebView never navigates to a dropped file. This includes Preview
-mode.
+A window-level `dragover`/`drop` handler cancels file drops everywhere except
+over the editor's text (`.cm-content`), so WKWebView never navigates to a dropped
+file. This includes Preview mode and the editor's line-number gutter.
 
 ## 6. Editor drop and paste
 
 A focused CodeMirror extension (e.g. `src/document/imageInput.ts`) registered
 in `DocumentPane` via `EditorView.domEventHandlers`:
 
-- **drop:** if the transfer contains image files, prevent default and take the
-  insertion position from `posAtCoords`. Other drops keep default behaviour.
-- **paste:** if the clipboard contains an image file, prevent default and use
-  the cursor position. Text-only clipboards paste normally. When both text and
-  an image are present, text wins.
+- **drop:** if the transfer contains any files, prevent default and take the
+  insertion position from `posAtCoords`. Images are added and other files are
+  reported as unsupported, so CodeMirror never inserts a file's raw bytes as
+  text. Drops without files (dragged text) keep default behaviour.
+- **paste:** if the clipboard contains image files, prevent default and insert
+  them at the cursor; accompanying text (Finder puts the filename alongside a
+  copied image file) is ignored. Clipboards without image files paste normally,
+  which includes copied web page content, since it carries HTML and text rather
+  than files.
 - Only acts while the editor is editable (existing busy/read-only state).
 - For each image, in order: read `arrayBuffer()`, base64-encode, call
   `hostAPI.saveImage`, then insert `![<name>](<returned path>)` on its own line.
