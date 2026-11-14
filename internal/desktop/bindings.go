@@ -24,3 +24,8 @@ func (a *API) SetCheckForUpdates(enabled bool) OperationReply {
 }
 func (a *API) CheckForUpdate(manual bool) UpdateReply { return a.service.CheckForUpdate(manual) }
 func (a *API) StartUpgrade() OperationReply           { return a.service.StartUpgrade() }
+
+func (a *API) SaveImage(input SaveImageInput) SaveImageReply { return a.service.SaveImage(input) }
+func (a *API) Attachments(session, id string) AttachmentsReply {
+	return a.service.Attachments(session, id)
+}

@@ -8,11 +8,15 @@ import (
 	"sync/atomic"
 
 	"recall/internal/app"
+	"recall/internal/attachment"
 	"recall/internal/config"
 	"recall/internal/model"
 )
 
 type Application interface {
+	SaveAttachment(context.Context, model.Ref, string, []byte) (app.Attachment, error)
+	AttachmentCount(context.Context, model.Ref) (int, error)
+	ReadAttachment(context.Context, string) ([]byte, attachment.Format, error)
 	Read(context.Context, model.Ref) (model.Document, error)
 	ReadSource(context.Context, string) (model.Document, error)
 	Update(context.Context, model.Ref, string, string) (model.Document, error)
