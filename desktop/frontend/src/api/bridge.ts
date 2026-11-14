@@ -14,6 +14,7 @@ export const api: DesktopAPI = {
   delete: (input) => backend().Delete(input),
   saveImage: (input) => backend().SaveImage(input),
   attachments: (session, id) => backend().Attachments(session, id),
+  move: (input) => backend().Move(input),
   search: (input) => backend().Search(input),
   refresh: (session) => backend().Refresh(session),
   setupStatus: (session) => backend().SetupStatus(session),

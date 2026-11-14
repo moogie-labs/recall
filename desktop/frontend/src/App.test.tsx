@@ -258,3 +258,124 @@ it("treats a partial attachment failure as a completed delete and shows why", as
     "attached images could not be removed",
   );
 });
+function drag(source: Element, target: Element) {
+  const dataTransfer = {
+    setData: () => {},
+    getData: () => "",
+    effectAllowed: "",
+    dropEffect: "",
+    types: ["application/x-recall-entry"],
+  };
+  fireEvent.dragStart(source, { dataTransfer });
+  fireEvent.dragEnter(target, { dataTransfer });
+  fireEvent.dragOver(target, { dataTransfer });
+  fireEvent.drop(target, { dataTransfer });
+  fireEvent.dragEnd(source, { dataTransfer });
+}
+it("saves a pending draft before moving the open note, then keeps editing it at its new path", async () => {
+  const api = fakeBridge([doc], ["Work", "Archive"]);
+  const { container } = render(<App api={api} host={host} />);
+  fireEvent.click(await screen.findByRole("treeitem", { name: "Work" }));
+  fireEvent.click(screen.getByRole("treeitem", { name: "a" }));
+  await screen.findByRole("heading", { name: "A" });
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  const view = EditorView.findFromDOM(
+    container.querySelector(".cm-editor") as HTMLElement,
+  )!;
+  act(() =>
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: "# Draft" },
+    }),
+  );
+  drag(
+    screen.getByRole("treeitem", { name: "a" }),
+    screen.getByRole("treeitem", { name: "Archive" }),
+  );
+  await waitFor(() =>
+    expect(container.querySelector(".breadcrumb")).toHaveTextContent(
+      "Archive/a.md",
+    ),
+  );
+  const moved = (await api.openDocument("test-session", doc.id)).document!;
+  expect(moved.path).toBe("Archive/a.md");
+  expect(moved.body).toBe("# Draft");
+  expect(view.state.doc.toString()).toBe("# Draft");
+  const row = screen.getByRole("treeitem", { name: "a" });
+  expect(row).toHaveAttribute("data-path", "Archive/a.md");
+  expect(row).toHaveAttribute("aria-selected", "true");
+  expect(row).toBeVisible();
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+it("moves a folder to the root, keeping its expansion and the open note inside it", async () => {
+  const api = fakeBridge(
+    [{ ...doc, path: "Work/Sub/a.md" }],
+    ["Work", "Work/Sub"],
+  );
+  const { container } = render(<App api={api} host={host} />);
+  fireEvent.click(await screen.findByRole("treeitem", { name: "Work" }));
+  fireEvent.click(screen.getByRole("treeitem", { name: "Sub" }));
+  fireEvent.click(screen.getByRole("treeitem", { name: "a" }));
+  await screen.findByRole("heading", { name: "A" });
+  drag(
+    screen.getByRole("treeitem", { name: "Sub" }),
+    screen.getByRole("button", { name: "Select collection root" }),
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("treeitem", { name: "Sub" })).toHaveAttribute(
+      "data-path",
+      "Sub",
+    ),
+  );
+  expect(screen.getByRole("treeitem", { name: "Sub" })).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  await waitFor(() =>
+    expect(container.querySelector(".breadcrumb")).toHaveTextContent(
+      "Sub/a.md",
+    ),
+  );
+  expect(screen.getByRole("treeitem", { name: "a" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+});
+it("reports a name clash and leaves the dragged note where it was", async () => {
+  const api = fakeBridge(
+    [doc, { ...doc, id: "b", path: "Archive/a.md", revision: "r9" }],
+    ["Work", "Archive"],
+  );
+  const { container } = render(<App api={api} host={host} />);
+  fireEvent.click(await screen.findByRole("treeitem", { name: "Work" }));
+  drag(
+    container.querySelector('[data-path="Work/a.md"]')!,
+    screen.getByRole("treeitem", { name: "Archive" }),
+  );
+  expect(await screen.findByRole("alert")).toHaveTextContent(
+    "path already exists",
+  );
+  expect((await api.openDocument("test-session", doc.id)).document?.path).toBe(
+    "Work/a.md",
+  );
+});
+it("keeps a selected folder selected after its parent folder moves", async () => {
+  const api = fakeBridge([], ["Work", "Work/Sub", "Archive"]);
+  render(<App api={api} host={host} />);
+  fireEvent.click(await screen.findByRole("treeitem", { name: "Work" }));
+  fireEvent.click(screen.getByRole("treeitem", { name: "Sub" }));
+  drag(
+    screen.getByRole("treeitem", { name: "Work" }),
+    screen.getByRole("treeitem", { name: "Archive" }),
+  );
+  await waitFor(() =>
+    expect(screen.getByRole("treeitem", { name: "Sub" })).toHaveAttribute(
+      "data-path",
+      "Archive/Work/Sub",
+    ),
+  );
+  expect(screen.getByRole("treeitem", { name: "Sub" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  expect(screen.getByRole("treeitem", { name: "Sub" })).toBeVisible();
+});

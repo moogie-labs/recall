@@ -62,6 +62,7 @@ export interface DesktopAPI {
   delete(input: DeleteInput): Promise<OperationReply>;
   saveImage(input: SaveImageInput): Promise<SaveImageReply>;
   attachments(session: string, id: string): Promise<AttachmentsReply>;
+  move(input: MoveInput): Promise<MoveReply>;
   search(input: SearchInput): Promise<SearchReply>;
   refresh(session: string): Promise<TreeReply>;
   setupStatus(session: string): Promise<SetupStatus>;
@@ -127,6 +128,19 @@ export interface DeleteInput {
   path: string;
   expectedRevision: string;
   recursive: boolean;
+}
+export interface MoveInput {
+  session: string;
+  id: string;
+  path: string;
+  folder: string;
+  expectedRevision: string;
+}
+export interface MoveReply {
+  entry: TreeEntry | null;
+  document: DocumentView | null;
+  problem: Problem | null;
+  indexingWarning?: Problem | null;
 }
 export interface HostAPI {
   copyDraft?(body: string): Promise<OperationReply>;

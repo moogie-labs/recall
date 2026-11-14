@@ -113,3 +113,80 @@ func TestLeftoverDottedSuffixIsPartOfTheName(t *testing.T) {
 		t.Fatalf("tree %+v", r)
 	}
 }
+
+func TestMoveNoteIntoFolderKeepsIDAndName(t *testing.T) {
+	s, _, cfg, session := fixture(t)
+	s.Create(CreateInput{Session: session, Kind: "folder", Name: "archive"})
+	d := s.Create(CreateInput{Session: session, Kind: "note", Name: "idea"})
+	r := s.Move(MoveInput{Session: session, ID: d.Document.ID, Path: d.Document.Path, Folder: "archive", ExpectedRevision: d.Document.Revision})
+	if r.Problem != nil || r.Entry == nil || r.Entry.Path != "archive/idea.md" || r.Entry.ID != d.Document.ID || r.Document == nil || r.Document.Path != "archive/idea.md" {
+		t.Fatalf("move %+v", r)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.Content, "archive", "idea.md")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.Content, "idea.md")); !os.IsNotExist(err) {
+		t.Fatal("source left behind")
+	}
+}
+func TestMoveNoteToRootWithoutRevision(t *testing.T) {
+	s, _, _, session := fixture(t)
+	s.Create(CreateInput{Session: session, Kind: "folder", Name: "inbox"})
+	d := s.Create(CreateInput{Session: session, Kind: "note", Parent: "inbox", Name: "idea"})
+	r := s.Move(MoveInput{Session: session, ID: d.Document.ID, Path: d.Document.Path, Folder: ""})
+	if r.Problem != nil || r.Entry.Path != "idea.md" {
+		t.Fatalf("move %+v", r)
+	}
+}
+func TestMoveNoteRejectsStaleRevisionAndCollision(t *testing.T) {
+	s, _, _, session := fixture(t)
+	s.Create(CreateInput{Session: session, Kind: "folder", Name: "archive"})
+	s.Create(CreateInput{Session: session, Kind: "note", Parent: "archive", Name: "idea"})
+	d := s.Create(CreateInput{Session: session, Kind: "note", Name: "idea"})
+	stale := s.Move(MoveInput{Session: session, ID: d.Document.ID, Path: d.Document.Path, Folder: "", ExpectedRevision: "stale"})
+	if stale.Problem == nil || stale.Problem.Code != "conflict" {
+		t.Fatalf("stale move %+v", stale)
+	}
+	clash := s.Move(MoveInput{Session: session, ID: d.Document.ID, Path: d.Document.Path, Folder: "archive", ExpectedRevision: d.Document.Revision})
+	if clash.Problem == nil || clash.Problem.Code != "already_exists" {
+		t.Fatalf("colliding move %+v", clash)
+	}
+}
+func TestMoveFolderWithContents(t *testing.T) {
+	s, _, cfg, session := fixture(t)
+	s.Create(CreateInput{Session: session, Kind: "folder", Name: "archive"})
+	s.Create(CreateInput{Session: session, Kind: "folder", Name: "work"})
+	s.Create(CreateInput{Session: session, Kind: "note", Parent: "work", Name: "item"})
+	r := s.Move(MoveInput{Session: session, ID: "folder:work", Path: "work", Folder: "archive"})
+	if r.Problem != nil || r.Entry == nil || r.Entry.ID != "folder:archive/work" || r.Entry.Path != "archive/work" || r.Entry.Kind != "folder" || r.Document != nil {
+		t.Fatalf("move %+v", r)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.Content, "archive", "work", "item.md")); err != nil {
+		t.Fatal(err)
+	}
+	back := s.Move(MoveInput{Session: session, ID: "folder:archive/work", Path: "archive/work", Folder: ""})
+	if back.Problem != nil || back.Entry.Path != "work" {
+		t.Fatalf("move to root %+v", back)
+	}
+}
+func TestMoveFolderRejectsInvalidTargets(t *testing.T) {
+	s, _, _, session := fixture(t)
+	s.Create(CreateInput{Session: session, Kind: "folder", Name: "work"})
+	s.Create(CreateInput{Session: session, Kind: "folder", Parent: "work", Name: "sub"})
+	for _, in := range []MoveInput{
+		{ID: "folder:work", Path: "work", Folder: "work"},
+		{ID: "folder:work", Path: "work", Folder: "work/sub"},
+		{ID: "folder:work", Path: "other", Folder: ""},
+		{ID: "folder:.", Path: ".", Folder: "work"},
+		{ID: "folder:work", Path: "work", Folder: "../escape"},
+		{ID: "folder:work/sub", Path: "work/sub", Folder: "work"},
+	} {
+		in.Session = session
+		if s.Move(in).Problem == nil {
+			t.Fatalf("invalid move accepted %+v", in)
+		}
+	}
+	if s.Move(MoveInput{Session: "stale", ID: "folder:work", Path: "work", Folder: ""}).Problem == nil {
+		t.Fatal("stale session accepted")
+	}
+}

@@ -62,6 +62,22 @@ type DeleteInput struct {
 	Recursive        bool   `json:"recursive"`
 }
 
+// MoveInput moves one tree entry into Folder ("" is the collection root),
+// keeping its name.
+type MoveInput struct {
+	Session          string `json:"session"`
+	ID               string `json:"id"`
+	Path             string `json:"path"`
+	Folder           string `json:"folder"`
+	ExpectedRevision string `json:"expectedRevision"`
+}
+type MoveReply struct {
+	Entry           *TreeEntry    `json:"entry"`
+	Document        *DocumentView `json:"document"`
+	Problem         *Problem      `json:"problem"`
+	IndexingWarning *Problem      `json:"indexingWarning"`
+}
+
 type DocumentView struct {
 	ID       string `json:"id"`
 	Path     string `json:"path"`

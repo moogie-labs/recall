@@ -13,6 +13,7 @@ func (a *API) SaveBody(input SaveBodyInput) SaveBodyReply { return a.service.Sav
 func (a *API) Tree(session string) TreeReply              { return a.service.Tree(session) }
 func (a *API) Create(input CreateInput) CreateReply       { return a.service.Create(input) }
 func (a *API) Delete(input DeleteInput) OperationReply    { return a.service.Delete(input) }
+func (a *API) Move(input MoveInput) MoveReply             { return a.service.Move(input) }
 func (a *API) Search(input SearchInput) SearchReply       { return a.service.Search(input) }
 func (a *API) Refresh(session string) TreeReply           { return a.service.Refresh(session) }
 func (a *API) SetupStatus(session string) SetupStatus     { return a.service.SetupStatus(session) }

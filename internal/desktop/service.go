@@ -24,6 +24,8 @@ type Application interface {
 	CreateFolder(context.Context, string) error
 	Delete(context.Context, model.Ref, string) error
 	DeleteFolder(context.Context, string, bool) error
+	Move(context.Context, model.Ref, string, string) (model.Document, error)
+	MoveFolder(context.Context, string, string) error
 	List(context.Context, string, bool) (model.Snapshot, error)
 	Search(context.Context, model.SearchQuery) ([]model.Hit, error)
 	Sync(context.Context) (model.SyncReport, error)

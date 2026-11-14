@@ -122,3 +122,22 @@ func TestImageHandlerServesOnlyConfinedImages(t *testing.T) {
 		t.Errorf("no collection = %d", w.Code)
 	}
 }
+
+func TestSidebarMoveCarriesNoteImages(t *testing.T) {
+	s, _, cfg, session := fixture(t)
+	s.Create(CreateInput{Session: session, Kind: "folder", Name: "archive"})
+	d := s.Create(CreateInput{Session: session, Kind: "note", Name: "idea"})
+	if r := s.SaveImage(SaveImageInput{Session: session, ID: d.Document.ID, Name: "shot.png", Data: base64.StdEncoding.EncodeToString(desktopPNG)}); r.Problem != nil {
+		t.Fatal(r.Problem)
+	}
+	r := s.Move(MoveInput{Session: session, ID: d.Document.ID, Path: d.Document.Path, Folder: "archive", ExpectedRevision: d.Document.Revision})
+	if r.Problem != nil || r.Document == nil || r.Document.Path != "archive/idea.md" {
+		t.Fatalf("move %+v", r)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.Content, "archive", "idea.assets", "shot.png")); err != nil {
+		t.Fatalf("images did not move with the note: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.Content, "idea.assets")); !os.IsNotExist(err) {
+		t.Fatal("attachment folder left behind")
+	}
+}

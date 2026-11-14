@@ -1,4 +1,5 @@
 import type { TreeEntry } from "../api/types";
+import type { TreeDrag } from "./drag";
 export function parentPath(path: string) {
   const index = path.lastIndexOf("/");
   return index < 0 ? "" : path.slice(0, index);
@@ -7,12 +8,14 @@ export function Tree({
   entries,
   selection,
   expanded,
+  drag,
   onSelect,
   onToggle,
 }: {
   entries: TreeEntry[];
   selection: TreeEntry | null;
   expanded: Set<string>;
+  drag?: TreeDrag;
   onSelect: (entry: TreeEntry) => void;
   onToggle: (path: string) => void;
 }) {
@@ -31,8 +34,14 @@ export function Tree({
         return (
           <div key={entry.id}>
             <button
+              {...drag?.rowProps(
+                entry,
+                folder && !open ? () => onToggle(entry.path) : undefined,
+              )}
               className={
-                "tree-row " + (selection?.id === entry.id ? "selected" : "")
+                "tree-row " +
+                (selection?.id === entry.id ? "selected" : "") +
+                (folder && drag?.target === entry.path ? " drop-target" : "")
               }
               role="treeitem"
               aria-label={entry.name}

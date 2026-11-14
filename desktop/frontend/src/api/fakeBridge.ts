@@ -155,6 +155,54 @@ export function fakeBridge(
       }
       return { problem: null };
     },
+    move: async (input) => {
+      const join = (name: string) =>
+        (input.folder ? input.folder + "/" : "") + name;
+      const taken = (path: string) =>
+        dirs.has(path) || [...docs.values()].some((d) => d.path === path);
+      const refuse = (code: string, message: string) => ({
+        entry: null,
+        document: null,
+        problem: issue(code, message),
+      });
+      if (input.id.startsWith("folder:")) {
+        const to = join(input.path.split("/").at(-1)!);
+        if (taken(to)) return refuse("already_exists", "path already exists");
+        const rewrite = (path: string) =>
+          path === input.path || path.startsWith(input.path + "/")
+            ? to + path.slice(input.path.length)
+            : path;
+        for (const path of [...dirs]) {
+          dirs.delete(path);
+          dirs.add(rewrite(path));
+        }
+        for (const [id, d] of docs)
+          docs.set(id, { ...d, path: rewrite(d.path) });
+        return {
+          entry: {
+            id: "folder:" + to,
+            path: to,
+            name: to.split("/").at(-1)!,
+            kind: "folder",
+          },
+          document: null,
+          problem: null,
+        };
+      }
+      const doc = docs.get(input.id);
+      if (!doc) return refuse("not_found", "Document not found");
+      if (input.expectedRevision && doc.revision !== input.expectedRevision)
+        return refuse("conflict", "source revision changed");
+      const to = join(doc.path.split("/").at(-1)!);
+      if (taken(to)) return refuse("already_exists", "path already exists");
+      const moved = { ...doc, path: to };
+      docs.set(doc.id, moved);
+      return {
+        entry: { id: doc.id, path: to, name: doc.name, kind: "note" },
+        document: { ...moved },
+        problem: null,
+      };
+    },
     search: async (input) => ({
       hits: [...docs.values()]
         .filter((d) =>
