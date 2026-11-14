@@ -86,7 +86,8 @@ Gatekeeper's install assessment. The app then quits through the normal ⌘Q
 sequence, saving drafts; macOS Installer opens just before the collection closes.
 If a draft cannot be saved, the upgrade is cancelled and Installer does not open.
 Only `/Applications/Recall.app` installed by the release installer can upgrade
-itself; development builds disable these controls.
+itself. In development builds the launch check never runs, and Settings
+shows the version with the toggle and **Check now** disabled.
 
 ## Browsing, editing, and deletion
 
