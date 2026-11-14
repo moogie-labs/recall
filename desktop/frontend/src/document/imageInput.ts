@@ -78,12 +78,18 @@ export function imageInput(options: ImageInputOptions): Extension {
       destroy() {
         this.destroyed = true;
       }
-      async insert(files: File[], pos: number) {
+      async insert(files: File[], pos: number, pasted = false) {
         const tracker = { pos };
         this.trackers.add(tracker);
         try {
           for (const file of files) {
-            const label = file.name || "image";
+            // WebKit and Chrome give pasted clipboard images a placeholder
+            // name such as image.png; name those by time instead.
+            const name =
+              pasted && (!file.name || /^image\.\w+$/i.test(file.name))
+                ? pastedImageName()
+                : file.name;
+            const label = name || "image";
             if (!supportedImageTypes.includes(file.type)) {
               options.report(`Couldn't add ${label}: ${unsupported}`);
               continue;
@@ -97,10 +103,11 @@ export function imageInput(options: ImageInputOptions): Extension {
             let saved: SavedImage;
             try {
               saved = await options.save(
-                file.name || pastedImageName(),
+                name || pastedImageName(),
                 await readBase64(file),
               );
             } catch (error) {
+              if (this.destroyed) return;
               options.report(
                 `Couldn't add ${label}: ${error instanceof Error ? error.message : String(error)}`,
               );
@@ -139,7 +146,7 @@ export function imageInput(options: ImageInputOptions): Extension {
           if (!files.length) return false;
           event.preventDefault();
           if (!view.state.readOnly)
-            void this.insert(files, view.state.selection.main.head);
+            void this.insert(files, view.state.selection.main.head, true);
           return true;
         },
       },

@@ -6,7 +6,10 @@ export function guardFileDrops(target: Window = window): () => void {
     const transfer = (event as DragEvent).dataTransfer;
     if (!transfer || !Array.from(transfer.types ?? []).includes("Files"))
       return;
-    if (event.target instanceof Element && event.target.closest(".cm-content"))
+    if (
+      event.target instanceof Element &&
+      event.target.closest('.cm-content[contenteditable="true"]')
+    )
       return;
     event.preventDefault();
     transfer.dropEffect = "none";

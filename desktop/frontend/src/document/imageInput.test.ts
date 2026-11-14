@@ -78,6 +78,28 @@ it("names pasted images that have no filename", async () => {
     "pasted-2026-11-04-090507",
   );
 });
+it("names placeholder-named pasted images by time but keeps dropped names", async () => {
+  const { view } = editor(ok);
+  send(view, "paste", [file("image.png")]);
+  await vi.waitFor(() => expect(ok).toHaveBeenCalledTimes(1));
+  expect(ok.mock.calls[0][0]).toMatch(/^pasted-\d{4}-\d{2}-\d{2}-\d{6}$/);
+  send(view, "drop", [file("image.png")]);
+  await vi.waitFor(() => expect(ok).toHaveBeenCalledTimes(2));
+  expect(ok.mock.calls[1][0]).toBe("image.png");
+});
+it("does not report a late failure after the editor is destroyed", async () => {
+  let fail!: (e: Error) => void;
+  const save = vi.fn(
+    () => new Promise<{ name: string; link: string }>((_, rej) => (fail = rej)),
+  );
+  const { view, report } = editor(save);
+  send(view, "paste", [file("shot.png")]);
+  await vi.waitFor(() => expect(save).toHaveBeenCalled());
+  view.destroy();
+  fail(new Error("disk full"));
+  await new Promise((r) => setTimeout(r, 20));
+  expect(report).not.toHaveBeenCalled();
+});
 it("leaves text-only pastes to CodeMirror", () => {
   const { view } = editor(ok);
   send(view, "paste", [], " world");
