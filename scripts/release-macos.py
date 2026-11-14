@@ -91,6 +91,31 @@ def require_embedded_version(cli, app, release):
                  "desktop app does not report the release version")
 
 
+CHANNEL = "edge"
+
+
+def channel_tag(tags, run_number):
+    """Version a rolling channel build: the patch after the newest stable tag.
+
+    SemVer orders vX.Y.(Z+1)-edge.N above the last stable release and below
+    the next one; the workflow run number keeps successive builds ordered."""
+    if not re.fullmatch(r"[1-9][0-9]*", run_number):
+        raise ValueError("channel run number must be a positive integer")
+    stable = [tuple(map(int, m.groups())) for t in tags
+              if (m := re.fullmatch(r"v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)", t))]
+    major, minor, patch = max(stable, default=(0, 0, 0))
+    tag = f"v{major}.{minor}.{patch + 1}-{CHANNEL}.{run_number}"
+    version(tag)
+    return tag
+
+
+def channel_stage(run_number):
+    # Only releases reachable from the built commit count, not tags elsewhere.
+    tags = subprocess.run(["git", "tag", "--merged", "HEAD", "--list", "v*"], check=True,
+                          stdout=subprocess.PIPE, text=True).stdout.split()
+    print(channel_tag(tags, run_number))
+
+
 def require_darwin():
     dist.require(platform.system() == "Darwin" and platform.machine() == "arm64", "release requires Darwin arm64")
 
@@ -574,12 +599,15 @@ def sign_stage(tag, archive, runtime_dir, output):
 
 
 USAGE = """usage:
+  release-macos.py channel RUN-NUMBER
   release-macos.py runtime vX.Y.Z OUTPUT-DIR
   release-macos.py build   vX.Y.Z SIGNED-RUNTIME-DIR PAYLOAD-TAR
   release-macos.py sign    vX.Y.Z PAYLOAD-TAR SIGNED-RUNTIME-DIR OUTPUT-DIR"""
 
 
 def main(argv):
+    if argv[:1] == ["channel"] and len(argv) == 2:
+        return channel_stage(argv[1])
     stages = {"runtime": (runtime_stage, 2), "build": (build_stage, 3), "sign": (sign_stage, 4)}
     if len(argv) < 2 or argv[0] not in stages or len(argv) != 1 + stages[argv[0]][1]:
         raise ValueError(USAGE)

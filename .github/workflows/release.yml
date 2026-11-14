@@ -1,12 +1,18 @@
 name: Release macOS installer
 
+# Version tags publish stable releases (or GitHub prereleases for SemVer
+# prerelease tags). Pushes to main publish the rolling `edge` channel build,
+# signed and notarized by the same jobs, using the `release-channel` environment.
 "on":
   push:
     tags: ['v*']
+    branches: [main]
 
 permissions:
   contents: read
 
+# One run per ref at a time. A newer push to main replaces any queued channel
+# run but never cancels one in progress (which may be mid-publish).
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -17,11 +23,41 @@ concurrency:
 # the secret-free build job on a separate, disposable runner, so it can never
 # reach the signing keychain or notarization profile.
 jobs:
+  prepare:
+    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Choose version
+        id: version
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF_TYPE" == tag ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="$(python3 scripts/release-macos.py channel "$RUN_NUMBER")"
+          fi
+          RELEASE_TAG="$tag" python3 -c 'import runpy,os,sys; sys.path.insert(0,"scripts"); runpy.run_path("scripts/release-macos.py")["version"](os.environ["RELEASE_TAG"])'
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Release version: $tag"
+
   runtime:
-    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: prepare
+    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
     runs-on: macos-15
     timeout-minutes: 60
-    environment: release
+    environment: ${{ github.ref_type == 'tag' && 'release' || 'release-channel' }}
     permissions:
       contents: read
     steps:
@@ -30,16 +66,17 @@ jobs:
           persist-credentials: false
       - name: Validate version tag
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: python3 -c 'import runpy,os,sys; sys.path.insert(0,"scripts"); runpy.run_path("scripts/release-macos.py")["version"](os.environ["RELEASE_TAG"])'
       - name: Sign and notarize pinned runtime
         env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           APPLICATION_P12_BASE64: ${{ secrets.APPLE_APPLICATION_CERTIFICATE_P12_BASE64 }}
           APPLICATION_P12_PASSWORD: ${{ secrets.APPLE_APPLICATION_CERTIFICATE_PASSWORD }}
           NOTARY_APPLE_ID: ${{ secrets.APPLE_ID }}
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           NOTARY_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-        run: python3 scripts/release-macos.py runtime "$GITHUB_REF_NAME" build/release-runtime
+        run: python3 scripts/release-macos.py runtime "$RELEASE_TAG" build/release-runtime
       - name: Always remove signing material
         if: always()
         shell: bash
@@ -55,7 +92,7 @@ jobs:
           retention-days: 1
 
   build:
-    needs: runtime
+    needs: [prepare, runtime]
     runs-on: macos-15
     timeout-minutes: 120
     permissions:
@@ -73,7 +110,7 @@ jobs:
           node-version: '22'
       - name: Validate version tag
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: python3 -c 'import runpy,os,sys; sys.path.insert(0,"scripts"); runpy.run_path("scripts/release-macos.py")["version"](os.environ["RELEASE_TAG"])'
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -87,7 +124,9 @@ jobs:
           python3 -m unittest discover -s scripts -p 'test_release_macos.py'
           python3 scripts/verify-desktop.py build/Recall.app
       - name: Build unsigned release payload
-        run: python3 scripts/release-macos.py build "$GITHUB_REF_NAME" build/release-runtime build/release-payload/payload.tar
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        run: python3 scripts/release-macos.py build "$RELEASE_TAG" build/release-runtime build/release-payload/payload.tar
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: unsigned-payload
@@ -96,10 +135,10 @@ jobs:
           retention-days: 1
 
   sign:
-    needs: [runtime, build]
+    needs: [prepare, runtime, build]
     runs-on: macos-15
     timeout-minutes: 90
-    environment: release
+    environment: ${{ github.ref_type == 'tag' && 'release' || 'release-channel' }}
     permissions:
       contents: read
     steps:
@@ -108,7 +147,7 @@ jobs:
           persist-credentials: false
       - name: Validate version tag
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: python3 -c 'import runpy,os,sys; sys.path.insert(0,"scripts"); runpy.run_path("scripts/release-macos.py")["version"](os.environ["RELEASE_TAG"])'
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -120,6 +159,7 @@ jobs:
           path: build/release-payload
       - name: Sign, notarize and verify installer
         env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
           APPLICATION_P12_BASE64: ${{ secrets.APPLE_APPLICATION_CERTIFICATE_P12_BASE64 }}
           INSTALLER_P12_BASE64: ${{ secrets.APPLE_INSTALLER_CERTIFICATE_P12_BASE64 }}
           APPLICATION_P12_PASSWORD: ${{ secrets.APPLE_APPLICATION_CERTIFICATE_PASSWORD }}
@@ -127,7 +167,7 @@ jobs:
           NOTARY_APPLE_ID: ${{ secrets.APPLE_ID }}
           TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
           NOTARY_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-        run: python3 scripts/release-macos.py sign "$GITHUB_REF_NAME" build/release-payload/payload.tar build/release-runtime build/release
+        run: python3 scripts/release-macos.py sign "$RELEASE_TAG" build/release-payload/payload.tar build/release-runtime build/release
       - name: Always remove signing material
         if: always()
         shell: bash
@@ -143,7 +183,8 @@ jobs:
           retention-days: 7
 
   publish:
-    needs: sign
+    needs: [prepare, sign]
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -156,10 +197,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         shell: bash
         run: |
           set -euo pipefail
-          tag="$GITHUB_REF_NAME"
+          tag="$RELEASE_TAG"
           version="${tag#v}"
           cd release
           shasum -a 256 -c "Recall-${version}-darwin-arm64.pkg.sha256"
@@ -168,3 +210,39 @@ jobs:
           gh release create "$tag" --verify-tag --draft --title "Recall $version" --generate-notes "${extra[@]}"
           gh release upload "$tag" "Recall-${version}-darwin-arm64.pkg" "Recall-${version}-darwin-arm64.pkg.sha256"
           gh release edit "$tag" --draft=false
+
+  publish-channel:
+    needs: [prepare, sign]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: notarized-installer
+          path: release
+      - name: Replace the rolling edge release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          channel=edge
+          version="${RELEASE_TAG#v}"
+          [[ "$version" == *-"$channel".* ]] || { echo "not a $channel version: $version" >&2; exit 1; }
+          cd release
+          shasum -a 256 -c "Recall-${version}-darwin-arm64.pkg.sha256"
+          notes="Rolling $channel build of $GITHUB_SHA from main, signed and notarized. Not a stable release: every push to main replaces it."
+          if gh release view "$channel" >/dev/null 2>&1; then
+            gh release delete "$channel" --cleanup-tag --yes
+          fi
+          # A leftover tag would make `create` ignore --target and keep the old commit.
+          if gh api "repos/$GH_REPO/git/ref/tags/$channel" >/dev/null 2>&1; then
+            gh api -X DELETE "repos/$GH_REPO/git/refs/tags/$channel"
+          fi
+          gh release create "$channel" --draft --prerelease --latest=false --target "$GITHUB_SHA" --title "Recall $version" --notes "$notes"
+          gh release upload "$channel" "Recall-${version}-darwin-arm64.pkg" "Recall-${version}-darwin-arm64.pkg.sha256"
+          gh release edit "$channel" --draft=false

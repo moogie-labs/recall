@@ -36,6 +36,35 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(self.release.version("v1.2.3"), "1.2.3")
         self.assertEqual(self.release.version("v1.2.3-rc.1"), "1.2.3-rc.1")
 
+    def test_channel_tag_follows_latest_stable_merged_release(self):
+        tags = ["v0.0.1", "v0.1.0", "v0.0.9", "v0.2.0-rc.1", "edge", "v1.0", "nightly-3", ""]
+        self.assertEqual(self.release.channel_tag(tags, "147"), "v0.1.1-edge.147")
+        self.assertEqual(self.release.channel_tag(["v0.9.0", "v0.10.0"], "1"), "v0.10.1-edge.1")
+        self.assertEqual(self.release.channel_tag([], "5"), "v0.0.1-edge.5")
+        # Channel tags always satisfy the release validator.
+        self.assertEqual(self.release.version(self.release.channel_tag(tags, "147")), "0.1.1-edge.147")
+
+    def test_channel_tag_rejects_invalid_run_numbers(self):
+        for bad in ["", "0", "01", "-1", "1.5", "abc", "1\n", "--help"]:
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.release.channel_tag(["v0.1.0"], bad)
+
+    def test_channel_command_reads_only_tags_merged_into_head(self):
+        repo = self.root / "repo"
+        repo.mkdir()
+        git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "tag.gpgSign=false", "-c", "commit.gpgSign=false"]
+        subprocess.run(["git", "init", "-q", "-b", "main", str(repo)], check=True)
+        subprocess.run(git + ["commit", "-q", "--allow-empty", "-m", "one"], check=True)
+        subprocess.run(git + ["tag", "v0.3.0"], check=True)
+        subprocess.run(git + ["checkout", "-q", "-b", "other"], check=True)
+        subprocess.run(git + ["commit", "-q", "--allow-empty", "-m", "two"], check=True)
+        subprocess.run(git + ["tag", "v9.0.0"], check=True)
+        subprocess.run(git + ["checkout", "-q", "main"], check=True)
+        subprocess.run(git + ["commit", "-q", "--allow-empty", "-m", "three"], check=True)
+        result = subprocess.run([sys.executable, str(REPO / "scripts/release-macos.py"), "channel", "12"], cwd=repo, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, "v0.3.1-edge.12\n")
+
     def test_cli_payload_symlink_assets_and_notices_are_self_contained(self):
         cli = self.root / "recall"
         cli.write_bytes(b"cli fixture")
@@ -482,16 +511,28 @@ class ReleaseTests(unittest.TestCase):
         result = subprocess.run(["/bin/bash", "-e", "-c", step["run"]], cwd=checkout, env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_workflow_only_exposes_apple_secrets_on_release_tags(self):
+    def test_workflow_only_exposes_apple_secrets_on_release_tags_and_main(self):
         workflow = self.workflow()
-        self.assertEqual(workflow["on"], {"push": {"tags": ["v*"]}})
+        self.assertEqual(workflow["on"], {"push": {"tags": ["v*"], "branches": ["main"]}})
         self.assertEqual(workflow["permissions"], {"contents": "read"})
+        self.assertEqual(workflow["concurrency"], {"group": "release-${{ github.ref }}", "cancel-in-progress": False})
         jobs = workflow["jobs"]
-        self.assertEqual(set(jobs), {"runtime", "build", "sign", "publish"})
-        self.assertIn("refs/tags/v", jobs["runtime"]["if"])
-        self.assertEqual(jobs["build"]["needs"], "runtime")
-        self.assertEqual(jobs["sign"]["needs"], ["runtime", "build"])
-        self.assertEqual(jobs["publish"]["needs"], "sign")
+        self.assertEqual(set(jobs), {"prepare", "runtime", "build", "sign", "publish", "publish-channel"})
+        guard = "github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')"
+        self.assertEqual(jobs["prepare"]["if"], guard)
+        self.assertEqual(jobs["runtime"]["if"], guard)
+        self.assertEqual(jobs["runtime"]["needs"], "prepare")
+        self.assertEqual(jobs["build"]["needs"], ["prepare", "runtime"])
+        self.assertEqual(jobs["sign"]["needs"], ["prepare", "runtime", "build"])
+        self.assertEqual(jobs["publish"]["needs"], ["prepare", "sign"])
+        self.assertEqual(jobs["publish"]["if"], "github.ref_type == 'tag'")
+        self.assertEqual(jobs["publish-channel"]["needs"], ["prepare", "sign"])
+        self.assertEqual(jobs["publish-channel"]["if"], "github.ref == 'refs/heads/main'")
+        # Versions come only from the validated prepare output, never the raw ref.
+        for name in ["runtime", "build", "sign", "publish", "publish-channel"]:
+            with self.subTest(job=name):
+                self.assertNotIn("GITHUB_REF_NAME", json.dumps(jobs[name]))
+                self.assertNotIn("github.ref_name", json.dumps(jobs[name]))
         application = {"${{ secrets.APPLE_APPLICATION_CERTIFICATE_P12_BASE64 }}", "${{ secrets.APPLE_APPLICATION_CERTIFICATE_PASSWORD }}",
                        "${{ secrets.APPLE_ID }}", "${{ secrets.APPLE_TEAM_ID }}", "${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}"}
         installer = {"${{ secrets.APPLE_INSTALLER_CERTIFICATE_P12_BASE64 }}", "${{ secrets.APPLE_INSTALLER_CERTIFICATE_PASSWORD }}"}
@@ -499,22 +540,26 @@ class ReleaseTests(unittest.TestCase):
             with self.subTest(job=name):
                 job = jobs[name]
                 self.assertEqual(job["permissions"], {"contents": "read"})
-                self.assertEqual(job["environment"], "release")
+                # Tags use the stable `release` environment; main uses `release-channel`.
+                self.assertEqual(job["environment"], "${{ github.ref_type == 'tag' && 'release' || 'release-channel' }}")
                 secret_steps = [step for step in job["steps"] if "secrets.APPLE_" in json.dumps(step)]
                 self.assertEqual(len(secret_steps), 1)
-                self.assertEqual(set(secret_steps[0]["env"].values()), expected)
+                values = set(secret_steps[0]["env"].values()) - {"${{ needs.prepare.outputs.tag }}"}
+                self.assertEqual(values, expected)
                 # Credential jobs install no toolchain and run no third-party build.
                 uses = [step.get("uses", "") for step in job["steps"]]
                 self.assertFalse([u for u in uses if "setup-go" in u or "setup-node" in u], uses)
                 commands = " ".join(step.get("run", "") for step in job["steps"])
                 for forbidden in ["go ", "npm", "build-desktop", "wails", "unittest"]:
                     self.assertNotIn(forbidden, commands)
-        for name in ["build", "publish"]:
+        for name in ["prepare", "build", "publish", "publish-channel"]:
             with self.subTest(job=name):
                 self.assertNotIn("secrets.APPLE_", json.dumps(jobs[name]))
                 self.assertNotIn("environment", jobs[name])
+        self.assertEqual(jobs["prepare"]["permissions"], {"contents": "read"})
         self.assertEqual(jobs["build"]["permissions"], {"contents": "read"})
         self.assertEqual(jobs["publish"]["permissions"], {"contents": "write"})
+        self.assertEqual(jobs["publish-channel"]["permissions"], {"contents": "write"})
         for other in (REPO / ".github/workflows").glob("*.y*ml"):
             if other.name != "release.yml":
                 self.assertNotIn("secrets.APPLE_", other.read_text())
@@ -544,6 +589,82 @@ class ReleaseTests(unittest.TestCase):
         self.assertIn('"-ldflags", ldflags, "-o", cli', source)
         self.assertIn('"scripts/build-desktop.sh", "-ldflags", ldflags', source)
         self.assertIn('require_embedded_version(cli, staged / "Recall.app", release)', source)
+
+    def run_workflow_step(self, job, name, env, cwd):
+        step = next(s for s in self.workflow()["jobs"][job]["steps"] if s.get("name") == name)
+        output = self.root / "github-output"
+        output.write_text("")
+        env = dict(os.environ, GITHUB_OUTPUT=str(output), **env)
+        result = subprocess.run(["/bin/bash", "-c", step["run"]], cwd=cwd, env=env, capture_output=True, text=True)
+        return result, output.read_text()
+
+    def test_prepare_uses_validated_tag_or_channel_version(self):
+        result, output = self.run_workflow_step("prepare", "Choose version", {"GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": "v1.2.3-rc.1", "RUN_NUMBER": "9"}, REPO)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(output, "tag=v1.2.3-rc.1\n")
+        result, output = self.run_workflow_step("prepare", "Choose version", {"GITHUB_REF_TYPE": "tag", "GITHUB_REF_NAME": "v1.2.3+evil", "RUN_NUMBER": "9"}, REPO)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(output, "")
+        result, output = self.run_workflow_step("prepare", "Choose version", {"GITHUB_REF_TYPE": "branch", "GITHUB_REF_NAME": "main", "RUN_NUMBER": "9"}, REPO)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertRegex(output, r"^tag=v[0-9]+\.[0-9]+\.[0-9]+-edge\.9\n$")
+
+    def channel_publish(self, existing, version="0.1.1-edge.9", tamper=False):
+        release = self.root / "work/release"
+        release.mkdir(parents=True)
+        pkg = release / f"Recall-{version}-darwin-arm64.pkg"
+        pkg.write_bytes(b"fixture installer")
+        digest = subprocess.check_output(["shasum", "-a", "256", pkg.name], cwd=release, text=True)
+        (release / f"Recall-{version}-darwin-arm64.pkg.sha256").write_text(digest)
+        if tamper:
+            pkg.write_bytes(b"substituted installer")
+        tools = self.root / "tools"
+        tools.mkdir()
+        log = self.root / "gh.log"
+        gh = tools / "gh"
+        # Fake gh: `release view` and the tag lookup succeed only for existing objects.
+        gh.write_text(f"""#!/bin/bash
+echo "$*" >> {log}
+case "$1 $2" in
+  "release view") [[ {int("release" in existing)} == 1 ]] ;;
+  "api repos/fixture/repo/git/ref/tags/edge") [[ {int("tag" in existing)} == 1 ]] ;;
+esac
+""")
+        gh.chmod(0o755)
+        env = {"PATH": str(tools) + os.pathsep + os.environ["PATH"], "GH_REPO": "fixture/repo",
+               "GITHUB_SHA": "abc123", "RELEASE_TAG": "v" + version}
+        result, _ = self.run_workflow_step("publish-channel", "Replace the rolling edge release", env, release.parent)
+        return result, log.read_text().splitlines() if log.exists() else []
+
+    def test_channel_publish_replaces_edge_release_at_pushed_commit(self):
+        result, calls = self.channel_publish({"release"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, [
+            "release view edge",
+            "release delete edge --cleanup-tag --yes",
+            "api repos/fixture/repo/git/ref/tags/edge",
+            "release create edge --draft --prerelease --latest=false --target abc123 --title Recall 0.1.1-edge.9 --notes "
+            "Rolling edge build of abc123 from main, signed and notarized. Not a stable release: every push to main replaces it.",
+            "release upload edge Recall-0.1.1-edge.9-darwin-arm64.pkg Recall-0.1.1-edge.9-darwin-arm64.pkg.sha256",
+            "release edit edge --draft=false",
+        ])
+
+    def test_channel_publish_removes_orphaned_edge_tag(self):
+        result, calls = self.channel_publish({"tag"})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls[:3], ["release view edge", "api repos/fixture/repo/git/ref/tags/edge",
+                                     "api -X DELETE repos/fixture/repo/git/refs/tags/edge"])
+        self.assertTrue(calls[3].startswith("release create edge "))
+
+    def test_channel_publish_refuses_non_channel_versions(self):
+        result, calls = self.channel_publish({"release"}, version="0.2.0")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(calls, [])
+
+    def test_channel_publish_refuses_checksum_mismatch(self):
+        result, calls = self.channel_publish({"release"}, tamper=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(calls, [])
 
 if __name__ == "__main__":
     unittest.main()
