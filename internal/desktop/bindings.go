@@ -17,3 +17,10 @@ func (a *API) Search(input SearchInput) SearchReply       { return a.service.Sea
 func (a *API) Refresh(session string) TreeReply           { return a.service.Refresh(session) }
 func (a *API) SetupStatus(session string) SetupStatus     { return a.service.SetupStatus(session) }
 func (a *API) RetrySetup(session string) OperationReply   { return a.service.RetrySetup(session) }
+
+func (a *API) AppInfo() AppInfo { return a.service.AppInfo() }
+func (a *API) SetCheckForUpdates(enabled bool) OperationReply {
+	return a.service.SetCheckForUpdates(enabled)
+}
+func (a *API) CheckForUpdate(manual bool) UpdateReply { return a.service.CheckForUpdate(manual) }
+func (a *API) StartUpgrade() OperationReply           { return a.service.StartUpgrade() }

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"sync"
+	"sync/atomic"
 
 	"recall/internal/app"
 	"recall/internal/config"
@@ -45,6 +46,7 @@ type Service struct {
 	workers     sync.WaitGroup
 	setup       *Setup
 	setupState  setupState
+	upgrades    atomic.Pointer[updateState]
 }
 
 func NewService(open func(context.Context, config.Config) (Application, error), preferences Preferences) *Service {
