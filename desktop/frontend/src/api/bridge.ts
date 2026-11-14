@@ -12,6 +12,7 @@ export const api: DesktopAPI = {
   tree: (session) => backend().Tree(session),
   create: (input) => backend().Create(input),
   delete: (input) => backend().Delete(input),
+  move: (input) => backend().Move(input),
   search: (input) => backend().Search(input),
   refresh: (session) => backend().Refresh(session),
   setupStatus: (session) => backend().SetupStatus(session),

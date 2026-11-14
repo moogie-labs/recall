@@ -241,6 +241,16 @@ export class Workspace {
   clearSelection() {
     this.update({ treeSelection: null });
   }
+  /** Follow a selected folder whose path changed because it, or an ancestor, moved. */
+  followFolderMove(path: (current: string) => string) {
+    const selected = this.state.treeSelection;
+    if (selected?.kind !== "folder") return;
+    const next = path(selected.path);
+    if (next !== selected.path)
+      this.update({
+        treeSelection: { ...selected, id: "folder:" + next, path: next },
+      });
+  }
   updateCleanDocument(doc: DocumentView) {
     if (
       this.coordinator.snapshot().status === "saved" &&

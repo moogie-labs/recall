@@ -97,3 +97,42 @@ func (s *Service) Delete(in DeleteInput) OperationReply {
 	}
 	return OperationReply{Problem: problem(s.application.Delete(s.ctx, model.Ref{ID: in.ID}, in.ExpectedRevision))}
 }
+func joinFolder(folder, name string) string {
+	if folder == "" {
+		return name
+	}
+	return folder + "/" + name
+}
+func (s *Service) Move(in MoveInput) MoveReply {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if p := s.check(in.Session); p != nil {
+		return MoveReply{Problem: p}
+	}
+	if in.Folder == "." {
+		in.Folder = ""
+	}
+	if strings.HasPrefix(in.ID, "folder:") {
+		if in.Path == "" || in.Path == "." || in.ID != "folder:"+in.Path {
+			return MoveReply{Problem: invalid("The collection root cannot be moved")}
+		}
+		if filepath.Dir(in.Path) == filepath.Clean("./"+in.Folder) {
+			return MoveReply{Problem: invalid("The folder is already there")}
+		}
+		to := joinFolder(in.Folder, filepath.Base(in.Path))
+		if err := s.application.MoveFolder(s.ctx, in.Path, to); err != nil {
+			return MoveReply{Problem: problem(err)}
+		}
+		return MoveReply{Entry: &TreeEntry{ID: "folder:" + to, Path: to, Name: filepath.Base(to), Kind: "folder"}}
+	}
+	current, err := s.application.Read(s.ctx, model.Ref{ID: in.ID})
+	if err != nil {
+		return MoveReply{Problem: problem(err)}
+	}
+	d, err := s.application.Move(s.ctx, model.Ref{ID: in.ID}, joinFolder(in.Folder, filepath.Base(current.Path)), in.ExpectedRevision)
+	if err != nil && d.ID == "" {
+		return MoveReply{Problem: problem(err)}
+	}
+	e := entry(d)
+	return MoveReply{Entry: &e, Document: view(d), IndexingWarning: problem(err)}
+}

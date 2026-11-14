@@ -15,6 +15,7 @@ import { registerShutdown } from "./shutdown";
 import { Tree, parentPath } from "./tree/Tree";
 import { CreateDialog } from "./tree/CreateDialog";
 import { DeleteDialog } from "./tree/DeleteDialog";
+import { movedPath, useTreeDrag } from "./tree/drag";
 import { SetupStatus } from "./setup/SetupStatus";
 import { useUpdates } from "./updates/useUpdates";
 import { UpgradePrompt } from "./updates/UpgradePrompt";
@@ -193,6 +194,57 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
       setError(r.indexingWarning?.message ?? "");
     });
   }
+  // A move saves pending edits first when it relocates the open document,
+  // then adopts the document's new path so editing continues seamlessly.
+  async function move(entry: TreeEntry, folder: string) {
+    const open = workspace.snapshot().document;
+    const affected =
+      open &&
+      (open.id === entry.id ||
+        (entry.kind === "folder" && open.path.startsWith(entry.path + "/")));
+    const run = async () => {
+      const { session, document: doc } = workspace.snapshot();
+      const r = await api.move({
+        session,
+        id: entry.id,
+        path: entry.path,
+        folder,
+        expectedRevision:
+          doc && doc.id === entry.id
+            ? (coordinator.document()?.revision ?? doc.revision)
+            : "",
+      });
+      if (r.problem || !r.entry)
+        throw new Error(r.problem?.message ?? "Move failed");
+      const to = r.entry.path,
+        follow = (path: string) => movedPath(path, entry.path, to);
+      if (entry.kind === "folder") {
+        setExpanded((current) => new Set([...current].map(follow)));
+        workspace.followFolderMove(follow);
+      }
+      if (affected && doc) {
+        let moved = r.document;
+        if (!moved) {
+          const reread = await api.openDocument(session, doc.id);
+          if (reread.problem || !reread.document)
+            throw new Error(reread.problem?.message ?? "Document unavailable");
+          moved = reread.document;
+        }
+        workspace.updateCleanDocument(moved);
+      }
+      await refresh();
+      reveal(to);
+      setError(r.indexingWarning?.message ?? "");
+    };
+    if (affected) await workspace.flushBefore(run);
+    else await run();
+  }
+  const drag = useTreeDrag({
+    disabled: state.busy || !state.session,
+    onMove: (entry, folder) => {
+      void move(entry, folder).catch((e) => setError(e.message));
+    },
+  });
   async function askDelete() {
     if (!selection) return;
     const entry = selection;
@@ -300,7 +352,7 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
             <div className="sidebar-heading">
               <h2>
                 <button
-                  className="root-selection"
+                  {...drag.rootProps("root-selection")}
                   aria-label="Select collection root"
                   disabled={state.busy}
                   onClick={() => workspace.clearSelection()}
@@ -361,6 +413,7 @@ export function App({ api, host }: { api: DesktopAPI; host: HostAPI }) {
               entries={tree?.entries ?? []}
               selection={selection}
               expanded={expanded}
+              drag={drag}
               onToggle={toggle}
               onSelect={(entry) => {
                 if (!state.busy)

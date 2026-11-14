@@ -99,6 +99,16 @@ shows the version with the toggle and **Check now** disabled.
   Click the sidebar's **Recall** heading to select root without closing the
   current document or discarding its draft. Moved document IDs keep their
   selection/creation target synchronized with the current path.
+- Drag a note or folder onto a folder to move it there, or onto the sidebar's
+  **Recall** heading to move it to the top level. The target is highlighted
+  only when the drop is allowed: dropping into the current folder, onto
+  itself, or into its own subfolder is refused. Hovering over a closed folder
+  for a moment opens it. A move keeps the item's name and never overwrites;
+  a name clash shows an error and changes nothing. Moving the open document
+  (or a folder containing it) saves pending edits first and keeps the editor
+  open at the new path; a conflicting outside edit blocks the move. There is
+  no confirmation or undo: drag the item back to reverse a move. Moving has no
+  keyboard equivalent yet; use `recall document move` or `recall folder move`.
 - ⌘F focuses global **Search**, replacing local editor find. Search is hybrid;
   semantic errors offer an explicit keyword-only retry. Escape clears search
   and restores the open draft. Selecting a result reveals its folder ancestors.
@@ -148,7 +158,7 @@ warning, avoiding a false conflict on the next edit after repair.
 
 The existing Darwin watcher polls metadata; large collections retain its
 [documented idle-CPU limitation](operations.md). There is no new low-idle-CPU SLA.
-V1 has no tabs, split pane, drag-and-drop moves, or rename UI.
+V1 has no tabs, split pane, rename UI, or drag-and-drop from Finder.
 
 ## Verification
 
