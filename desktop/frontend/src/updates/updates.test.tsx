@@ -106,21 +106,23 @@ it("shows upgrade progress until Installer opens", async () => {
   expect(screen.getByText("Opening Installer…")).toBeInTheDocument();
 });
 
-it("reports a failed or cancelled upgrade and offers a retry", async () => {
+it("reports a failed upgrade and offers a retry", async () => {
   const api = fakeBridge();
   api.checkForUpdate = async () => available;
   let starts = 0;
   api.startUpgrade = async () => {
     starts++;
-    return {
-      problem: {
-        code: "verification_failed",
-        message: "Gatekeeper rejected the downloaded installer",
-        path: "",
-      },
-    };
+    if (starts === 1)
+      return {
+        problem: {
+          code: "verification_failed",
+          message: "Gatekeeper rejected the downloaded installer",
+          path: "",
+        },
+      };
+    return new Promise(() => {});
   };
-  const { host, emit } = eventHost();
+  const { host } = eventHost();
   render(<App api={api} host={host} />);
   fireEvent.click(await screen.findByRole("button", { name: "Not now" }));
   fireEvent.click(screen.getByRole("button", { name: "Upgrade available" }));
@@ -128,17 +130,73 @@ it("reports a failed or cancelled upgrade and offers a retry", async () => {
     await screen.findByText("Gatekeeper rejected the downloaded installer"),
   ).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Retry upgrade" }));
-  await waitFor(() => expect(starts).toBe(2));
-  emit("desktop:upgrade-cancelled", {
-    problem: {
-      code: "conflict",
-      message: "Upgrade cancelled: unsaved changes could not be saved.",
-      path: "",
-    },
-  });
+  expect(starts).toBe(2);
+  expect(screen.getByText("Downloading Recall 0.3.0…")).toBeInTheDocument();
+});
+
+const cancelled = {
+  problem: {
+    code: "conflict",
+    message: "Upgrade cancelled: unsaved changes could not be saved.",
+    path: "",
+  },
+};
+
+it("keeps the cancel message when the OK reply arrives after the cancel event", async () => {
+  const api = fakeBridge();
+  api.checkForUpdate = async () => available;
+  let finish!: (reply: { problem: null }) => void;
+  api.startUpgrade = () =>
+    new Promise((resolve) => {
+      finish = resolve;
+    });
+  const { host, emit } = eventHost();
+  render(<App api={api} host={host} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Upgrade" }));
+  emit("desktop:upgrade-cancelled", cancelled);
+  await act(async () => finish({ problem: null }));
+  expect(screen.getByText(cancelled.problem.message)).toBeInTheDocument();
+  expect(screen.queryByText("Opening Installer…")).not.toBeInTheDocument();
   expect(
-    screen.getByText("Upgrade cancelled: unsaved changes could not be saved."),
+    screen.getByRole("button", { name: "Retry upgrade" }),
   ).toBeInTheDocument();
+});
+
+it("keeps the error when progress arrives after a failure", async () => {
+  const api = fakeBridge();
+  api.checkForUpdate = async () => available;
+  api.startUpgrade = async () => ({ problem: null });
+  const { host, emit } = eventHost();
+  render(<App api={api} host={host} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Upgrade" }));
+  emit("desktop:upgrade-cancelled", cancelled);
+  emit("desktop:upgrade-progress", {
+    stage: "downloading",
+    done: 10,
+    total: 100,
+  });
+  expect(screen.getByText(cancelled.problem.message)).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: "Retry upgrade" }),
+  ).toBeInTheDocument();
+});
+
+it("starts the upgrade once when Retry is double-clicked", async () => {
+  const api = fakeBridge();
+  api.checkForUpdate = async () => available;
+  let starts = 0;
+  api.startUpgrade = () => {
+    starts++;
+    return new Promise(() => {});
+  };
+  const { host, emit } = eventHost();
+  render(<App api={api} host={host} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Upgrade" }));
+  emit("desktop:upgrade-cancelled", cancelled);
+  const retry = screen.getByRole("button", { name: "Retry upgrade" });
+  fireEvent.click(retry);
+  fireEvent.click(retry);
+  expect(starts).toBe(2);
 });
 
 it("skips the launch check when it is off or in a development build", async () => {
