@@ -70,9 +70,9 @@ func (h *Host) BeforeClose(ctx context.Context) bool {
 	return true
 }
 
-// InstallOnQuit records a verified installer package and starts the normal
+// installOnQuit records a verified installer package and starts the normal
 // draft-protected quit; CompleteQuit opens the package just before exiting.
-func (h *Host) InstallOnQuit(pkg string) error {
+func (h *Host) installOnQuit(pkg string) error {
 	h.mu.Lock()
 	if !h.ready || h.allowed || h.completing || h.install == nil {
 		h.mu.Unlock()

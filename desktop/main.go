@@ -53,7 +53,7 @@ func main() {
 	}
 	updater := update.ForApp(version.Version)
 	host.install = func(pkg string) error { return updater.Open(context.Background(), pkg) }
-	service.SetUpdater(updater, version.Version, host.InstallOnQuit)
+	service.SetUpdater(updater, version.Version, host.installOnQuit)
 	err = wails.Run(&options.App{Title: "Recall", Width: 1140, Height: 760, MinWidth: 760, MinHeight: 500,
 		AssetServer: &assetserver.Options{Assets: assets},
 		OnDomReady:  verifyDOMReady,

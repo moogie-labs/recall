@@ -64,11 +64,11 @@ func TestUpgradeOpensInstallerBeforeClosingAndQuitting(t *testing.T) {
 	}, func() { order = append(order, "quit") }, func(string) {})
 	h.close = func() error { order = append(order, "close"); return nil }
 	h.install = func(pkg string) error { order = append(order, "install "+pkg); return nil }
-	if h.InstallOnQuit("/cache/a.pkg") == nil {
+	if h.installOnQuit("/cache/a.pkg") == nil {
 		t.Fatal("started an upgrade quit before the renderer was ready")
 	}
 	h.Ready()
-	if err := h.InstallOnQuit("/cache/a.pkg"); err != nil || token == "" {
+	if err := h.installOnQuit("/cache/a.pkg"); err != nil || token == "" {
 		t.Fatal(err, token)
 	}
 	if r := h.CompleteQuit(token); r.Problem != nil {
@@ -93,7 +93,7 @@ func TestInstallerFailureKeepsRecallRunning(t *testing.T) {
 	h.close = func() error { t.Fatal("closed the collection after Installer failed"); return nil }
 	h.install = func(string) error { return errors.New("open failed") }
 	h.Ready()
-	if err := h.InstallOnQuit("/cache/a.pkg"); err != nil {
+	if err := h.installOnQuit("/cache/a.pkg"); err != nil {
 		t.Fatal(err)
 	}
 	if r := h.CompleteQuit(token); r.Problem == nil || r.Problem.Message != "Could not open Installer for the upgrade" {
@@ -118,7 +118,7 @@ func TestCancelledQuitAbandonsTheUpgrade(t *testing.T) {
 	}, func() { quits++ }, func(string) {})
 	h.install = func(string) error { installs++; return nil }
 	h.Ready()
-	h.InstallOnQuit("/cache/a.pkg")
+	h.installOnQuit("/cache/a.pkg")
 	h.CancelQuit(tokens[0]) // a draft could not be saved
 	if !slices.Equal(cancelled, []string{"Upgrade cancelled: unsaved changes could not be saved."}) {
 		t.Fatal(cancelled)
