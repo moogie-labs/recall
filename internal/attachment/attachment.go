@@ -120,10 +120,12 @@ func FileName(original string, f Format, n int) string {
 
 // Destination percent-encodes each segment of a relative path so it is a valid
 // Markdown link destination even when names contain spaces or parentheses.
+// Colons are escaped too: a colon in the first segment of a relative reference
+// would otherwise be read as a URL scheme (RFC 3986 section 4.2).
 func Destination(rel string) string {
 	parts := strings.Split(filepath.ToSlash(rel), "/")
 	for i, part := range parts {
-		parts[i] = url.PathEscape(part)
+		parts[i] = strings.ReplaceAll(url.PathEscape(part), ":", "%3A")
 	}
 	return strings.Join(parts, "/")
 }

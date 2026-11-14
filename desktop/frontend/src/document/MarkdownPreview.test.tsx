@@ -64,3 +64,15 @@ it("falls back to the placeholder when a stored image fails to load", () => {
   expect(screen.queryByRole("img")).toBeNull();
   expect(screen.getByText(/Shot.*unavailable/)).toBeInTheDocument();
 });
+it("loads images for notes whose names contain a colon", () => {
+  render(
+    <MarkdownPreview
+      notePath="Standup 10:30.md"
+      body="![shot](Standup%2010%3A30.assets/shot.png)"
+    />,
+  );
+  expect(screen.getByRole("img", { name: "shot" })).toHaveAttribute(
+    "src",
+    "/note-image/Standup%2010%3A30.assets/shot.png",
+  );
+});

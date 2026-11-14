@@ -97,10 +97,12 @@ func TestFileName(t *testing.T) {
 
 func TestDestination(t *testing.T) {
 	for rel, want := range map[string]string{
-		"plan.assets/shot.png":    "plan.assets/shot.png",
-		"my plan.assets/shot.png": "my%20plan.assets/shot.png",
-		"a (b).assets/café.png":   "a%20%28b%29.assets/caf%C3%A9.png",
-		"x<y>.assets/z.png":       "x%3Cy%3E.assets/z.png",
+		"plan.assets/shot.png":          "plan.assets/shot.png",
+		"my plan.assets/shot.png":       "my%20plan.assets/shot.png",
+		"a (b).assets/café.png":         "a%20%28b%29.assets/caf%C3%A9.png",
+		"x<y>.assets/z.png":             "x%3Cy%3E.assets/z.png",
+		"Standup 10:30.assets/shot.png": "Standup%2010%3A30.assets/shot.png",
+		"Todo:list.assets/x.png":        "Todo%3Alist.assets/x.png",
 	} {
 		if got := Destination(rel); got != want {
 			t.Errorf("Destination(%q) = %q, want %q", rel, got, want)
@@ -126,6 +128,10 @@ func TestRewriteLinks(t *testing.T) {
 	wantSpaced := "![a](new%20name.assets/a.png) ![b](<new%20name.assets/b.png>)"
 	if got := string(RewriteLinks([]byte(spaced), "my plan.assets", "new name.assets")); got != wantSpaced {
 		t.Errorf("RewriteLinks spaced = %q, want %q", got, wantSpaced)
+	}
+	colon := "![a](Todo:list.assets/a.png)"
+	if got := string(RewriteLinks([]byte(colon), "Todo:list.assets", "Done:list.assets")); got != "![a](Done%3Alist.assets/a.png)" {
+		t.Errorf("RewriteLinks colon = %q", got)
 	}
 	if got := string(RewriteLinks([]byte(body), "plan.assets", "plan.assets")); got != body {
 		t.Error("same folder changed the body")
