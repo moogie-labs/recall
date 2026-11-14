@@ -56,6 +56,15 @@ recall folder delete archive --recursive
 Move and delete accept optional `--if-revision`; use it for agent writes. A
 stale revision is `conflict`. Deletion is immediate and permanent. There is no
 trash or undo.
+
+`document delete` also removes the note's `<name>.assets/` image folder. If the
+note is deleted but the folder cannot be (for example, it is a symlink, which is
+never followed), the command fails with `partial_failure` naming the folder.
+`document move` carries the folder along; when the filename changes, the folder
+is renamed to match and the note's Markdown links that start with the old folder
+name are repointed. A move whose destination already has an attachment folder
+fails with `conflict` before anything changes. Folders whose names end in
+`.assets` are attachment folders: they are not listed, indexed or diagnosed.
 Folder deletion is nonrecursive unless explicitly requested; content root
 cannot be deleted. Absolute/traversal/symlinked content paths are rejected.
 
