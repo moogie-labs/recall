@@ -1,7 +1,7 @@
 # Recall: version reporting and upgrades
 
 Date: 2026-11-10  
-Status: Design approved in conversation; awaiting written-spec review.
+Status: Approved; implemented on branch feat/version-and-upgrade.
 
 ## 1. Purpose
 
@@ -142,12 +142,15 @@ Neither command opens or requires a collection.
   run `recall upgrade`; or `Recall 0.2.0 is up to date.` With `--json`:
   `current`, `latest`, `update_available`, `release_url`.
 - `recall upgrade` does the check, then downloads (percentage progress on stderr
-  when it is a terminal), verifies and opens Installer, printing
+  in 10% steps, like `recall init`), verifies and opens Installer, printing
   `Opened Installer for Recall 0.3.0. Quit the Recall app before continuing.`
   No confirmation prompt: running the command is the request, and Installer asks
   again. When already current it prints the up-to-date message and exits 0.
 - Development builds, ineligible copies, network failures and failed
-  verification are errors with existing error codes and a non-zero exit.
+  verification are errors with the codes `update_unavailable` (network/GitHub
+  failures), `upgrade_unsupported` (development builds and copies not installed
+  by the release installer) and `verification_failed` (checksum, signature,
+  notarization or Gatekeeper failures), exiting 1.
 
 ### 4.4 Desktop backend
 
@@ -162,7 +165,7 @@ keeping the atomic temp-file rename) so neither setting erases the other.
 - `SetCheckForUpdates(bool) OperationReply`.
 - `CheckForUpdate(manual bool) UpdateReply` — `{state, current, latest,
   releaseURL, problem}`, with `state` one of `current`, `available`,
-  `unsupported`, `disabled`. A non-manual call returns `disabled` without
+  `unsupported`, `disabled`, or `failed` (with `problem`). A non-manual call returns `disabled` without
   network access when the preference is off.
 - `StartUpgrade() OperationReply` — downloads and verifies the latest release
   (re-checking it), emitting `desktop:upgrade-progress`
@@ -170,7 +173,8 @@ keeping the atomic temp-file rename) so neither setting erases the other.
   package is recorded as the host's pending install and the host requests a quit.
   Only one upgrade may run at a time.
 
-**Quit handoff** (host, `desktop/host.go`). A new `RequestQuit()` path emits the
+**Quit handoff** (host, `desktop/host.go`). The host's internal `installOnQuit(pkg)`
+handoff (not exposed to the renderer) records the verified package and emits the
 existing `desktop:quit-requested` event, so the renderer runs the same
 draft-flush sequence as ⌘Q. In `CompleteQuit`, if an install is pending, the
 host opens it in Installer **before** closing the collection. If opening fails,

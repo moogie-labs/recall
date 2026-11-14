@@ -3,6 +3,7 @@
 Local-first notes, tasks, and offline hybrid search for Apple Silicon macOS.
 Typed Markdown files are authoritative; SQLite and embeddings are rebuildable.
 No accounts, cloud API, Ollama, launch agent, or generated answers.
+The desktop app's only routine network request is an optional launch check for new releases on GitHub.
 
 To build from source with Go 1.27+, run `go build -o ./build/recall ./cmd/recall` from the repository root; see [developer packaging](docs/operations.md#developer-packaging) for a complete distributable package.
 
@@ -41,6 +42,29 @@ inference. The installer itself does not initialize or alter your collections, a
 setup never replaces your configuration or authored files.
 If `/usr/local/bin` is not on your PATH, use `/usr/local/bin/recall` directly.
 Release automation and maintainer setup are described in [releases](docs/releases.md).
+
+### Upgrading
+
+Releases after 0.1.0 can upgrade themselves from GitHub Releases. When the
+desktop app launches, it asks GitHub (one anonymous request) whether a newer
+stable release exists and offers to upgrade. **Not now** leaves an **Upgrade
+available** button beside the version at the bottom of the sidebar; the pop-up
+returns on the next launch. Turn the launch check off under **⚙ Settings**,
+which also shows the version and has **Check now**. From the terminal:
+
+```sh
+recall version
+recall upgrade --check
+recall upgrade
+```
+
+Either way, Recall downloads the installer and its checksum and requires a
+matching checksum, a notarized Developer ID Installer signature from the same
+developer team as your installed copy, and Gatekeeper's approval before opening
+it in macOS Installer (which asks for administrator authorization as usual).
+The desktop app quits first, saving drafts as it does on ⌘Q. Only copies
+installed by the release installer can upgrade; Recall 0.1.0 predates this
+feature, so install the next release manually once.
 
 ## First use
 

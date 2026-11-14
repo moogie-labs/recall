@@ -318,3 +318,62 @@ The run exited 0 and verified that HEAD did not change while tests ran:
 
 The subsequent documentation-only checkpoint records this evidence; it does not
 change the tested product source or turn the unrun limits into passed checks.
+
+## Version and upgrade (2026-11-13)
+
+Credential-free checks, run from the repository root on branch
+`feat/version-and-upgrade`:
+
+- `gofmt -l . desktop`: no output.
+- `go vet ./...`: passed.
+- `go test -race ./...`: passed, including `internal/update`, `internal/version`
+  and `internal/cli`.
+- `sh scripts/build-desktop.sh`: built and signed `build/Recall.app`.
+- `(cd desktop && go vet ./... && go test -race ./...)`: passed.
+- `python3 scripts/verify-desktop.py build/Recall.app`: production bundle
+  identity, architecture, no fixture bindings/weights, relocation and headless
+  worker dispatch PASS.
+- `(cd desktop/frontend && npm run typecheck && npm test && npm run test:e2e)`:
+  typecheck clean; 53 unit tests passed in 9 files; 4 Playwright tests passed
+  (the Chromium headless shell had to be installed first with
+  `npx playwright install chromium`).
+- `python3 -m unittest discover -s scripts -p 'test_release_macos.py'`: 25
+  passed, 7 errors, all `AttributeError: module 'hashlib' has no attribute
+  'file_digest'` on the local Python 3.9.6 (CI uses a newer Python). The same
+  7 errors occur without this branch's changes.
+- `actionlint@v1.7.7 .github/workflows/release.yml`: passed.
+
+Checks against the real GitHub release (latest was 0.1.0):
+
+- `RECALL_LIVE_UPDATE_TEAM=SS25FU43FL go test ./internal/update -run Live -v`:
+  passed; the real 0.1.0 package was downloaded and verified with real
+  `pkgutil`/`spctl`.
+- With version 0.0.9 embedded, `recall upgrade --check` printed
+  `Recall 0.1.0 is available (installed: 0.0.9).`, the release-notes URL and
+  `Run recall upgrade to install it.`; exit 0.
+- `recall --json upgrade --check`: `"update_available":true`, `latest` 0.1.0.
+- `recall upgrade`: exit 1, `upgrade_unsupported` ("only the copy installed by
+  the Recall installer at /usr/local/lib/recall/recall can upgrade itself…");
+  nothing downloaded (`~/Library/Caches/recall` was not created).
+- `recall version`: `recall 0.0.9`.
+- Development build `recall upgrade`: exit 1, "this is a development build of
+  Recall; install releases from https://github.com/moogie-labs/recall/releases".
+
+Desktop app (version 0.0.9 embedded): launched and quit cleanly (automated:
+process running after 6 s, gone after `osascript -e 'quit app "Recall"'`, which
+reported "User canceled (-128)" while the process still exited); `build/Recall.app`
+was then rebuilt without `-ldflags`. The visual walkthrough is pending, to be
+done by the maintainer. Expected results checklist:
+
+- [ ] The **Upgrade available** pop-up appears for the latest release.
+- [ ] **Release notes** opens the GitHub release page.
+- [ ] **Not now** leaves `Recall 0.0.9` and **Upgrade available** in the sidebar footer.
+- [ ] ⚙ **Settings** shows the version and the launch-check toggle.
+- [ ] **Upgrade** fails inline with the "only the copy installed by the Recall
+  installer at /Applications/Recall.app…" message (this build is not in
+  `/Applications`), and the app keeps running.
+
+Remaining limit: a full installed-release to newer-signed-release upgrade,
+including Installer completing and the new app launching, can only be verified
+once a release containing this feature is installed and a later release is
+published.
