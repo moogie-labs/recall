@@ -17,7 +17,7 @@ func TestParseAcceptsOnlyReleaseVersions(t *testing.T) {
 
 func TestCompareUsesSemVerPrecedence(t *testing.T) {
 	// Each version is lower than the next (SemVer 2.0 §11 example plus extras).
-	order := []string{"0.9.9", "1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta", "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0", "1.0.1", "1.1.0", "2.0.0", "10.0.0"}
+	order := []string{"0.9.9", "1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta", "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0", "1.0.1-edge.9", "1.0.1-edge.10", "1.0.1", "1.1.0", "2.0.0", "10.0.0"}
 	for i := range order {
 		for j := range order {
 			a, _ := Parse(order[i])

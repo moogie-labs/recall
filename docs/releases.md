@@ -6,12 +6,21 @@ bundle model weights, initialize collections, or install a background service.
 
 ## Credentials
 
-Store these as secrets of the repository's **`release` GitHub environment**, which
-both signing jobs reference. Protect that environment with a deployment rule
-restricting it to `v*` tags (and, if wanted, a required reviewer; each release
-then asks for approval twice, once per signing job). Environment secrets are only
-released to jobs that pass those rules. Organization or repository secrets also
-work but are available to any workflow, on any branch, that references them.
+Store these as secrets of two GitHub environments, which the signing jobs select
+by trigger:
+
+| Environment | Used by | Deployment rule |
+| --- | --- | --- |
+| `release` | `v*` tag pushes (stable releases and prereleases) | Tags matching `v*` only |
+| `release-channel` | Pushes to `main` (the [edge channel](#edge-channel)) | The `main` branch only |
+
+Both environments need the same seven secrets; replace them in both when renewing.
+A required reviewer is optional on `release` (each release then asks for approval
+twice, once per signing job); on `release-channel` it would gate every push to
+`main`. Environment secrets are only released to jobs that pass those rules.
+Organization or repository secrets also work but are available to any workflow,
+on any branch, that references them, and would erase the difference between the
+two environments.
 
 | Secret | Value |
 | --- | --- |
@@ -37,19 +46,22 @@ password secret if it is revoked. No personal GitHub token is necessary.
 ## Release security boundary
 
 `.github/workflows/release.yml` is the **only workflow** that references the Apple
-secrets. It triggers only on `v*` **tag pushes**, never branch pushes, pull requests,
-manual dispatches or reusable-workflow calls. A job guard additionally checks the
-event and tag prefix, and strict version validation runs before credential access.
-Secrets are mapped into one step per signing job, not workflow/job-wide env.
+secrets. It triggers only on `v*` **tag pushes** and **pushes to `main`**, never
+other branches, pull requests, manual dispatches or reusable-workflow calls. A job
+guard additionally checks the event and ref, and strict version validation runs
+before credential access. Secrets are mapped into one step per signing job, not
+workflow/job-wide env.
 
-The release runs as four jobs on separate, disposable runners:
+The release runs as these jobs on separate, disposable runners:
 
 | Job | Apple secrets | Runs |
 | --- | --- | --- |
+| `prepare` | none | Validates the tag, or computes the [edge](#edge-channel) version on `main` |
 | `runtime` | Application certificate, notarization | Signs and notarizes the pinned upstream llama.cpp runtime |
 | `build` | **none** | Tests, Go modules, npm packages, Wails: compiles the CLI and app against the signed runtime |
 | `sign` | Application + Installer certificates, notarization | Signs, notarizes and packages the built payload, then verifies it |
-| `publish` | none (`contents: write`) | Checks the checksum and publishes the GitHub release |
+| `publish` | none (`contents: write`) | Tags only: checks the checksum and publishes the GitHub release |
+| `publish-channel` | none (`contents: write`) | `main` only: checks the checksum and replaces the `edge` prerelease |
 
 **Third-party build code never runs where signing credentials exist.** The two
 signing jobs install no Go/Node toolchain. While their temporary keychain exists,
@@ -71,7 +83,10 @@ and the app's bundled copy) identical to the `runtime` job's signed artifact.
 Configure a GitHub tag ruleset restricting `v*` tag creation, updates and deletion
 to trusted release maintainers, and protect changes to release scripts/workflows.
 Only tag reviewed commits. Anyone able to change release code and push an eligible
-tag can run code with the signing credentials. Normal CI must remain credential-free.
+tag can run code with the signing credentials. **Because every push to `main` is
+signed and notarized, the same holds for anyone who can push or merge to `main`**:
+protect `main` with a branch ruleset requiring pull-request review and blocking
+direct and force pushes. Normal CI must remain credential-free.
 
 Certificates and the notarization profile live in a temporary keychain; cleanup
 runs on failure too. The temporary keychain is added to the runner's user search
@@ -169,6 +184,39 @@ anything else. Re-running against an existing release fails rather than replacin
 published assets. Do not force-move a published version tag; fix code and release
 a new version. Remove an incomplete draft deliberately before retrying the same
 tag's publish job, if no version was actually published.
+
+## Edge channel
+
+Every push to `main` runs the full pipeline (same tests, signing, notarization and
+verification as a release) and publishes the result as the rolling **`edge`**
+GitHub prerelease. It is a release channel for testers, not a version: each push
+deletes the previous `edge` release and its tag, then publishes a new one pointing
+at the pushed commit, so only the newest build is kept. It is never marked
+"Latest"; the releases page and `releases/latest` keep pointing at the newest
+stable tag.
+
+Channel builds are versioned as the patch after the newest stable `vX.Y.Z` tag
+reachable from `main`, plus the workflow run number: after `v0.1.0`, builds are
+`0.1.1-edge.<run>`. SemVer orders them above the last release and below the next.
+Both binaries embed that full version (`recall version` prints
+`recall 0.1.1-edge.147`, and the app shows it), as do the asset names, for example
+`Recall-0.1.1-edge.147-darwin-arm64.pkg`; only the macOS bundle and package
+metadata carry the numeric part (`0.1.1`). The installer does not version-check
+the app, so moving between edge and stable builds in either direction works.
+
+In-app and `recall upgrade` updates read only GitHub's latest **stable** release,
+so they never offer an edge build, and an edge install never updates itself to a
+newer edge build: install those manually. An edge install reports itself up to
+date until a stable release outranks it (after `0.1.1-edge.147`, that is `0.1.1`),
+then offers that release, returning testers to the stable line. Edge builds are
+signed by the same Apple team, so that upgrade passes the same-team check.
+
+Find it at **Releases → edge**, or `gh release download edge`. Runs for `main`
+are serialized: while one is building, a newer push queues and replaces any
+older queued run, so the channel skips straight to the newest commit and a
+publish is never cancelled midway. Between deleting the old `edge` release and
+publishing the new one there is a brief window with no `edge` release. Each run
+costs three notarization submissions and roughly 1–2 hours of macOS runner time.
 
 ## Credential-free checks
 

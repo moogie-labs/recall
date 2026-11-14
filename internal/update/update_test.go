@@ -89,6 +89,9 @@ func TestCheckComparesWithTheLatestStableRelease(t *testing.T) {
 		{"0.3.0", "v0.3.0", Current},
 		{"0.4.0", "v0.3.0", Current},
 		{"0.3.0-rc.1", "v0.3.0", Available},
+		// Edge channel builds (release.yml) stay put until a stable release passes them.
+		{"0.3.1-edge.147", "v0.3.0", Current},
+		{"0.3.1-edge.147", "v0.3.1", Available},
 	} {
 		u, _ := newFixture(t, tc.current, latest(fakeRelease{Tag: tc.tag, Size: 10}), nil)
 		check, err := u.Check(t.Context())
@@ -114,6 +117,7 @@ func TestCheckRejectsUnusableReleases(t *testing.T) {
 	cases := map[string]apiHandler{
 		"prerelease flag":   latest(fakeRelease{Tag: "v0.3.0", Prerelease: true}),
 		"prerelease tag":    latest(fakeRelease{Tag: "v0.3.0-rc.1"}),
+		"edge channel":      latest(fakeRelease{Tag: "edge", Prerelease: true}),
 		"tag without v":     latest(fakeRelease{Tag: "0.3.0"}),
 		"missing installer": latest(fakeRelease{Tag: "v0.3.0", Assets: []string{"Recall-0.3.0-darwin-arm64.pkg.sha256"}}),
 		"missing checksum":  latest(fakeRelease{Tag: "v0.3.0", Assets: []string{"Recall-0.3.0-darwin-arm64.pkg"}}),
