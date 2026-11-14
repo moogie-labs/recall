@@ -147,3 +147,114 @@ func TestReadAttachmentServesOnlyGenuineImagesInAssets(t *testing.T) {
 		}
 	}
 }
+
+func TestDeleteRemovesAttachments(t *testing.T) {
+	a, cfg := newTestApp(t)
+	defer a.Close()
+	ctx := t.Context()
+	note := newNote(t, a, "Ideas", "plan", "")
+	if _, err := a.SaveAttachment(ctx, model.Ref{ID: note.ID}, "a.png", testPNG); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Delete(ctx, model.Ref{ID: note.ID}, note.Revision); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Lstat(filepath.Join(cfg.Content, "Ideas", "plan.assets")); !os.IsNotExist(err) {
+		t.Fatalf("attachment folder survived: %v", err)
+	}
+	plain := newNote(t, a, "", "plain", "")
+	if err := a.Delete(ctx, model.Ref{ID: plain.ID}, plain.Revision); err != nil {
+		t.Fatalf("delete without attachments: %v", err)
+	}
+}
+
+func TestDeleteReportsUnremovableAttachments(t *testing.T) {
+	a, cfg := newTestApp(t)
+	defer a.Close()
+	ctx := t.Context()
+	note := newNote(t, a, "", "plan", "")
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "keep.png"), testPNG, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(cfg.Content, "plan.assets")); err != nil {
+		t.Fatal(err)
+	}
+	err := a.Delete(ctx, model.Ref{ID: note.ID}, note.Revision)
+	wantCode(t, err, "partial_failure")
+	if _, statErr := os.Stat(filepath.Join(cfg.Content, "plan.md")); !os.IsNotExist(statErr) {
+		t.Fatal("note was not deleted")
+	}
+	if _, statErr := os.Stat(filepath.Join(outside, "keep.png")); statErr != nil {
+		t.Fatal("followed the symlink")
+	}
+	if s, _ := a.List(ctx, "", true); len(s.Documents) != 0 {
+		t.Fatalf("index not resynchronised: %+v", s.Documents)
+	}
+}
+
+func TestMoveCarriesAttachments(t *testing.T) {
+	a, cfg := newTestApp(t)
+	defer a.Close()
+	ctx := t.Context()
+	body := "![a](plan.assets/a.png)\n[file](plan.assets.md) [web](https://x.example/plan.assets/a.png)\n"
+	note := newNote(t, a, "Ideas", "plan", body)
+	if _, err := a.SaveAttachment(ctx, model.Ref{ID: note.ID}, "a.png", testPNG); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.CreateFolder(ctx, "Archive"); err != nil {
+		t.Fatal(err)
+	}
+	moved, err := a.Move(ctx, model.Ref{ID: note.ID}, "Archive/plan.md", note.Revision)
+	if err != nil || moved.Raw != note.Raw {
+		t.Fatalf("plain move: %+v %v", moved, err)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.Content, "Archive", "plan.assets", "a.png")); err != nil {
+		t.Fatalf("attachments did not move: %v", err)
+	}
+	renamed, err := a.Move(ctx, model.Ref{ID: note.ID}, "Archive/roadmap.md", moved.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantBody := "![a](roadmap.assets/a.png)\n[file](plan.assets.md) [web](https://x.example/plan.assets/a.png)\n"
+	if renamed.Body != wantBody || renamed.ID != note.ID || renamed.Title != note.Title {
+		t.Fatalf("rename = %+v", renamed)
+	}
+	if _, err := os.Stat(filepath.Join(cfg.Content, "Archive", "roadmap.assets", "a.png")); err != nil {
+		t.Fatalf("attachments not renamed: %v", err)
+	}
+}
+
+func TestMoveRenamesSpacedAttachmentLinks(t *testing.T) {
+	a, _ := newTestApp(t)
+	defer a.Close()
+	ctx := t.Context()
+	note := newNote(t, a, "", "my plan", "![a](my%20plan.assets/a.png) ![b](<my plan.assets/b.png>)")
+	if _, err := a.SaveAttachment(ctx, model.Ref{ID: note.ID}, "a.png", testPNG); err != nil {
+		t.Fatal(err)
+	}
+	got, err := a.Move(ctx, model.Ref{ID: note.ID}, "new name.md", note.Revision)
+	if err != nil || got.Body != "![a](new%20name.assets/a.png) ![b](<new%20name.assets/b.png>)" {
+		t.Fatalf("got %q, %v", got.Body, err)
+	}
+}
+
+func TestMoveRefusesExistingDestinationAttachments(t *testing.T) {
+	a, cfg := newTestApp(t)
+	defer a.Close()
+	ctx := t.Context()
+	note := newNote(t, a, "", "plan", "")
+	if _, err := a.SaveAttachment(ctx, model.Ref{ID: note.ID}, "a.png", testPNG); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(cfg.Content, "roadmap.assets"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	_, err := a.Move(ctx, model.Ref{ID: note.ID}, "roadmap.md", note.Revision)
+	wantCode(t, err, "conflict")
+	for _, path := range []string{"plan.md", "plan.assets/a.png"} {
+		if _, err := os.Stat(filepath.Join(cfg.Content, path)); err != nil {
+			t.Fatalf("%s changed: %v", path, err)
+		}
+	}
+}

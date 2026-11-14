@@ -1,10 +1,12 @@
 package app
 
 import (
+	"bytes"
 	"context"
 	"path/filepath"
 
 	"recall/internal/attachment"
+	"recall/internal/document"
 	"recall/internal/model"
 )
 
@@ -106,4 +108,74 @@ func (a *App) ReadAttachment(ctx context.Context, path string) ([]byte, attachme
 		return nil, attachment.Format{}, notAttachment
 	}
 	return data, want, nil
+}
+
+// removeAttachments deletes a deleted note's attachment folder. A missing
+// folder or a regular file of that name is left alone; anything that cannot be
+// removed (including a symlink, which is never followed) is a partial failure.
+func (a *App) removeAttachments(ctx context.Context, notePath string) error {
+	folder := attachment.Folder(notePath)
+	entry, err := a.store.Stat(ctx, folder)
+	if model.ErrorCode(err) == "not_found" {
+		return nil
+	}
+	if err == nil && !entry.IsDir && !entry.IsSymlink {
+		return nil
+	}
+	if err == nil && entry.IsSymlink {
+		err = appError("outside_root", folder, "symlinks are not allowed")
+	}
+	if err == nil {
+		err = a.store.Remove(ctx, folder, true)
+	}
+	if err == nil {
+		return nil
+	}
+	return appError("partial_failure", folder, "note deleted, but its attached images could not be removed: "+model.PublicError(err).Message)
+}
+
+// attachmentsToCarry reports whether a note's attachment folder must move with
+// it, refusing the move before anything changes when it cannot.
+func (a *App) attachmentsToCarry(ctx context.Context, from, to string) (bool, error) {
+	entry, err := a.store.Stat(ctx, from)
+	if model.ErrorCode(err) == "not_found" {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	if entry.IsSymlink {
+		return false, appError("outside_root", from, "symlinks are not allowed")
+	}
+	if !entry.IsDir {
+		return false, nil
+	}
+	if _, err := a.store.Stat(ctx, to); err == nil {
+		return false, appError("conflict", to, "the destination already has an attachments folder")
+	} else if model.ErrorCode(err) != "not_found" {
+		return false, err
+	}
+	return true, nil
+}
+
+// rewriteAttachmentLinks repoints body links from one attachment folder name
+// to another, leaving frontmatter and all other text byte-for-byte intact.
+func rewriteAttachmentLinks(path string, raw []byte, from, to string) ([]byte, bool, error) {
+	if from == to {
+		return raw, false, nil
+	}
+	p, err := document.Parse(path, raw)
+	if err != nil {
+		return nil, false, err
+	}
+	body := attachment.RewriteLinks(p.Body, from, to)
+	if bytes.Equal(body, p.Body) {
+		return raw, false, nil
+	}
+	p.Body = body
+	out, err := document.Encode(p)
+	if err != nil {
+		return nil, false, err
+	}
+	return out, true, nil
 }
